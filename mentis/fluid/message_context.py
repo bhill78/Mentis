@@ -356,11 +356,22 @@ def _selections(cv, mid, cid, selected, *, expectation=None):
             _artifact(cv, r["ref"], r["digest"], cid, expectation)
             refs.append(r)
         else:
-            # No product path may turn a retained batch into answer context
-            # while configured-source enforcement is unverified.
-            from mentis.magnet.perspectives import require_grounded
-            require_grounded()
-            refuse("unsupported-reference", "collected answer context is unavailable")
+            # ONE COLLECTED RECORD THE OWNER CHOSE, BY ITS RECORDED BATCH
+            # IDENTITY (contract §3; owner §§1, 6). `member` verifies that this
+            # Magnet's own recorded batch still holds that row at exactly this
+            # digest, so a forged, foreign, stale, deleted or restricted
+            # selection refuses where the owner can act on it.
+            #
+            # IDENTITY ONLY. Nothing of the row is hydrated -- no parts, text,
+            # title or bytes -- and nothing here offers the artifact an id
+            # happens to name (§5: a selection grants nothing). So the retained
+            # pool is still not answer context: the whole pool, an automatic
+            # attachment and retained/grounded mode all still refuse above,
+            # `require_grounded` is untouched, and an agent that cannot read
+            # collected material says so rather than answering from it.
+            from mentis.magnet.collection import member
+            member(st, mid, r)
+            refs.append({k: r[k] for k in ("kind", "ref", "version", "digest")})
     return question, refs
 
 

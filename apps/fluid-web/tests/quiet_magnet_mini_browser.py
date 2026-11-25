@@ -184,6 +184,64 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             chip_only_external=view.evaluate('window.review.calls[0]')
             check(chip_only_external['body']['magnet_context']['references']==[{'kind':'artifact','ref':'adm-reviewfile11','version':None,'digest':'a'*64}],
                   'and the wordless message carries that record, at the identity the chip stood for')
+            # A SUPPORTING RECORD IS SOMETHING A MESSAGE CAN BE ABOUT (owner
+            # §§1, 6). A collected post and a collected file are both referred
+            # to by the identity the collection read serves for their row: the
+            # recorded batch they belong to, and that row's own digest. The
+            # card states what the server gave it and computes nothing, and the
+            # door checks membership again; this synthetic HTTP check grants no
+            # source reach and sends no collected content.
+            BATCH,ROW='adm-reviewbatch1','b'*64
+            for ref,kind,label in (('ent-reviewcollect1','post','Collected post'),
+                                   ('live:ent-reviewcollect1:part:1','file','Collected file')):
+                reset()
+                view.evaluate("window.review.context({ref:%r,kind:%r,label:%r},"
+                              "[{id:%r,kind:%r,version:'ent-reviewversion',value:{title:%r},"
+                              "reference:{kind:'collected_item',ref:%r,version:%r,digest:%r}}])"
+                              %(ref,kind,label,ref,'post' if kind=='post' else 'attachment',label,ref,BATCH,ROW))
+                expect(bar.get_by_text(label,exact=True)).to_be_visible()
+                box.fill('what does this say about the setup?')
+                bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+                about=view.evaluate('window.review.calls[0]')
+                check(about['body']['magnet_context']['references']==[{'kind':'collected_item','ref':ref,'version':BATCH,'digest':ROW}],
+                      'a collected %s travels as one exact collected-record identity, at the version it was captured at'%kind)
+                check(about['body']['text']=='what does this say about the setup?' and about['body']['parts']==[{'type':'text','text':'what does this say about the setup?'}],
+                      'and the words recorded for it are exactly the words typed')
+            # AND THE VERSION IS THE WHOLE OF IT: a row that is no longer the
+            # version the chip stood for stops the send with words, keeping the
+            # draft, its key and the chip.
+            reset()
+            view.evaluate("window.review.context({ref:'ent-reviewcollect1',kind:'post',label:'Collected post',"
+                          "version:%r,digest:%r},[{id:'ent-reviewcollect1',kind:'post',version:'ent-reviewversion',"
+                          "value:{title:'Collected post'},reference:{kind:'collected_item',ref:'ent-reviewcollect1',"
+                          "version:%r,digest:%r}}])"%(BATCH,ROW,BATCH,'c'*64))
+            box.fill('about the record I was reading')
+            bar.locator('.fw-send-main').click()
+            expect(bar.get_by_text('no longer the version this message was about',exact=False)).to_be_visible()
+            check(view.evaluate('window.review.calls.length')==0,'a collected record that changed since the chip was attached sends nothing')
+            check(box.input_value()=='about the record I was reading','and the words are kept exactly as written')
+            expect(bar.get_by_text('Collected post',exact=True)).to_be_visible()
+            # AN INTENTIONAL REMOVAL SURVIVES A RELOAD, and so do the words.
+            # The version a collected chip stands for is kept with it, so a
+            # reload neither puts back what the owner took off nor silently
+            # restamps what is still attached (owner §6).
+            reset()
+            view.evaluate("window.review.context({ref:'ent-reviewcollect1',kind:'post',label:'Collected post'},"
+                          "[{id:'ent-reviewcollect1',kind:'post',version:'ent-reviewversion',"
+                          "value:{title:'Collected post'},reference:{kind:'collected_item',"
+                          "ref:'ent-reviewcollect1',version:%r,digest:%r}}])"%(BATCH,ROW))
+            box.fill('words that outlive the reload')
+            stamped_chip=view.evaluate('window.review.snapshot().context')
+            check(stamped_chip['version']==BATCH and stamped_chip['digest']==ROW,
+                  'an attached collected record is stamped with the batch and digest the view served')
+            bar.get_by_role('button',name='Remove',exact=False).first.click()
+            expect(bar.get_by_text('Collected post',exact=True)).to_have_count(0)
+            view.reload()
+            expect(view.get_by_text('Synthetic post 1.',exact=True)).to_be_visible()
+            reloaded_box=view.locator('.q2-magnet-composer textarea').first
+            check(reloaded_box.input_value()=='words that outlive the reload','the owner’s words survive a reload')
+            check(view.locator('.q2-magnet-composer').get_by_text('Collected post',exact=True).count()==0,
+                  'and the record the owner took off does not come back after a reload')
             # WHAT THE MESSAGE IS ABOUT travels as the explicit selector, and
             # with nothing attached it says exactly that.
             reset()

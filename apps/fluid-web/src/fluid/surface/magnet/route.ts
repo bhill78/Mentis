@@ -21,6 +21,11 @@ export interface RouteResult {
   version?: string; conversation?: string; author?: string | null; at?: number | null
   number?: number | null; post?: string; deleted?: boolean
   value?: unknown
+  /** What this row can be referred to BY, as the collection read serves it:
+   *  the recorded batch it belongs to and its own recorded digest. Derived
+   *  beside the immutable batch, never part of it, and absent for a row the
+   *  server states no exact identity for. */
+  reference?: { kind: 'collected_item'; ref: string; version: string; digest: string }
 }
 export interface RouteSummary { title?: string; about?: string | null; activity?: number | null; posts?: number }
 export interface RouteSource {

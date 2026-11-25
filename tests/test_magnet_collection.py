@@ -28,7 +28,7 @@ def test_missing_definition_and_legacy_no_collection_are_honest(world):
     assert got["status"] == 200
     assert json.loads(got["body"]) == {"magnet": MAGNET,
         "config": json.loads(artifact_of(world))["definition"]["value"],
-        "activation": None, "page": None}
+        "activation": None, "page": None, "references": {}}
     assert record_size(world) == before
 
 
@@ -47,7 +47,9 @@ def test_entire_retained_page_and_latest_activation_survive_config_changes(world
     got = get(world)
     assert got["status"] == 200, got
     body = json.loads(got["body"])
-    assert set(body) == {"magnet", "config", "activation", "page"}
+    assert set(body) == {"magnet", "config", "activation", "page", "references"}
+    # The recorded page is served exactly as recorded; what each row can be
+    # referred to by is derived beside it, never written into it.
     assert body["page"] == json.loads(raw)["page"]
     assert body["config"]["sources"][0]["conversation"] == "ent-gone"
     assert body["activation"] == {"post": second["post"], "artifact": second["artifact"],
@@ -96,6 +98,69 @@ def test_missing_corrupt_or_wrong_identity_collection_refuses_without_live_fallb
     assert got["status"] == 422, got
     assert json.loads(got["body"])["refused"] is True
     assert record_size(world) == before
+
+
+def _rows(page):
+    return [r for one in page["sources"] for r in one["results"]]
+
+
+def test_each_collected_row_is_served_the_exact_identity_it_can_be_referred_to_by(world):
+    """The owner's §§1/6 requirement: a supporting record is something a
+    message can be about. The identity is the row's captured version -- the
+    recorded batch and that row's own digest -- and it carries no content."""
+    from mentis.magnet.collection import row_digest
+    raw = artifact_of(world, "linked-and-objects")
+    define_from(world, raw)
+    result = ask_commit(world, raw)["body"]
+    body = json.loads(get(world)["body"])
+    rows = _rows(body["page"])
+    assert rows, "the fixture page must actually hold collected rows"
+    assert set(body["references"]) == {r["id"] for r in rows}
+    for row in rows:
+        got = body["references"][row["id"]]
+        assert got == {"kind": "collected_item", "ref": row["id"],
+                       "version": result["artifact"]["ref"], "digest": row_digest(row)}
+        # Identity, not content: no text, parts, title, label or bytes.
+        assert set(got) == {"kind", "ref", "version", "digest"}
+    # Recomputed from the row as recorded, so a different row is a different
+    # digest and nothing is derived from captured text alone.
+    assert len({v["digest"] for v in body["references"].values()}) == len(rows)
+    assert row_digest(rows[0]) != row_digest({**rows[0], "id": "ent-elsewhere11"})
+
+
+def test_a_collected_row_is_referable_only_against_this_magnets_own_recorded_batch(world):
+    """The send boundary's membership check: forged, foreign, stale and
+    unreadable selections all refuse, and none of them reads a live source."""
+    from mentis.fluid.inspect import brain_key  # noqa: F401  (fixture parity)
+    from mentis.conversation.versions import Refused
+    from mentis.magnet.collection import member
+    raw = artifact_of(world, "linked-and-objects")
+    define_from(world, raw)
+    result = ask_commit(world, raw)["body"]
+    body = json.loads(get(world)["body"])
+    row = _rows(body["page"])[0]
+    good = body["references"][row["id"]]
+    before = record_size(world)
+    assert member(world, MAGNET, good) == good
+
+    def refused(selected):
+        with pytest.raises(Refused) as caught:
+            member(world, MAGNET, selected)
+        return caught.value.refusal
+
+    assert refused({**good, "digest": "f" * 64})["code"] == "stale-reference"
+    assert refused({**good, "ref": "ent-neverthere1"})["code"] == "stale-reference"
+    assert refused({**good, "version": "adm-000000000000"})["code"] == "stale-reference"
+    assert refused({**good, "version": result["artifact"]["ref"].upper()})["code"] == "invalid-reference"
+    assert refused({**good, "version": None})["code"] == "invalid-reference"
+    # Another Magnet's id cannot reach this Magnet's recorded batch.
+    with pytest.raises(Refused) as foreign:
+        member(world, "mag-somebody-else", good)
+    assert foreign.value.refusal["code"] == "stale-reference"
+    # A batch whose bytes no longer verify is stale, never substituted.
+    held.path(world.root, result["artifact"]["digest"]).write_bytes(b"spoiled")
+    assert refused(good)["code"] == "stale-reference"
+    assert record_size(world) == before, "checking membership writes nothing"
 
 
 def test_worker_grant_cannot_use_owner_collection_surface(world):

@@ -128,11 +128,34 @@ export function versionOfRow(
   return question && isDigestHex(question.digest) ? { version: question.ref, digest: question.digest } : null
 }
 export function versionOfRecord(
-  rows: readonly { id: string; value?: unknown }[],
+  rows: readonly { id: string; value?: unknown; reference?: unknown }[],
   ref: string,
 ): AttachedVersion | null {
-  const value = (rows.find((r) => r.id === ref)?.value ?? {}) as Record<string, unknown>
+  const row = rows.find((r) => r.id === ref)
+  const served = collectedIdentity(row)
+  if (served) return { version: served.version, digest: served.digest }
+  const value = (row?.value ?? {}) as Record<string, unknown>
   return /^adm-/.test(ref) && isDigestHex(value.digest) ? { version: null, digest: value.digest as Sha256Hex } : null
+}
+
+/** WHAT A COLLECTED ROW CAN BE REFERRED TO BY, as the collection read served
+ *  it: the row's captured version -- the recorded batch it belongs to and its
+ *  own recorded digest (`mentis/magnet/collection.py`, contract §3). This is
+ *  the one thing that makes a supporting record something a message can be
+ *  about: the card states the identity the server gave it and nothing else, so
+ *  no digest is ever computed here from captured text, and a row served no
+ *  identity stays unsendable and says why at the press.
+ *
+ *  It is identity, not reach: what an agent may actually read of a collected
+ *  record is still the door's decision, and the retained collection is still
+ *  not answer evidence. */
+export function collectedIdentity(row: { id: string; reference?: unknown } | undefined | null):
+  MagnetSelectorReference | null {
+  if (!row) return null
+  const r = row.reference as Record<string, unknown> | undefined
+  if (!r || r.kind !== 'collected_item' || r.ref !== row.id) return null
+  if (typeof r.version !== 'string' || !r.version || !isDigestHex(r.digest)) return null
+  return { kind: 'collected_item', ref: row.id, version: r.version, digest: r.digest }
 }
 
 /** ONE ATTACHED OBJECT, by exact identity, or why it is not sendable.
@@ -143,12 +166,26 @@ export function versionOfRecord(
  *  whose exact version the card does not hold is refused here, where the owner
  *  can still act on it, rather than at the door. */
 export function selectedReference(
-  rows: readonly { kind?: string; id: string; version?: string; value?: unknown }[],
+  rows: readonly { kind?: string; id: string; version?: string; value?: unknown; reference?: unknown }[],
   c: MagnetContext,
 ): Selected<MagnetSelectorReference> {
   if (c.kind === 'batch') return { ok: false, why: RETAINED_NOT_SENDABLE }
   const row = rows.find((r) => r.id === c.ref)
   const value = (row?.value && typeof row.value === 'object' ? row.value : {}) as Record<string, unknown>
+  /* A COLLECTED RECORD, AT THE VERSION IT WAS CAPTURED AT. Whichever kind of
+     thing it is -- a collected post or a collected file -- the identity is the
+     row's own, served by the collection read and checked again at the door
+     against this Magnet's recorded batch. The chip must still stand for that
+     exact version: a row that has changed since is the refusal below, never a
+     quietly different record. */
+  const served = collectedIdentity(row)
+  if (served) {
+    const at = attachedVersion(c)
+    if (at && (at.version !== served.version || at.digest !== served.digest)) {
+      return { ok: false, why: RECORD_CHANGED }
+    }
+    return { ok: true, value: served }
+  }
   if (c.kind === 'post') return { ok: false, why: POST_NOT_SENDABLE }
   const digest = value.digest
   if (!/^adm-/.test(c.ref) || !isDigestHex(digest)) return { ok: false, why: FILE_NOT_SENDABLE }

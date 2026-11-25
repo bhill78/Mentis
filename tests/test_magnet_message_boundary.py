@@ -212,6 +212,64 @@ def test_reference_identity_and_availability_rechecked(world):
         M.accepted(cv, turn=selected["post"])
 
 
+def _collected_selector(world, mid, reference):
+    return {"version": 1, "mode": "ordinary", "configuration_digest":
+            M.digest(M.definition_body(commands._magnet_config(world["state"], mid))),
+            "perspective": None, "references": [reference]}
+
+
+COLLECTED = {"kind": "collected_item", "ref": "live:ent-collected11:part:1",
+             "version": "adm-0123456789ab", "digest": "b" * 64}
+
+
+def test_a_collected_record_travels_as_identity_and_carries_no_collected_content(world, monkeypatch):
+    """The owner's §§1/6 requirement at the door: a supporting record is what a
+    message is about. Membership is the collection's own check, and what is
+    frozen is identity -- never captured content, so the retained collection is
+    still not answer evidence."""
+    from mentis.magnet import collection as C
+    mid = a_magnet(world)
+    asked = []
+    monkeypatch.setattr(C, "member", lambda st, m, r: asked.append((m, dict(r))) or dict(r))
+    b = request(world, mid, op="with-collected",
+                magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
+    status, selected = send(world, b)
+    assert status == 200, selected
+    assert asked and all(one == (mid, COLLECTED) for one in asked), \
+        "every membership check is for exactly what was selected, in this Magnet"
+    frozen = routed(world, selected)["managed_context"]
+    assert frozen["references"] == [COLLECTED]
+    assert set(frozen["references"][0]) == {"kind", "ref", "version", "digest"}
+    # The one thing that must not happen: collected material reaching the run.
+    # A post reference hydrates its `parts`; a collected record hydrates none,
+    # and the prompt still says the collection is not answerable from.
+    assert "parts" not in frozen["references"][0]
+    payload = M.payload(frozen)
+    assert COLLECTED["digest"] in payload and "Grounded answers from the retained collection" in payload
+    # And the owner's own words are still exactly the owner's.
+    assert M.words(world["cv"], frozen) == b["text"]
+
+
+@pytest.mark.parametrize("code, status", [
+    ("stale-reference", 409), ("restricted-reference", 403), ("invalid-reference", 422)])
+def test_a_collected_record_the_collection_refuses_sends_nothing(world, monkeypatch, code, status):
+    from mentis.magnet import collection as C
+    mid = a_magnet(world)
+
+    def refuse(st, m, r):
+        M.refuse(code, "the fixture collection refuses this row", status=status)
+
+    monkeypatch.setattr(C, "member", refuse)
+    before = world["cv"]._c.advance()
+    b = request(world, mid, op="refused-collected",
+                magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
+    got, answer = send(world, b)
+    assert got == status, answer
+    assert answer["code"] == code, answer
+    assert world["cv"]._c.advance() == before, "a refused selection writes no domain record"
+    assert not world["sent"]
+
+
 @pytest.mark.parametrize("edited", [False, True])
 def test_delayed_intake_retains_permissions_and_refuses_material_edit(world, monkeypatch, edited):
     from mentis.web import resume_intake, resumable_intake

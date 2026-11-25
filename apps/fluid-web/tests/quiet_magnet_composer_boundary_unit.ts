@@ -205,6 +205,72 @@ test('an attached object is selected by exact identity, and what cannot be state
     'the retained collection is not answer context while configured-source access is unenforced')
 })
 
+/* -- a supporting record is something a message can be about --------------- *
+ * The owner's own requirement (ent-3191baeb33d2 §§1, 6): a collected post and
+ * a collected file can each be referred to, at the version they were captured
+ * at. The identity is the collection read's, served beside the immutable batch
+ * and checked again at the door; the card states it and computes nothing. */
+
+const BATCH = 'adm-batch1111111'
+const ROW_DIGEST = 'b'.repeat(64)
+const served = (id: string) =>
+  ({ kind: 'collected_item', ref: id, version: BATCH, digest: ROW_DIGEST })
+
+test('a collected post and a collected file are each selected at their captured version', () => {
+  const rows = [
+    { kind: 'post', id: 'ent-collected111', version: 'ent-version11111',
+      value: { title: 'A post' }, reference: served('ent-collected111') },
+    { kind: 'attachment', id: 'live:ent-collected111:part:1',
+      value: { title: 'notes.txt' }, reference: served('live:ent-collected111:part:1') },
+  ]
+  for (const [ref, kind] of [['ent-collected111', 'post'], ['live:ent-collected111:part:1', 'file']] as const) {
+    assert.deepEqual(selectedReference(rows, { ref, kind, label: 'Collected ' + kind }),
+      { ok: true, value: { kind: 'collected_item', ref, version: BATCH, digest: ROW_DIGEST } },
+      'the record the owner is reading is what the message is about')
+    /* And the chip is stamped with exactly that, so it stands for the version
+       the view showed rather than for whatever is there at the press. */
+    assert.deepEqual(versionOfRecord(rows, ref), { version: BATCH, digest: ROW_DIGEST })
+  }
+
+  /* THE VERSION IS THE WHOLE OF IT. A row whose recorded digest is no longer
+     the one the chip stands for is a different version of that record. */
+  const chip: MagnetContext = { ref: 'ent-collected111', kind: 'post', label: 'A post' }
+  const stampedChip = stamped(chip, { version: BATCH, digest: ROW_DIGEST })
+  const moved = [{ ...rows[0], reference: { ...served('ent-collected111'), digest: 'c'.repeat(64) } }]
+  const changedRow = selectedReference(moved, stampedChip)
+  assert.equal(changedRow.ok === false && changedRow.why, RECORD_CHANGED)
+  const laterBatch = [{ ...rows[0], reference: { ...served('ent-collected111'), version: 'adm-batch2222222' } }]
+  const changedBatch = selectedReference(laterBatch, stampedChip)
+  assert.equal(changedBatch.ok === false && changedBatch.why, RECORD_CHANGED,
+    'the collection it was captured in is part of the version it stands for')
+  const gone = selectedReference([], stampedChip)
+  assert.equal(gone.ok === false && gone.why, POST_NOT_SENDABLE,
+    'a record the card no longer holds is refused, never substituted')
+})
+
+test('an identity the card cannot state exactly is not one: the refusal stands', () => {
+  const malformed = [
+    { why: 'another row', reference: { ...served('ent-other1111111') } },
+    { why: 'not a collected item', reference: { ...served('ent-collected111'), kind: 'artifact' } },
+    { why: 'no batch', reference: { ...served('ent-collected111'), version: '' } },
+    { why: 'a batch that is not a string', reference: { ...served('ent-collected111'), version: null } },
+    { why: 'no digest', reference: { ...served('ent-collected111'), digest: 'short' } },
+    { why: 'an upper-case digest', reference: { ...served('ent-collected111'), digest: 'B'.repeat(64) } },
+    { why: 'nothing at all', reference: undefined },
+  ]
+  for (const { why, reference } of malformed) {
+    const rows = [{ kind: 'post', id: 'ent-collected111', version: 'ent-version11111', value: {}, reference }]
+    const got = selectedReference(rows, { ref: 'ent-collected111', kind: 'post', label: 'A post' })
+    assert.equal(got.ok === false && got.why, POST_NOT_SENDABLE, why + ' states no exact version')
+    assert.equal(versionOfRecord(rows, 'ent-collected111'), null, why + ' stamps no chip')
+  }
+  /* An immutable held file keeps its own identity where no row identity is
+     served: this adds a path, it does not take one away. */
+  const held = [{ kind: 'file', id: 'adm-held1111111', version: 'adm-held1111111', value: { digest: DIGEST } }]
+  assert.deepEqual(selectedReference(held, { ref: 'adm-held1111111', kind: 'file', label: 'notes.txt' }),
+    { ok: true, value: { kind: 'artifact', ref: 'adm-held1111111', version: null, digest: DIGEST } })
+})
+
 /* -- the selector every action carries ------------------------------------- */
 
 const SENDS: [string, Record<string, unknown>][] = [

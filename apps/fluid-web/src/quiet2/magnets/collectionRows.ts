@@ -4,9 +4,19 @@ const entry = (v: unknown) => typeof v === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/
 const admission = (v: unknown) => typeof v === 'string' && /^adm-[a-zA-Z0-9]{6,40}$/.test(v)
 const integer = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
 const statuses = ['ok', 'partial', 'busy', 'unavailable']
+/** THE EXACT IDENTITY THE SERVER SERVES FOR ONE ROW, beside the batch rather
+ * than inside it: the row's captured version is the recorded batch it belongs
+ * to and its own recorded digest. The card never computes one from captured
+ * text, so a row the server states no identity for stays unsendable and says
+ * so at the press. `batch` is the collection actually read, so an identity
+ * belonging to another one is not carried. */
+const referenceOf = (served: any, id: string, batch: string): RouteResult['reference'] | undefined =>
+  served && served.kind === 'collected_item' && served.ref === id && served.version === batch
+    && typeof served.digest === 'string' && /^[0-9a-f]{64}$/.test(served.digest)
+    ? { kind: 'collected_item', ref: id, version: batch, digest: served.digest } : undefined
 /** The server has verified the whole immutable batch. Inspect its captured
  * sources, which may predate the current configuration; never substitute it. */
-export function collectionRows(page: any): { results: RouteResult[]; status: string; reason?: string; posts: number; sources: any[] } {
+export function collectionRows(page: any, references?: any, batch?: string): { results: RouteResult[]; status: string; reason?: string; posts: number; sources: any[] } {
   if (!page || !Array.isArray(page.sources) || !page.sources.length || page.sources.length > 20) throw new Error('The list of sources in this collection is invalid.')
   const results: RouteResult[] = [], keys = new Set<string>(), reasons: string[] = []
   let complete = true
@@ -35,7 +45,9 @@ export function collectionRows(page: any): { results: RouteResult[]; status: str
           || typeof v.acquired_at !== 'number' || !Number.isFinite(v.acquired_at) || r.at !== v.acquired_at
           || v.citation !== `${v.ref}@${v.digest.slice(0, 12)}[0:${v.end}]`) throw new Error('A held-file range or its immutable provenance is invalid.')
       }
-      results.push({ ...r, capturedSourceKey: one.key } as RouteResult)
+      const reference = batch && references && typeof references === 'object'
+        ? referenceOf(references[r.id], r.id, batch) : undefined
+      results.push({ ...r, capturedSourceKey: one.key, ...(reference ? { reference } : {}) } as RouteResult)
     }
   }
   const status = complete ? 'ok' : results.length ? 'partial' : page.sources.every((s: any) => s.status === 'busy') ? 'busy' : 'unavailable'

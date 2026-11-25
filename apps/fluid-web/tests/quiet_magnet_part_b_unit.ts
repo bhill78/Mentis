@@ -29,6 +29,26 @@ test('multi-source captured rows preserve held-file byte ranges and original Con
   assert.equal((got.results[1] as any).capturedSourceKey, 'file:col-held:nested/file.txt')
   assert.equal((got.results[1].value as any).text, 'é🙂')
 })
+test('each row carries what it can be referred to by, for the collection actually read', () => {
+  const batch = 'adm-batch111111', rowDigest = 'b'.repeat(64)
+  const served = (id: string, over: Record<string, unknown> = {}) =>
+    ({ kind: 'collected_item', ref: id, version: batch, digest: rowDigest, ...over })
+  const references = { [original.id]: served(original.id), [file.id]: served(file.id) }
+  const got = collectionRows(page(), references, batch)
+  assert.deepEqual(got.results[0].reference, served(original.id), 'a collected post can be referred to')
+  assert.deepEqual(got.results[1].reference, served(file.id), 'and so can a collected file')
+  /* The immutable page is what it was: the identities are derived beside it. */
+  assert.deepEqual(got.results[0].value, original.value)
+
+  /* AN IDENTITY FROM ANOTHER COLLECTION IS NOT THIS ROW'S. Read a historical
+     batch and the latest batch's identities do not travel with its rows. */
+  assert.equal(collectionRows(page(), references, 'adm-otherbatch1').results[0].reference, undefined)
+  assert.equal(collectionRows(page()).results[0].reference, undefined, 'and none is invented')
+  for (const over of [{ kind: 'post' }, { ref: 'ent-somethingelse' }, { digest: 'short' }, { version: batch + 'x' }]) {
+    const bad = { [original.id]: served(original.id, over) }
+    assert.equal(collectionRows(page(), bad, batch).results[0].reference, undefined, JSON.stringify(over))
+  }
+})
 test('held-file range corruption, original size mismatch and forged Conversation identity are refused', () => {
   for (const change of [{ end: 5 }, { size: 5 }, { omitted_bytes: 0 }, { citation: 'not-pinned' }, { acquired_at: 5 }]) {
     const p = page(); p.sources[2].results = [{ ...file, value: { ...file.value, ...change } }] as any

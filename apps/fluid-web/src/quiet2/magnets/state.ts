@@ -46,8 +46,11 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
           at.saved.config = answer.config
           emit({ activation: null, results: [], status: undefined, summary: undefined }); return
         }
-        const decoded = collectionRows(answer.page)
         if (!entry(answer.activation.post) || !/^adm-[a-zA-Z0-9]{6,40}$/.test(answer.activation.artifact?.ref ?? '')) throw new Error('The collection does not name the record it was captured as.')
+        /* The identities are read with the batch they belong to, so a row
+           carries what it can be referred to by only for the collection
+           actually being shown. */
+        const decoded = collectionRows(answer.page, answer.references, answer.activation.artifact.ref)
         if (selection && (answer.activation.artifact.ref !== selection.ref || answer.activation.artifact.digest !== selection.digest)) throw new Error('That read did not return the collection that was asked for. Nothing was substituted.')
         at.saved.config = answer.config
         emit({ activation: answer.activation, results: decoded.results, status: decoded.status, reason: decoded.reason, next: undefined,

@@ -5,6 +5,7 @@ Older activations remain in the append-only record.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -66,6 +67,95 @@ def _retained(st, mid, act):
         raise bad from None
 
 
+def row_digest(row) -> str:
+    """One recorded row's own content identity, over the bytes the batch holds.
+
+    Sorted keys, compact separators, literal UTF-8: deterministic, so the read
+    that serves an identity and the send that validates it compute the same
+    digest from the same verified immutable row. It is NOT the managed selector
+    canonicalization (`message_context.canonical`), which refuses the
+    non-integer `at`/`acquired_at` timestamps a collected row carries. Nothing
+    derives it from captured text: the row as recorded is the whole input.
+    """
+    return hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False, allow_nan=False)
+                          .encode("utf-8")).hexdigest()
+
+
+def references(activation, page) -> dict:
+    """THE EXACT IDENTITY OF EACH COLLECTED ROW, so a supporting record can be
+    what a message is about (owner ent-3191baeb33d2 §§1, 6; contract §3).
+
+    Derived from the verified immutable batch and served BESIDE it -- the page
+    itself is returned exactly as recorded. Each identity is the row's captured
+    version: the recorded batch it belongs to, and that row's own digest. It
+    carries no title, text, label or captured content, and it grants nothing:
+    what an agent may actually read is still decided by the existing gates, and
+    the retained collection is still not answer evidence (`message_context`).
+
+    An id two rows share has no exact identity, so neither is offered; the card
+    then refuses it in words, as it does any row this cannot state exactly.
+    """
+    if not activation or not isinstance(page, dict):
+        return {}
+    batch = activation["artifact"]["ref"]
+    out, seen = {}, set()
+    for one in page.get("sources") or ():
+        for row in (one.get("results") or () if isinstance(one, dict) else ()):
+            rid = row.get("id") if isinstance(row, dict) else None
+            if not isinstance(rid, str) or not rid or len(rid) > 128:
+                continue
+            if rid in seen:
+                out.pop(rid, None)
+                continue
+            seen.add(rid)
+            out[rid] = {"kind": "collected_item", "ref": rid,
+                        "version": batch, "digest": row_digest(row)}
+    return out
+
+
+def member(st, mid, selected) -> dict:
+    """The selected collected record, verified against this Magnet's recorded
+    batch, or `Refused`. The send boundary's one membership check.
+
+    Identity only, and scoped exactly as the collection read is: the batch must
+    be a recorded extract of THIS Magnet that still verifies (so a forged,
+    foreign, deleted, unreadable or restricted batch refuses), and the row must
+    be in it at exactly the digest the message was about (so a stale or forged
+    row refuses). Nothing here widens source access, reads a live source or
+    substitutes anything.
+    """
+    from mentis import artifacts
+    from mentis.fluid.message_context import refuse
+    ref, version, want = selected["ref"], selected["version"], selected["digest"]
+
+    def stale():
+        refuse("stale-reference", "the selected collected record changed or is not "
+               "in that collection", status=409)
+
+    if not isinstance(version, str) or not re.fullmatch(r"adm-[0-9a-f]{12}", version):
+        refuse("invalid-reference", "a collected record is selected at its recorded "
+               "batch identity")
+    acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is={"magnet": mid},
+                                 about=version, newest_first=True, limit=1)
+    if not acts or acts[0]["detail"].get("artifact", {}).get("ref") != version:
+        stale()
+    if artifacts.deleted_from(st.corpus, st.cv, version):
+        stale()
+    made = artifacts.producing_act(st.corpus, st.cv, version)
+    if made and made.get("caused_by") and artifacts.restriction_of(st.cv, made["caused_by"]):
+        refuse("restricted-reference", "that collection was recorded under restricted work",
+               status=403)
+    try:
+        activation, page = _retained(st, mid, acts[0])
+    except UnreadableCollection:
+        stale()
+    got = references(activation, page).get(ref)
+    if not got or got["digest"] != want:
+        stale()
+    return got
+
+
 def read(st, mid, *, batch=None, digest=None):
     config = _config(st, mid)
     if (batch is None) != (digest is None) or (batch is not None and (
@@ -84,7 +174,8 @@ def read(st, mid, *, batch=None, digest=None):
         if acts[0]["detail"]["artifact"]["digest"] != digest:
             raise UnreadableCollection("the requested digest does not match this recorded collection")
     activation, page = _retained(st, mid, acts[0]) if acts else (None, None)
-    return {"magnet": mid, "config": config, "activation": activation, "page": page}
+    return {"magnet": mid, "config": config, "activation": activation, "page": page,
+            "references": references(activation, page)}
 
 
 def history(st, mid, *, limit=20, cursor=None):
