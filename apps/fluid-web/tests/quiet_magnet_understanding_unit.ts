@@ -33,16 +33,16 @@ import Summary, {
   COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL, GROUNDED_UNAVAILABLE, NO_COMPARISON, SUPPORT_UNRECORDED,
   askOrdinaryQuestion, capturedKeys, collectedExcerpts, collectedSpan, collectedText, collectionOverview,
   compareCollections, compareWithPrevious, comparisonWords, exploreQuestion,
-  frequentWords, itemIdentity, offeredQuestions, recordedChallenges, summaryFacts, summarySource,
+  frequentWords, itemIdentity, offeredQuestions, recordedChallenges, startingAction, summaryFacts, summarySource,
 } from '../src/quiet2/magnets/Summary'
-import Perspectives, { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
+import Perspectives, { PastQuestions, SupportingItems, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { forgetPanelDrafts, panelAt, panelDrafts, setQuestionDraft, setRenameDraft } from '../src/quiet2/magnets/panelDrafts'
 import type { MagnetContext, MagnetResource } from '../src/quiet2/magnets/contract'
 import {
   derivedPerspectiveName, perspectivesOf, questionVersion, showPerspectiveContext, stampAttachedQuestion,
-  PERSPECTIVE_BLOCK_REASON, type Perspective,
+  GROUNDED_NOT_YET, NOTHING_RECORDED_YET, PERSPECTIVE_BLOCK_REASON, SUPPORTING_WHY, type Perspective,
 } from '../src/quiet2/magnets/perspectives'
 import { setOpen } from '../src/quiet2/magnets/places'
 import { emptyDraft } from '../src/composer/draft'
@@ -416,7 +416,14 @@ test('an empty Summary offers a useful start and ordinary help, and keeps the ow
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(rendered.includes('No collected information yet. Conversation is still available.'))
-  assert.ok(rendered.includes('Choose sources in Settings, then collect.'))
+  // THE USEFUL ACTION IS A BUTTON, NOT A SENTENCE (owner ent-a24ec84c8176:
+  // "Present current information and useful actions prominently"). What the
+  // sentence "Choose sources in Settings, then collect." described is the press
+  // itself, with the note `startingAction` states beside it.
+  const start = startingAction(r.saved)
+  assert.ok(rendered.includes(`<button type="button" class="mgd-button">${start.label}</button>`),
+    'the useful action is a button on the surface')
+  assert.ok(rendered.includes(start.note), 'with its own note beside it')
   assert.ok(rendered.includes('Start a conversation'))
   assert.ok(rendered.includes('How do I configure this Magnet?'), 'ordinary configuration help is offered first')
   assert.ok(rendered.includes('Draft an answer from selected records') && rendered.includes(PERSPECTIVE_BLOCK_REASON),
@@ -463,30 +470,126 @@ test('the existing access gate is untouched: grounded answering stays disabled w
 
 /* --- question-first Perspectives -------------------------------------------- */
 
-test('the Perspectives panel puts the question before every administrative control', () => {
+/** THE APPROVED ASKING SURFACE (round-3 `02-compact-current`, `09-current-help`).
+ *  Nothing asked yet is a place to ask something, not a form to administer:
+ *  eyebrow, `Explore a question` with `Past questions ▾` at the far edge, one
+ *  muted sentence, the compose box, `TRY ASKING`, a divider, and ONE line
+ *  pairing `AVAILABLE NOW` with what ordinary Conversation does. Everything
+ *  administrative is behind `Past questions ▾`, and nothing was removed. */
+test('nothing asked yet renders the approved asking surface and no administrative control', () => {
   store()
   const { r } = resource('mag-equestionfirst')
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
-  const ask = rendered.indexOf('New question or hypothesis')
-  const create = rendered.indexOf('Ask →')
-  const lens = rendered.indexOf('aria-label="Active question"')
-  const history = rendered.indexOf('Wording history')
-  assert.ok(ask > 0 && create > ask, 'the question box and its one press come first, in that order')
-  assert.ok(lens > create, 'switching between questions comes after asking one')
-  assert.ok(history > lens, 'the recorded wording history is last')
-  assert.ok(rendered.indexOf('Ask a question') < lens, 'the panel leads with asking')
-  assert.ok(!rendered.includes('aria-label="Perspective name"'), 'creation asks for no name')
-  assert.ok(!rendered.includes('aria-label="Reason"'), 'ordinary question creation has no optional reason field')
+  const eyebrow = rendered.indexOf('>Perspectives<')
+  const heading = rendered.indexOf('Explore a question')
+  const box = rendered.indexOf('What would you like to explore?')
+  const press = rendered.indexOf('Ask →')
+  const examples = rendered.indexOf('TRY ASKING')
+  const today = rendered.indexOf('AVAILABLE NOW')
+  assert.ok(eyebrow >= 0 && heading > eyebrow, 'the eyebrow names the place and the heading says what to do')
+  assert.ok(rendered.includes('mgd-h2'), 'the heading is the design’s own 25px heading')
+  assert.ok(box > heading && press > box, 'the compose box and its one press come before anything else')
+  assert.ok(examples > press && today > examples, 'then what to try, then what is available today')
+  assert.ok(rendered.includes('Past questions ▾'), 'history and provenance are one link away')
+  assert.ok(rendered.includes('Question or hypothesis') && rendered.includes('mgd-compose'),
+    'the compose box is the design’s, with its subtle label on its footing row')
+  // The sentence about what discussion reads is said ONCE on this surface.
+  assert.equal(rendered.split('Discussion does not read your collected items.').length - 1, 1,
+    'what discussing does, and does not, read is said once, not three times')
+  assert.ok(rendered.includes('What can I do?'), 'the one help panel is opened by a link, not spread on the surface')
+  // Nothing administrative is rendered here at all.
+  for (const gone of ['aria-label="Perspective name"', 'aria-label="Revision reason"', 'aria-label="Active question"',
+    'Wording history', 'Rename this Perspective', 'Retire Perspective', 'Edit saved question', '— Remove'])
+    assert.ok(!rendered.includes(gone), `${gone} does not occupy the asking surface`)
   const createAction = panelSrc().match(/act\('create', \{([^}]*)\}\)/)?.[1] ?? ''
   assert.match(createAction, /name: suggested, question: drafts\.question/)
   assert.doesNotMatch(createAction, /reason/, 'creating a question sends only its name and question')
-  assert.ok(rendered.includes('Its name is taken from the question when you create it.'))
-  assert.ok(rendered.includes('Discussion does not read your collected items.'), 'what discussing does, and does not, read is said where it is offered')
-  assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the gate keeps its own reason here too')
-  // Renaming, revising and retiring are still reachable, just not first.
+  // Renaming, revising, challenging, branching and retiring are still reachable.
   const panel = code(panelSrc())
   for (const kept of ["act('rename'", "act('question'", "act('challenge'", "act('branch'", "'resume' : 'retire'"])
     assert.ok(panel.includes(kept), `nothing was removed to make room (${kept})`)
+  // And the gate keeps the server's own reason where the affordance lives.
+  const behind = html(createElement(PastQuestions, { resource: r, canWrite: true, onEvidence: () => {}, onNew: () => {}, onOpened: () => {} }))
+  assert.ok(behind.includes(PERSPECTIVE_BLOCK_REASON), 'the gate keeps its own reason here too')
+  assert.ok(behind.includes('aria-label="Active question"'), 'the durable lens is still reachable')
+})
+
+/** A SAVED QUESTION AND WHAT IS UNDERSTOOD OF IT (`05-future-answer`,
+ *  `10-current-discussion`): the state line, the question in a chat bubble, the
+ *  record's own understanding against the gold rule with ONE link out of it,
+ *  the follow-up compose box, and at most one hint. No lecture under the
+ *  understanding, and no `Your question` label standing over the question. */
+test('a saved question renders as the question and what is understood of it', () => {
+  store()
+  const { r } = resource('mag-eunderstood')
+  const topic = 'ent-topicA11111'
+  const perspective = { perspective: topic, name: 'Does the bench drift?', retired: false, question: null,
+    current_question: { text: 'Does the bench drift between batches?', revision: 'adm-revision111' }, events: 2 }
+  perspectivesOf(r).update({ rows: [perspective], selected: topic, viewed: topic,
+    viewedDetail: perspective, selectedDetail: perspective })
+  const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
+  assert.ok(rendered.includes('mgd-chatbubble') && rendered.includes('You asked'), 'the question is in a chat bubble')
+  assert.ok(rendered.includes('Does the bench drift between batches?'), 'in its own saved words')
+  assert.ok(!rendered.includes('Your question'), 'no standing administrative label over it')
+  assert.ok(rendered.includes('mgd-answer') && rendered.includes('Current understanding'),
+    'what is understood of it is the answer block, with its bold lead')
+  assert.ok(rendered.includes(NOTHING_RECORDED_YET), 'with nothing recorded it says so in one sentence')
+  assert.equal(rendered.split('Explore supporting items ↗').length - 1, 1, 'and carries exactly one link out of it')
+  assert.ok(!rendered.includes('Earlier wordings and recorded answers have no automatic knowledge standing.'),
+    'the lecture under the understanding is gone')
+  assert.ok(rendered.includes('Send ↑') && rendered.includes('Ask a follow-up or explore an idea…'),
+    'the follow-up compose box is in the body, where the design puts it')
+  assert.equal(rendered.split('mgd-hint').length - 1, 1, 'at most one hint line at the foot')
+  assert.ok(rendered.includes(GROUNDED_NOT_YET), 'and it is the one that says grounded answering does not work yet')
+  assert.ok(!rendered.includes('— Remove') && !rendered.includes('About “'), 'the administrative row is gone')
+})
+
+/** SUPPORTING ITEMS (`06-future-support`): opened from the answer block, the
+ *  collected items in the Magnet's own words with one way into each, and a
+ *  closing block saying plainly that nothing chose or read them. */
+test('supporting items are the collected items themselves, marked as a future concept', async () => {
+  store()
+  const { r } = resource('mag-esupport')
+  await r.read()
+  const rendered = html(createElement(SupportingItems, { resource: r, question: 'Does the bench drift?', onOpen: () => {}, onBack: () => {} }))
+  assert.ok(rendered.includes('← Back to answer'), 'one way back')
+  assert.ok(rendered.includes('mgd-future') && rendered.includes('FUTURE CONCEPT'), 'with the chip on the same row')
+  assert.ok(rendered.includes('Supporting items') && rendered.includes('For “Does the bench drift?”'),
+    'a heading and a muted line saying what they support')
+  assert.ok(rendered.includes('mgd-item') && rendered.includes('Open item ↗'), 'the items carry one way into each')
+  assert.ok(rendered.includes('Calibration of the bench reference drifted'), 'in the records’ own words')
+  assert.ok(rendered.includes('mgd-shade') && rendered.includes('Why these?') && rendered.includes(SUPPORTING_WHY),
+    'and the note that nothing chose or read them closes the list')
+})
+
+/** PAST QUESTIONS (`08-history`): the list to return through, with the search,
+ *  the rows and the way back; and behind it every administrative verb. */
+test('past questions is a list to return through, with the administrative verbs behind it', () => {
+  store()
+  const { r } = resource('mag-epast')
+  const rows = [
+    { perspective: 'ent-topicA11111', name: 'A', retired: false, question: null,
+      current_question: { text: 'What is slowing our releases?', revision: 'adm-a' }, events: 3 },
+    { perspective: 'ent-topicB11111', name: 'B', retired: false, question: null,
+      current_question: { text: 'Are handoffs clearly owned?', revision: 'adm-b' }, events: 1 },
+  ]
+  perspectivesOf(r).update({ rows, selected: 'ent-topicA11111', viewed: 'ent-topicA11111', viewedDetail: rows[0], selectedDetail: rows[0] })
+  const rendered = html(createElement(PastQuestions, { resource: r, canWrite: true, onEvidence: () => {}, onNew: () => {}, onOpened: () => {} }))
+  assert.ok(rendered.includes('＋ New question'), 'asking something new is at the far edge of the eyebrow row')
+  assert.ok(rendered.includes('mgd-h2') && rendered.includes('Past questions'), 'the heading says what is shown')
+  assert.ok(rendered.includes('Return to a question and continue the conversation.'), 'one muted sentence')
+  assert.ok(rendered.includes('mgd-search') && rendered.includes('aria-label="Find a question"'), 'and a search over them')
+  assert.ok(rendered.includes('What is slowing our releases?') && rendered.includes('Are handoffs clearly owned?'),
+    'the questions are the rows, in their own saved words')
+  assert.ok(rendered.includes('Current discussion'), 'a row says when and how much discussion it carries')
+  assert.ok(rendered.includes('1 recorded change'), 'counted from the row, never guessed')
+  assert.ok(rendered.includes('Back to current →'), 'and the closing line goes back')
+  // Everything administrative is here, and shut.
+  for (const kept of ['aria-label="Active question"', 'Wording history', 'Rename this Perspective',
+    'Edit saved question', PERSPECTIVE_BLOCK_REASON])
+    assert.ok(rendered.includes(kept), `${kept.slice(0, 40)} is still reachable`)
+  for (const section of rendered.match(/<details[^>]*>/g) ?? [])
+    assert.doesNotMatch(section, /open/, 'nothing administrative is open until it is asked for')
 })
 
 test('Wording history starts compact, preserves stored history and leaves pagination available when expanded', () => {
@@ -503,7 +606,7 @@ test('Wording history starts compact, preserves stored history and leaves pagina
   ]
   perspectivesOf(r).update({ rows: [perspective], selected: topic, viewed: topic,
     viewedDetail: perspective, selectedDetail: perspective, events, next: 'history-cursor-2', historyComplete: false })
-  const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
+  const rendered = html(createElement(PastQuestions, { resource: r, canWrite: true, onEvidence: () => {}, onNew: () => {}, onOpened: () => {} }))
   const history = rendered.slice(rendered.indexOf('aria-label="Wording history"'))
   const historySection = rendered.match(/<details[^>]*><summary>Wording history[\s\S]*?<\/details>/)?.[0] ?? ''
   assert.ok(historySection, 'wording history is inside a disclosure section')
@@ -516,9 +619,10 @@ test('Wording history starts compact, preserves stored history and leaves pagina
 })
 
 /** The owner's language review covers the whole interface (ent-3191baeb33d2 §2:
- *  "Question rather than inquiry wording"). This renders every part of the panel
- *  at once -- the lens, the administrative section, the uncertain-action retry
- *  and the history -- and requires that no word of it says "inquiry", while each
+ *  "Question rather than inquiry wording"). This renders every place of the
+ *  panel -- the current question with its compose box, and past questions with
+ *  the lens, the administrative section, the uncertain-action retry and the
+ *  history -- and requires that no word of any of it says "inquiry", while each
  *  renamed control is still there doing the same thing. */
 test('every control the Perspectives panel shows uses ordinary question language', () => {
   store()
@@ -534,7 +638,17 @@ test('every control the Perspectives panel shows uses ordinary question language
       snapshot: { ref: 'adm-revision111', digest, size: 10, media_type: 'application/json' },
       data: { text: 'Does the bench drift between batches?' } }],
   })
-  const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
+  // Every place of the panel at once: the current question, the questions
+  // already asked with everything administrative behind them, the supporting
+  // items, and the asking surface with words in its box.
+  const { r: fresh } = resource('mag-elanguagefresh')
+  setQuestionDraft(panelAt(fresh), 'Does the spare bench drift too?')
+  const rendered = [
+    html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} })),
+    html(createElement(PastQuestions, { resource: r, canWrite: true, onEvidence: () => {}, onNew: () => {}, onOpened: () => {} })),
+    html(createElement(SupportingItems, { resource: r, question: 'Does the bench drift?', onOpen: () => {}, onBack: () => {} })),
+    html(createElement(Perspectives, { resource: fresh, canWrite: true, onEvidence: () => {} })),
+  ].join('\n')
   // What the owner reads: the text between the tags, and the labels a control
   // is announced by. (DOM ids and class names are not interface language.)
   assert.doesNotMatch(rendered.replace(/<[^>]*>/g, ' '), /inquir/i, 'no word on this panel says inquiry')
@@ -542,8 +656,8 @@ test('every control the Perspectives panel shows uses ordinary question language
   assert.ok(labels.length >= 4, 'the labelled controls are there to be checked')
   for (const label of labels) assert.doesNotMatch(label, /inquir/i, `a control is still announced as inquiry: ${label}`)
   for (const named of ['Active question', 'No question — ordinary Conversation', 'More questions',
-    'Ask →', 'Save for later',
-    'Branch a new question from this one', 'Retry unchanged question action']) {
+    'Ask →', 'Save for later', 'Send ↑', 'Past questions ▾', '＋ New question',
+    'Explore supporting items ↗', 'Retry unchanged question action']) {
     assert.ok(rendered.includes(named), `${named} is the control's name now`)
   }
   // Renamed, not removed: each one still calls the verb it called before.

@@ -1,68 +1,105 @@
-/* The Perspectives working surface, and the supporting items it opens.
-   Takes the host's ink: the Magnet card is a fixed dark surface and this view
-   inherits its colour rather than naming one of its own, the way summary.css
-   does. The one named colour is the card's own gold, read from the variable the
-   card sets, with the card's value as the fallback for a mounted-alone view. */
+/* PERSPECTIVES: the arrangement of the approved round-3 design.
+ *
+ * The type scale, colours, rules, chips, bubbles, the answer's gold rule, the
+ * compose box and the item rows are `design.css` (`mgd-`), ported verbatim from
+ * the CSS the approved mockups were rendered from. NOTHING OF THAT IS RESTATED
+ * HERE: this file only arranges those pieces -- the two columns, the row
+ * resets a real control needs that a mockup `<div>` did not, and the few
+ * margins the mockups set inline.
+ *
+ * The layout answers the SIZE OF THE PANEL, never the size of the window: the
+ * Magnet is resized by its edges and may be wide on a narrow screen or narrow
+ * on a wide one. The frame publishes `--magnet-room` (0 at 320 px of panel, 1
+ * at 900 px) and this view spends it on the gap and the column proportions, so
+ * the surface loosens continuously as the panel is dragged; the one discrete
+ * step -- whether past questions stand beside the work or behind the link -- is
+ * a container query on this section's own inline size, which is the panel's,
+ * not a viewport media query.
+ */
 
-/* The panel is its own container, so the layout answers the SIZE OF THE PANEL
-   and not the size of the window: the Magnet is resized by its edges and may be
-   wide on a narrow screen or narrow on a wide one (owner ent-068c167fa7e6 §1,
-   "adapt the layout continuously to the available panel space"). */
-.q2-magnet-perspectives { container-type: inline-size; container-name: perspectives; }
+.q2-magnet-perspectives { container-type: inline-size; container-name: perspectives; min-width: 0; }
 
-.q2-magnet-work { display: grid; gap: 18px; align-items: start; }
-.q2-magnet-work-main { min-width: 0; }
-/* The question being explored. Quiet panel, the words themselves at reading size. */
-.q2-magnet-asked { margin: 2px 0 12px; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); }
-.q2-magnet-asked .q2-magnet-eyebrow { margin: 0 0 3px; }
-.q2-magnet-asked-text { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+/* -- the two columns (07-future-expanded) --------------------------------- */
 
-/* What is understood of it so far: the record's own entries, against a rule
-   that marks the block as the answer side of the question above it. */
-.q2-magnet-current { margin: 0 0 14px; padding-left: 11px; border-left: 2px solid color-mix(in srgb, var(--magnet-gold, #edbf50) 65%, transparent); }
-.q2-magnet-current h4 { margin: 0 0 5px; font-size: 14px; text-transform: none; letter-spacing: 0; opacity: 1; }
-.q2-magnet-current > .q2-magnet-items { margin-top: 6px; }
-.q2-magnet-current .q2-magnet-link { display: inline-block; margin-top: 4px; }
+.q2-magnet-perspectives .q2p-cols { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.q2-magnet-perspectives .q2p-main { min-width: 0; }
+/* Behind `Past questions ▾` until the panel has the room to hold both. */
+.q2-magnet-perspectives .q2p-aside { display: none; min-width: 0; }
 
-/* The empty state: one invitation, no help cards and no explanation of the
-   machinery behind it (owner §4). */
-.q2-magnet-start { margin: 2px 0 14px; }
-.q2-magnet-start h4 { margin: 0 0 4px; font-size: 16px; text-transform: none; letter-spacing: 0; opacity: 1; }
+@container perspectives (min-width: 640px) {
+  .q2-magnet-perspectives .q2p-cols {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, .75fr);
+    gap: calc(30px + 24px * var(--magnet-room, 0));
+  }
+  .q2-magnet-perspectives .q2p-aside { display: block; }
+}
 
-.q2-magnet-ask-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
-.q2-magnet-ask-actions button:not(.q2-magnet-primary) { min-height: 32px; padding: 5px 12px; border: 1px solid color-mix(in srgb, currentColor 32%, transparent); border-radius: 8px; background: none; color: inherit; font: inherit; }
+/* -- the question, and what is understood of it (05, 10) ------------------ */
 
-/* WHAT IS NOT AVAILABLE, MARKED AS SUCH (approved mockups, "future concept").
-   It is a label on an absence, never a caption under something pretending to
-   work: the badge and the sentence beside it always travel together. */
-.q2-magnet-future { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 6px; }
-.q2-magnet-future .q2-magnet-muted { margin: 0; }
-.q2-magnet-future-badge { flex: none; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--magnet-gold, #edbf50) 24%, transparent); color: inherit; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.q2-magnet-perspectives .q2p-head { align-items: flex-start; }
+.q2-magnet-perspectives .q2p-state { margin: 14px 0; }
+.q2-magnet-perspectives .q2p-asked { display: block; margin-top: 3px; overflow-wrap: anywhere; }
+.q2-magnet-perspectives .mgd-answer p { margin: 8px 0 12px; }
+.q2-magnet-perspectives .mgd-answer > .mgd-link { display: inline-block; margin: 2px 0 4px; }
+.q2-magnet-perspectives .mgd-hint { margin: 8px 0 0; }
+.q2-magnet-perspectives .mgd-example { overflow-wrap: anywhere; }
+.q2-magnet-perspectives .mgd-help .mgd-row { margin-top: 12px; }
+.q2-magnet-perspectives .mgd-help p { margin: 6px 0 0; }
 
-/* Past questions: a list to return through, not a table to administer. */
-.q2-magnet-past { min-width: 0; padding-top: 2px; }
-.q2-magnet-past h4 { margin: 0 0 4px; }
-.q2-magnet-past-list { list-style: none; margin: 6px 0; padding: 0; }
-.q2-magnet-past-list li + li { border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
-.q2-magnet-past-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; padding: 8px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.q2-magnet-past-row:hover, .q2-magnet-past-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
-.q2-magnet-past-row[aria-current='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
-.q2-magnet-past-row .q2-magnet-row-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.q2-magnet-past-row small { display: block; margin-top: 2px; }
-/* The durable lens is the quiet one here: the list above is how a question is
-   returned to, and this is the choice the Conversation follows. */
-.q2-magnet-past .q2-magnet-lens { margin-top: 12px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent); }
+/* -- the compose box in the body (02, 05, 09, 10) ------------------------- *
+   The frame's pinned footer composer renders on the Conversation place only,
+   so this is the panel's own box. The fieldset is the `canWrite` gate and must
+   add no chrome of its own. */
+.q2-magnet-perspectives .q2p-compose-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.q2-magnet-perspectives .q2p-compose-field:disabled .mgd-compose { opacity: .6; }
+.q2-magnet-perspectives .mgd-compose textarea { min-height: 46px; }
+.q2-magnet-perspectives .q2p-compose-foot { margin-top: 20px; gap: 12px; }
+.q2-magnet-perspectives .q2p-compose-foot > .mgd-subtle { min-width: 0; overflow-wrap: anywhere; }
 
-/* Supporting items, opened on request and given back again. */
+/* -- past questions (08), and the same list beside the work (07) ---------- *
+   A row is a real control, so the button has to give back the chrome a browser
+   puts on it before `mgd-item` can read as the mockup's row. */
+.q2-magnet-card .q2p-rows { list-style: none; margin: 0; padding: 0; }
+.q2-magnet-card .q2p-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; background: none; border: 0; color: inherit; cursor: pointer;
+  border-bottom: 1px solid #50423c;
+}
+.q2-magnet-card .q2p-row:hover:not(:disabled), .q2-magnet-card .q2p-row:focus-visible { background: #2f2827; }
+.q2-magnet-card .q2p-row[aria-current='true'] { background: #332b29; }
+.q2-magnet-card .q2p-row-text { display: block; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.q2-magnet-card .q2p-row-text b, .q2-magnet-card .q2p-aside-row b { display: block; }
+.q2-magnet-card .q2p-row-text .mgd-subtle, .q2-magnet-card .q2p-aside-row .mgd-subtle { display: block; margin-top: 3px; }
+.q2-magnet-card .q2p-aside-row {
+  display: block; width: 100%; text-align: left; padding: 0;
+  background: none; border: 0; color: inherit; cursor: pointer; overflow-wrap: anywhere;
+}
+.q2-magnet-card .q2p-aside-row:hover:not(:disabled) b { color: #f6e9dd; }
+.q2-magnet-perspectives .q2p-aside .mgd-item:first-of-type { padding-top: 10px; }
+
+/* -- supporting items (06) ------------------------------------------------ */
+
+.q2-magnet-card .q2p-supporting .mgd-h2 { margin-top: 12px; }
+.q2-magnet-card .q2p-supporting .mgd-item p { overflow-wrap: anywhere; }
+.q2-magnet-card .mgd-shade p { margin: 6px 0 0; }
+
+/* The administrative verbs and the wording history keep the panel's own form
+   styling where they live, behind `Past questions ▾`. */
+.q2-magnet-card .q2-magnet-secondary-actions summary { cursor: pointer; }
+
+/* `magnet.css` resets every button inside the card with `font: inherit` at a
+   higher specificity than `design.css`'s own button type, so the design's
+   values are restated here at a reach that gets past it. They are design.css's
+   numbers, not different ones. */
+.q2-magnet-card .q2-magnet-perspectives .mgd-button { font-size: 13px; font-weight: 650; }
+.q2-magnet-card .q2-magnet-perspectives .mgd-link { font-weight: 600; }
+.q2-magnet-card .q2-magnet-perspectives .mgd-link.mgd-small { font-size: 13px; }
+
+/* Kept for `EvidenceViews`' own supporting-items block, which still carries
+   these class names. This view no longer renders them. */
 .q2-magnet-supporting h4 { margin: 0 0 3px; font-size: 16px; text-transform: none; letter-spacing: 0; opacity: 1; }
 .q2-magnet-supporting-head { margin: 0; overflow-wrap: anywhere; }
 .q2-magnet-supporting .q2-magnet-quote { margin: 3px 0 4px; }
 .q2-magnet-why { margin: 16px 0 4px; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); }
 .q2-magnet-why h5 { margin: 0 0 3px; font-size: 13px; font-weight: 600; }
 .q2-magnet-why .q2-magnet-muted { margin: 0; }
-
-.q2-magnet-perspectives .q2-magnet-section-title { align-items: flex-start; }
-.q2-magnet-perspectives .q2-magnet-section-title h3 { margin: 3px 0 0; }
-.q2-magnet-perspectives .q2-magnet-section-title .q2-magnet-eyebrow { margin: 0; }
-.q2-magnet-past-row { padding: 12px 0; }
-.q2-magnet-ask textarea { min-height: 76px; }
