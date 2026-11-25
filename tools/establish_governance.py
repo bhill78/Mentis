@@ -17,7 +17,13 @@ docs/governance/workflow-2026-10-29.json):
   is handled the same way, and its proposal is found by its BODY: every field
   the sheet gives must be equal, and the proposal may say nothing else. A rule
   is an item with `text`, matched by its text as before.
+- A CONSOLIDATING SUCCESSOR also names `also_replaces`: the other standing
+  predecessors of its Kind it replaces in the same act, so several entries
+  become one and all of them stop being delivered together.
 - A NEW rule is written and established.
+- A REDELIVERY (`redeliver`) changes only how a standing entry is delivered:
+  its whole-Brain placement is ended and placed again at the approved level
+  (for example conditional, with its condition). Its words do not change.
 - Then each is placed on the whole Brain at the approved delivery level
   (Governance Condensation), and the other material the decisions name
   (the Discipline, the Workflow) is placed at its level.
@@ -125,6 +131,15 @@ def plan_item(srv, item):
             return {"how": "already-established", "entry": done[0]}
         return {"how": "refused", "why": f"{pred} does not stand now "
                                          f"(superseded by {succ}); decide afresh"}
+    for other in item.get("also_replaces") or ():
+        more = srv.call("GET", f"/api/entries/{other}")
+        if more.get("missing") or more.get("error"):
+            return {"how": "refused", "why": f"{other} is not in this Brain"}
+        if more.get("kind") and more["kind"] != kind_of(item):
+            return {"how": "refused", "why": f"{other} is a {more['kind']}, not a "
+                                             f"{kind_of(item)}"}
+        if not more.get("stands"):
+            return {"how": "refused", "why": f"{other} does not stand now; decide afresh"}
     proposals = [r["entry"] for r in
                  (((got.get("proposed") or {}).get("successors") or {}).get("items") or [])]
     exact = [e for e in proposals
@@ -151,12 +166,16 @@ def apply_item(srv, item, plan, owner, occasion="DAY-TO-DAY transition"):
         if proposal is None:
             got = srv.call("POST", f"/api/entries/{plan['predecessor']}/propose-supersession",
                            {"attributed_to": owner, "because": because,
-                            "body": wanted(item)})
+                            "body": wanted(item),
+                            **({"also_replaces": item["also_replaces"]}
+                               if item.get("also_replaces") else {})})
             if got.get("error"):
                 return {"error": got["error"]}
             proposal = got.get("proposed_replacement")
         got = srv.call("POST", f"/api/entries/{plan['predecessor']}/establish-replacement",
-                       {"attributed_to": owner, "because": because, "replacement": proposal})
+                       {"attributed_to": owner, "because": because, "replacement": proposal,
+                        **({"also_replaces": item["also_replaces"]}
+                           if item.get("also_replaces") else {})})
         if got.get("error"):
             return {"error": got["error"], "proposal": proposal}
         entry = proposal
@@ -224,6 +243,22 @@ def main(argv=None):
             row["placement"] = place(srv, entry, m, a.attributed_to,
                                      "owner-approved delivery level, DAY-TO-DAY transition")
         report["other_material"].append(row)
+    report["redelivered"] = []
+    for r in spec.get("redeliver") or ():
+        got = srv.call("GET", f"/api/entries/{r['entry']}")
+        row = {"entry": r["entry"], "title": r.get("title"), "delivery": r["delivery"]}
+        if got.get("missing") or got.get("error") or not got.get("stands"):
+            row["how"] = "refused: not standing in this Brain"
+        else:
+            row["how"] = "redeliver"
+            if a.apply and not refused:
+                because = r.get("because") or "owner-approved delivery level"
+                ended = srv.call("POST", f"/api/entries/{r['entry']}/unplace",
+                                 {"attributed_to": a.attributed_to, "because": because,
+                                  "whole_brain": True})
+                row["result"] = (ended if ended.get("error") else
+                                 place(srv, r["entry"], r, a.attributed_to, because))
+        report["redelivered"].append(row)
     report["declined"] = []
     for d in spec.get("decline") or ():
         got = srv.call("GET", f"/api/entries/{d['entry']}")
@@ -253,6 +288,9 @@ def main(argv=None):
         for r in report["other_material"]:
             print(f"- {r['what']}: {r['entry']} at {r['delivery']}"
                   + (f" -> {r.get('placement')}" if r.get("placement") else ""))
+        for r in report["redelivered"]:
+            print(f"- redeliver {r['entry']} ({r.get('title')}) at {r['delivery']}: {r['how']}"
+                  + (f" -> {r['result']}" if r.get("result") else ""))
         for r in report["declined"]:
             print(f"- decline {r['entry']} ({r.get('title')}): {r['how']}"
                   + (f" -> {r['result']}" if r.get("result") else ""))

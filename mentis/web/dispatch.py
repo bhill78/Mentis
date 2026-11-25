@@ -1501,15 +1501,45 @@ def review_signal_of(cv, persona, repository) -> tuple[bool, str | None, str]:
     if not (worn or author):
         return False, None, ""
     label = name if worn else "declared review_of"
-    runs = ([a for a in cv.history(caused_by=author)
-             if a["act"] == "execution-started" and a.get("runtime")]
-            if author else [])
+    runs = _authoring_runs(cv, author) if author else []
     if not runs:
         return True, None, (
             f"review work ({label}); the reviewed work's runtime is not known "
             f"from its lineage, so no runtime was avoided")
-    ran = max(runs, key=lambda a: a["at"])["runtime"]
-    return True, ran, f"review work ({label}) of {author}, which ran on {ran}"
+    last = max(runs, key=lambda a: a["at"])
+    ran = last["runtime"]
+    by = (f" (its latest authoring run, under {last['caused_by']})"
+          if last.get("caused_by") and last["caused_by"] != author else "")
+    return True, ran, f"review work ({label}) of {author}, which ran on {ran}{by}"
+
+
+def _authoring_runs(cv, author) -> list[dict]:
+    """The runs that AUTHORED the reviewed work: not only the reviewed
+    request's own runs but those of the work it delegated, since a carrier
+    that coordinated the work did not write it (found 2026-11-25: a review of
+    coordinated work avoided the coordinator's runtime and ran on the
+    integrator's). Runs wearing a review Persona review rather than author,
+    so they are left out. When the work delegated nothing, its own runs are
+    the authors, as before."""
+    from mentis.operational.owner_stop import descendants
+    names: dict = {}
+
+    def authoring(a):
+        if a["act"] != "execution-started" or not a.get("runtime"):
+            return False
+        persona = (a.get("detail") or {}).get("persona")
+        if persona and persona not in names:
+            names[persona] = _persona_name(cv, persona).lower()
+        return "review" not in names.get(persona, "")
+
+    try:
+        under = descendants(cv, author)[1:]
+    except Exception:                                     # noqa: BLE001
+        under = []
+    delegated = [a for e in under for a in cv.history(caused_by=e)
+                 if authoring(a)]
+    return delegated or [a for a in cv.history(caused_by=author)
+                         if authoring(a)]
 
 
 def yields_to(cv, persona, author) -> str | None:
