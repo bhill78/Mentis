@@ -3,9 +3,9 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from
 import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
 import { magnetIndicators, restingCount } from './indicators'
 import { retainedFiles } from './Inspection'
-import { MAGNET_COLLECTION_FILTERS, MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen, showSourcesInline } from './places'
+import { MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
 import { pendingScroll, reachedScroll, savesReportedScroll } from './position'
-import { supportsManualCollection } from './configuration'
+import './design.css'
 import './magnet.css'
 
 const PUCK = 64
@@ -101,27 +101,40 @@ export type MagnetViews = Partial<Record<MagnetPlaceKey, ReactNode>>
 export interface MagnetProps {
   resource: MagnetResource
   views?: MagnetViews
-  /** H2's persistent composer. Present on every tab and in search; never in settings. */
+  /** The persistent composer, rendered on the Conversation place only.
+   *
+   *  No approved round-3 mockup shows a standing composer under Collection,
+   *  Summary or Perspectives: the compose box in `02`, `05`, `09` and `10` is
+   *  in the body of Perspectives and belongs to that view. The prop stays a
+   *  slot -- the frame decides where it appears, and it still never appears in
+   *  settings. */
   footerComposer?: ReactNode
-  /** H4's search line. The frame renders its own when none is supplied. */
-  searchToolbar?: ReactNode
-  canCollect?: boolean
   onExpand: () => void
   onCollapse: () => void
 }
 
-/** The frame: the puck, the card geometry, the view-state spine and six slots --
- *  header, tabs, searchToolbar, view (the only scroll container), footerComposer
- *  and foot. Nothing else lives here; every view is supplied.
+/** THE FRAME, to the approved round-3 design: a quiet header, a tab row, a
+ *  generous body and one footer line. Four slots and nothing else -- header,
+ *  tabs, view (the only scroll container) and the Conversation composer.
+ *
+ *  It draws no control that belongs to a view. The search line and the type
+ *  pills are inside Collected items in the approved design (`04-browse.png`),
+ *  the question search inside Past questions (`08-history.png`), and collecting
+ *  is the "Collect manually" row of Sources (`03-sources.png`) -- so the frame
+ *  renders none of them. The lens places and the collection's filter list in
+ *  `places.ts` are unchanged: only who draws the controls moved.
  *
  *  The tabs slot is the owner's hierarchy (ent-3191baeb33d2 §1): Summary,
  *  Perspectives and Conversation are primary, and the collection is one
- *  secondary place with type filters shown only while it is open. The filters
- *  are the underlying lens places, so nothing of the state spine changes --
- *  see `places.ts`. The header carries no second count line and no standing
- *  collection status sentence: the count is on the Collection control, and what
- *  the collection state is stays in the Collect control's own title (§3, §6). */
-export default function Magnet({ resource, views, footerComposer, searchToolbar, canCollect = false, onExpand, onCollapse }: MagnetProps) {
+ *  secondary place carrying its own count. The header carries no second count
+ *  line and no standing collection status sentence (§3, §6).
+ *
+ *  Measurements are the mockups' own (`magnet-design-round2/render.py` `style`,
+ *  with round 3's overrides): head `20px 24px 15px` over a 1px #514541 rule,
+ *  tabs `0 24px` with each tab `13px 0 11px` and a 3px #e6bc50 underline on the
+ *  one in force, the body `design.css`'s `.mgd-body`, and one footer line at
+ *  `13px 24px`. */
+export default function Magnet({ resource, views, footerComposer, onExpand, onCollapse }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
   const view = useRef<HTMLDivElement>(null)
@@ -158,7 +171,6 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
   const filesKnown = files.length > 0 || s.status === 'ok' || s.status === 'partial'
   const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial })
-  const collectable = !!saved.config && supportsManualCollection(saved.config)
   // Never fabricate a count: unknown until a retained read has returned.
   const counted = s.activation !== undefined ? posts.length + files.length : null
   /** The resting puck's one number. Nothing supplies a new-item total yet --
@@ -290,8 +302,6 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   }
   const collectionTab = collectionTabOf(s)
   const inCollectionNow = inCollection(s)
-  const collectedWhen = s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : null
-  const collectWhy = collectedWhen ?? (collectable ? 'Not collected yet' : 'Manual collection is not configured')
 
   const resizeDown = (e: ReactPointerEvent<HTMLDivElement>, edge: string) => {
     if (e.button !== 0) return
@@ -364,16 +374,15 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         '--magnet-room': room.w.toFixed(3), '--magnet-room-h': room.h.toFixed(3) } as CSSProperties}>
       {['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((edge) => <div key={edge} className={`q2-magnet-resize q2-magnet-resize-${edge}`}
         aria-hidden="true" onPointerDown={(e) => resizeDown(e, edge)} onPointerMove={resizeMove} onPointerUp={resizeEnd} onPointerCancel={resizeEnd} />)}
-      {/* The mockups' header: the Magnet's name, then one quiet cluster of
-          controls at the far edge -- nothing else on the line, and no second
-          count or status sentence under it. */}
+      {/* The mockups' header (`02-compact-current.png`, `03-sources.png`): the
+          Magnet's name, then `⤢ ⚙ ×` at the far edge. Nothing else is on the
+          line -- no Collect now, no second count, no status sentence. Collecting
+          is the "Collect manually" row of Sources, which Collection draws.
+          The ⚙ is kept although the mockups show two icons: it is the only way
+          to rename or remove a Magnet (plan seam 3, carrier's decision). */}
       <header>
         <div className="q2-magnet-head-text">
           <h2 title={title} tabIndex={0}>{title}</h2>
-        </div>
-        <div className="q2-magnet-collection">
-          <button type="button" className={`q2-magnet-primary${s.collecting ? ' collecting' : ''}`} title={collectWhy}
-            disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
         </div>
         <button type="button" className="q2-magnet-icon q2-magnet-step" aria-label={s.wide ? 'Use a smaller panel' : 'Use a larger panel'}
           title={s.wide ? 'Smaller panel' : 'Larger panel'} aria-pressed={s.wide} onClick={stepSize}><span aria-hidden="true">⤢</span></button>
@@ -394,31 +403,11 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
           {restTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
         </> })()}
       </nav>
-      {inCollectionNow && <div className="q2-magnet-filters" role="group" aria-label="Show in the collection">
-        {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className="q2-magnet-filter"
-          aria-pressed={s.tab === f.tab} onClick={() => goTab(resource, f.tab)}>{f.label}</button>)}
-        {/* Source management, reached from inside the Collection experience
-            (owner request ent-1e82a8786c37: "Integrate source management into
-            the Collection experience as designed") rather than only from the
-            header gear. It opens Collection's own inline Sources view
-            (`EvidenceViews.tsx`, `showSourcesInline`) -- the one approved
-            place for this, not the Settings overlay's separate copy.
-
-            It is an ENTRY, so it is offered where it leads somewhere: once the
-            inline view is already open, that view carries its own
-            "Collected items" toggle back, and a second "Sources" beside it
-            would be a control that does nothing (round-3 mockup 03-sources.png
-            shows the one link). */}
-        {!place(s).sources && <button type="button" className="q2-magnet-link q2-magnet-filters-sources" onClick={() => showSourcesInline(resource)}>Sources →</button>}
-      </div>}
-      {s.overlay !== 'settings' && <div className="q2-magnet-toolbar">
-        {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search this Magnet</span>
-          <input type="search" value={s.query} placeholder="Search this Magnet…" autoComplete="off"
-            onChange={(e) => { remember(resource); resource.update({ query: e.target.value, overlay: e.target.value ? 'search' : s.overlay === 'search' ? null : s.overlay, searchTarget: null }) }} />
-          {s.query && <button type="button" className="q2-magnet-icon" aria-label="Clear search" onClick={() => { resource.update({ query: '', searchTarget: null }); closeOverlay(resource) }}>×</button>}
-        </label>}
-      </div>}
-      <div ref={view} id={viewId} className="q2-magnet-view" role={s.overlay ? undefined : 'tabpanel'} aria-label={s.overlay ? undefined : s.tab} tabIndex={-1}
+      {/* No filter row and no search line here. The approved design puts the
+          type pills and the search inside Collected items, under its heading,
+          and the Sources link on that heading's own row -- so the frame spends
+          no line on either and the body begins directly under the tabs. */}
+      <div ref={view} id={viewId} className="q2-magnet-view mgd-body" role={s.overlay ? undefined : 'tabpanel'} aria-label={s.overlay ? undefined : s.tab} tabIndex={-1}
         onWheel={readerMoved} onPointerDown={readerMoved} onKeyDown={readerMoved} onTouchStart={readerMoved}
         onScroll={(e) => { const top = e.currentTarget.scrollTop; const now = resource.snapshot(); const p = place(now)
           // A clamp is not a reading position: while a saved position is still
@@ -432,10 +421,14 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
           resource.update({ places: { ...now.places, [placeKeyOf(now)]: p.inspected ? { ...p, inspectScroll: top } : { ...p, scroll: top } } }) }}>
         <div ref={content} id={s.overlay === 'settings' ? settingsId : undefined}>{views?.[placeKey] ?? <p className="q2-magnet-muted">This view is not available in this build.</p>}</div>
       </div>
-      {s.overlay !== 'settings' && footerComposer}
+      {/* The composer stands under the Conversation place and nowhere else:
+          that is the only surface the approved design gives a standing compose
+          box. An overlay is a place of its own, so search and settings are not
+          the Conversation place and draw no composer -- settings as before. */}
+      {placeKey === 'Conversation' && <div className="q2-magnet-footer-slot">{footerComposer}</div>}
       {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
-      {/* The mockups' one footer line. It is the only thing in the panel that
-          says the edges can be dragged, and it says it once, in six words. */}
+      {/* The mockups' one footer line, in their own six words. It is the only
+          thing in the panel that says the edges can be dragged. */}
       <p className="q2-magnet-hint" aria-hidden="true">Drag the panel edge to resize</p>
     </section>}
   </div>

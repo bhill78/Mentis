@@ -90,12 +90,12 @@ test('the settings overlay is focused, and holds every control the frame extract
   // The frame keeps the Summary out of the way while this is open.
   const card = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {},
     views: { settings: createElement('p', null, 'overlay'), Summary: createElement('p', null, 'summary beneath') },
-    footerComposer: createElement('form', { id: 'composer' }), searchToolbar: createElement('div', { id: 'toolbar' }) }))
+    footerComposer: createElement('form', { id: 'composer' }) }))
   assert.ok(card.includes('overlay'))
   assert.ok(!card.includes('summary beneath'), 'the Summary is not visible beneath the overlay')
   assert.ok(!card.includes('id="composer"'), 'the composer is hidden')
-  assert.ok(!card.includes('id="toolbar"'), 'the search toolbar is hidden')
-  assert.match(card, /disabled=""[^>]*>Collect now<\/button>/, 'Collect now is disabled')
+  assert.ok(!card.includes('type="search"'), 'no search line stands over the overlay')
+  assert.ok(!card.includes('Collect now'), 'collecting is not offered from the frame while settings is open')
 })
 
 test('the gear is icon-only, and the two closes are different controls with different words', () => {

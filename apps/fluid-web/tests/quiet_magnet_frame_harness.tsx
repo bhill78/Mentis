@@ -14,7 +14,7 @@ import MiniConversation from '../src/quiet2/magnets/MiniConversation'
 import ComposerBar from '../src/quiet2/magnets/ComposerBar'
 import { Layer } from '../src/fluid/frame/layer'
 import { page } from '../src/brainBinding'
-import { emptyPlaces } from '../src/quiet2/magnets/places'
+import { MAGNET_COLLECTION_FILTERS, emptyPlaces, goTab } from '../src/quiet2/magnets/places'
 import { loadWorking, saveWorking } from '../src/quiet2/magnets/workingState'
 import { miniConversationOf } from '../src/quiet2/magnets/conversation'
 import '../src/theme.css'
@@ -72,6 +72,14 @@ api.state = () => state
 api.store = () => miniConversationOf(r, true, 'frame-corpus@frame-instance').store.snapshot()
 /* Enough in every view that the reading area has something to scroll. */
 const long = (title: string) => <section><h3>{title}</h3>{Array.from({ length: 45 }, (_, n) => <p key={n}>{title} reading line {n}</p>)}</section>
+/* The type pills are a view's own control in the approved design, drawn under
+   Collected items' heading, not a row of the frame's. The harness draws them
+   where the design puts them so that the lens places -- which have not changed
+   -- are still reachable here by the name a reader sees. */
+const pills = <div className="mgd-row" role="group" aria-label="Show in the collection">
+  {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className="mgd-pill" onClick={() => goTab(r, f.tab)}>{f.label}</button>)}
+</div>
+const collected = (title: string) => <>{pills}{long(title)}</>
 function App() {
   const [, bump] = useState(0)
   api.notify = () => bump((n) => n + 1)
@@ -79,7 +87,7 @@ function App() {
     <Layer />
     <Magnet resource={r} onExpand={() => {}} onCollapse={() => {}}
       footerComposer={<ComposerBar resource={r} canWrite={api.canWrite} />}
-      views={{ Summary: long('Summary'), All: long('All'), Posts: long('Posts'), Files: long('Files'),
+      views={{ Summary: long('Summary'), All: collected('All'), Posts: collected('Posts'), Files: collected('Files'),
         Perspectives: long('Perspectives'), search: long('Search'), settings: long('Settings'),
         Conversation: <MiniConversation resource={r} canWrite={api.canWrite} onEvidence={(ref) => { api.evidence = ref }} /> }} />
   </main>

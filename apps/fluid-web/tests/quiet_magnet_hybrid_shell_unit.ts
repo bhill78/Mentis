@@ -66,27 +66,71 @@ test('Summary, Perspectives and Conversation are primary; the collection is one 
   for (const gone of ['>All<', '>Posts<', '>Files<']) {
     assert.ok(!open.includes(gone), `${gone} is no longer a primary tab of its own`)
   }
-  assert.ok(!open.includes('q2-magnet-filters'), 'the type filters cost no row outside the collection')
   assert.ok(open.includes('aria-label="Magnet settings"'), 'the header gear is icon-only with an accessible name')
   assert.ok(open.includes('q2-magnet-resize-se') && open.includes('aria-label="Close Magnet"'))
   assert.ok(!open.includes('>Settings<'), 'the gear has no visible Settings text')
-  // The collection: one place, three filters, each its own lens place.
+  // The collection is still one place over three lens places, each keeping its
+  // own reading position. What changed is only who draws the controls.
   goTab(r, 'All')
   assert.ok(inCollection(r.snapshot()))
   assert.equal(collectionTabOf(r.snapshot()), 'All')
   const collection = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
-  assert.ok(collection.includes('q2-magnet-filters'), 'the filters appear with the collection')
-  for (const f of MAGNET_COLLECTION_FILTERS) assert.ok(collection.includes(`>${f.label}<`), `the ${f.label} filter is offered`)
-  assert.match(collection, /aria-pressed="true"[^>]*>Everything</, 'the unified collection is the filter in force')
+  assert.ok(!collection.includes('q2-magnet-filters'), 'the frame draws no filter row, in the collection or anywhere else')
+  for (const f of MAGNET_COLLECTION_FILTERS) assert.ok(!collection.includes(`>${f.label}<`), `the frame does not draw the ${f.label} filter; Collected items does`)
   goTab(r, 'Files')
   assert.equal(collectionTabOf(r.snapshot()), 'Files', 'a filter is the lens place, so it keeps its own reading position')
   const files = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
-  assert.match(files, /aria-pressed="true"[^>]*>Files</)
   assert.match(files, /class="q2-magnet-tab-collection"[^>]*aria-selected="true"/, 'the Collection control is the one selected')
   // The header spends no line on a second count or a standing collection status.
   assert.ok(!files.includes('q2-magnet-head-sub'), 'the header carries no second line')
   assert.ok(!files.includes('>Not yet<') && !files.includes('>Unavailable<'), 'no standing collection status sentence')
-  assert.ok(files.includes('Manual collection is not configured'), 'what the collection state is stays available on the control')
+})
+
+/** PART A, the approved round-3 chrome (`02-compact-current.png`,
+ *  `03-sources.png`): a quiet header, a tab row, a generous body and one footer
+ *  line. The frame draws nothing that belongs to a view. */
+test('the frame is header, tabs, body and one footer line, and draws no view’s controls', () => {
+  store()
+  const r = resource('mag-chrome')
+  setOpen(r, true)
+  const open = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
+  // The header is the name, then ⤢, ⚙, × -- and nothing else on the line.
+  const head = open.slice(open.indexOf('<header'), open.indexOf('</header>'))
+  assert.ok(head.includes('Calibration inquiry'), 'the header is the Magnet’s name')
+  assert.ok(!head.includes('Collect now'), 'Collect now has left the header for Collection’s Collect manually row')
+  assert.ok(!head.includes('q2-magnet-collection'), 'the header carries no collection cluster')
+  const icons = ['⤢', '⚙', '×'].map((g) => head.indexOf(g))
+  assert.ok(icons.every((n, i) => n > 0 && (i === 0 || n > icons[i - 1])), `⤢ ⚙ × in that order at the far edge: ${icons}`)
+  assert.ok(head.indexOf('Calibration inquiry') < icons[0], 'the name comes before the controls')
+  assert.ok(head.includes('aria-label="Magnet settings"'), 'the gear is kept: it is the only way to rename or remove a Magnet')
+  // No control of a view's is drawn by the frame, on any place.
+  assert.ok(!open.includes('q2-magnet-toolbar'), 'no pinned search toolbar row')
+  assert.ok(!open.includes('type="search"'), 'the frame draws no search box of its own')
+  assert.ok(!open.includes('q2-magnet-filters'), 'no filter pill row')
+  // The body is the one scroll container and carries the mockup's body padding.
+  assert.match(open, /class="q2-magnet-view mgd-body"/, 'the view container takes design.css’s .mgd-body')
+  // One footer line, in the mockup's own words.
+  assert.ok(open.includes('Drag the panel edge to resize'), 'one footer line says the edges drag')
+  assert.equal((open.match(/Drag the panel edge to resize/g) ?? []).length, 1, 'and says it once')
+})
+
+test('the composer is pinned under Conversation only, and never in settings', () => {
+  store()
+  const r = resource('mag-chromecomposer')
+  setOpen(r, true)
+  const render = () => renderToStaticMarkup(createElement(Magnet, {
+    resource: r, onExpand: () => {}, onCollapse: () => {},
+    footerComposer: createElement('form', { id: 'supplied-composer' }, 'composer') }))
+  for (const quiet of ['Summary', 'All', 'Posts', 'Files', 'Perspectives'] as const) {
+    goTab(r, quiet)
+    assert.ok(!render().includes('supplied-composer'), `no approved mockup pins a composer under ${quiet}`)
+  }
+  goTab(r, 'Conversation')
+  assert.ok(render().includes('supplied-composer'), 'Conversation keeps its pinned composer')
+  openOverlay(r, 'settings')
+  assert.ok(!render().includes('supplied-composer'), 'and settings still has none')
+  leaveSettings(r)
+  assert.ok(render().includes('supplied-composer'), 'leaving settings returns to Conversation with its composer')
 })
 
 test('open is persisted working state toggled only by the puck and the header close', () => {
@@ -305,44 +349,47 @@ test('working state never holds collection content, and an unrecognised payload 
   assert.deepEqual(emptyPlaces().Summary, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false, sources: false })
 })
 
-test('the frame is a frame: six slots, one scroll container, no disclosure left in the card', () => {
+test('the frame is a frame: four slots, one scroll container, no disclosure left in the card', () => {
   store()
   const r = resource('mag-hybridframe')
   setOpen(r, true)
+  goTab(r, 'Conversation')
   const html = renderToStaticMarkup(createElement(Magnet, {
     resource: r, onExpand: () => {}, onCollapse: () => {},
-    views: { Summary: createElement('p', null, 'supplied summary') },
+    views: { Conversation: createElement('p', null, 'supplied conversation') },
     footerComposer: createElement('form', { id: 'supplied-composer' }, 'composer'),
-    searchToolbar: createElement('div', { id: 'supplied-toolbar' }, 'toolbar'),
   }))
   assert.ok(!html.includes('<details'), 'no disclosure survives inside the card')
   assert.equal((html.match(/q2-magnet-view/g) ?? []).length, 1, 'exactly one scroll container')
-  assert.ok(html.includes('supplied summary'), 'the view slot renders what it is given')
+  assert.ok(html.includes('supplied conversation'), 'the view slot renders what it is given')
   assert.ok(html.includes('supplied-composer'), 'the footer composer slot renders what it is given')
-  assert.ok(html.includes('supplied-toolbar'), 'the search toolbar slot renders what it is given')
-  assert.ok(html.includes('Collect now'), 'the foot keeps Collect now')
   assert.ok(html.includes('role="tablist"'), 'the tabs slot is present on every tab')
   const frame = frameSource()
   for (const moved of ['postsSection', 'filesSection', 'BatchHistory', 'CollectionConfiguration', 'q2-magnet-scope', 'Workspace navigation', 'Move Magnet']) {
     assert.ok(!frame.includes(moved), `${moved} was moved out of the frame`)
   }
+  // The controls the approved design gives to the views are gone from the frame
+  // itself, not merely hidden: there is no prop for them and no markup.
+  for (const drawn of ['searchToolbar', 'q2-magnet-toolbar', 'q2-magnet-filters', 'resource.collect']) {
+    assert.ok(!frame.includes(drawn), `${drawn} is no longer the frame's`)
+  }
 })
 
-test('the settings overlay hides the composer and the search line, and disables Collect now', () => {
+test('the settings overlay shows only the overlay: no composer, and no control of a view’s', () => {
   store()
   const r = resource('mag-hybridoverlay')
   setOpen(r, true)
+  goTab(r, 'Conversation')
   openOverlay(r, 'settings')
   const html = renderToStaticMarkup(createElement(Magnet, {
     resource: r, onExpand: () => {}, onCollapse: () => {},
     views: { settings: createElement('p', null, 'supplied settings') },
     footerComposer: createElement('form', { id: 'supplied-composer' }, 'composer'),
-    searchToolbar: createElement('div', { id: 'supplied-toolbar' }, 'toolbar'),
   }))
   assert.ok(html.includes('supplied settings'))
   assert.ok(!html.includes('supplied-composer'), 'the composer is hidden in settings')
-  assert.ok(!html.includes('supplied-toolbar'), 'the search line is hidden in settings')
-  assert.match(html, /disabled=""[^>]*>Collect now<\/button>/, 'Collect now is disabled while settings is open')
+  assert.ok(!html.includes('type="search"'), 'no search line stands in settings')
+  assert.ok(!html.includes('Collect now'), 'collecting is not offered from the frame while settings is open')
 })
 
 test('a closed puck shows its name, and a count only once a read has returned', async () => {

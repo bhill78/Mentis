@@ -13,7 +13,7 @@ import Perspectives from './InquiryPanel'
 import EvidenceViews from './EvidenceViews'
 import Summary from './Summary'
 import SettingsView from './SettingsView'
-import SearchView, { SearchToolbar, backToResults } from './SearchView'
+import SearchView, { backToResults } from './SearchView'
 import Inspection, { withInspections } from './Inspection'
 import { inspect, setOpen } from './places'
 import { magnetWriteGate, useMagnetWrites } from './capabilities'
@@ -24,7 +24,6 @@ import { magnetName } from './configuration'
 import { listMagnets } from './managementApi'
 import { loadWorking, openedMagnets, saveOpenedMagnets } from './workingState'
 import { confirmBrain } from '../../brainBinding'
-import { READ_ONLY } from '../live'
 
 const get: MagnetGet = async (path, signal) => {
   const r = await fetch(path, { headers: CLIENT_HEADERS, signal, cache: 'no-store' })
@@ -128,12 +127,12 @@ export default function MagnetHost(p: MagnetHostProps) {
       // `withInspections` is what makes a citation in any tab -- Conversation and
       // Perspectives included -- render its evidence inside this card.
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
-        <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)}
-          searchToolbar={<SearchToolbar resource={r} />}
-          // H2's persistent composer, in the frame's footer slot: the card is
-          // written in from wherever the owner is, and the frame keeps it off
-          // settings. It writes through the same store the Conversation view
-          // reads, so `canWrite` is the one the view is given.
+        <Magnet resource={r} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)}
+          // The persistent composer, in the frame's footer slot. The frame
+          // pins it under the Conversation place only, as the approved design
+          // does, and still keeps it off settings. It writes through the same
+          // store the Conversation view reads, so `canWrite` is the one the
+          // view is given.
           footerComposer={<ComposerBar resource={r} canWrite={mayWrite} cannotWriteBecause={noWriteWhy} />}
           views={withInspections(r, {
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,

@@ -36,18 +36,21 @@ const s: MagnetSnapshot = { title: 'Colony fixture', loading: false, results: []
   searchListScroll: 0, lens: null, returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
   carried: null }
 const resource = { id: 'qm1', brainKey: 'fixture', saved: { id: 'mag-fixture', name: 'Colony fixture', config: { id: 'mag-fixture', sources: [{ kind: 'conversation', conversation: 'ent-source123' }], selection: {} } }, snapshot: () => s, subscribe: () => () => {}, update: () => {}, read: async () => {}, cancel: () => {}, dispose: () => {} } as unknown as MagnetResource
-/** The approved card: tabs always present, one composer slot in the footer. */
-const html = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {},
+/** The approved card: tabs always present, and the one composer slot pinned
+ *  under Conversation -- the only place any approved round-3 mockup gives a
+ *  standing compose box. */
+const conversing = { ...resource, snapshot: () => ({ ...s, tab: 'Conversation' }) } as unknown as MagnetResource
+const html = renderToStaticMarkup(createElement(Magnet, { resource: conversing, onExpand: () => {}, onCollapse: () => {},
   footerComposer: createElement('form', null, createElement('textarea', { 'aria-label': 'Message inside this Magnet' })) }))
 ok(html.includes('Perspectives'), 'Perspective tab remains available')
 ok(!html.includes('50 new') && !html.includes('6 changed'), 'reference mockup totals absent')
-ok(html.includes('Manual collection is not configured'), 'legacy collection setup is explicit')
+ok(!html.includes('Collect now'), 'the frame draws no Collect now: collecting is Collection’s Collect manually row')
 eq((html.match(/<textarea/g) ?? []).length, 1, 'the card renders exactly one composer textarea, in the footer slot')
 ok(html.indexOf('<textarea') > html.indexOf('q2-magnet-view'), 'the one composer is below the view, in the footer slot')
-for (const tab of ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation']) {
+for (const tab of ['Summary', 'All', 'Posts', 'Files', 'Perspectives']) {
   const each = renderToStaticMarkup(createElement(Magnet, { resource: { ...resource, snapshot: () => ({ ...s, tab }) } as unknown as MagnetResource,
     onExpand: () => {}, onCollapse: () => {}, footerComposer: createElement('form', null, createElement('textarea', null)) }))
-  ok(each.includes('<textarea'), `the composer is present on ${tab}`)
+  ok(!each.includes('<textarea'), `no composer is pinned under ${tab}`)
 }
 /** Workspace navigation lives in the Settings overlay, disclosed, with the
  *  removal relabelled: it is asked for explicitly and never stands in a view. */

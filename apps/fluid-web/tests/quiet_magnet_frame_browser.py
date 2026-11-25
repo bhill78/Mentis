@@ -8,7 +8,9 @@ B1  a success received while the footer is NOT mounted (the card closed, or
     the owner has attached since.
 B2  the persistent composer and the frame together leave a reading area that can
     actually be read, at 320x640, 390x844 and on the desktop, with the send
-    control and the collect control still inside the card.
+    control and the footer line still inside the card. The composer stands under
+    the Conversation place only now (the approved round-3 design), so that is
+    the place this is measured on.
 
 Synthetic HTTP only: no Brain, no agent, no server of the app's own.
 """
@@ -266,7 +268,10 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                 for fullness in ['typed', 'chip', 'sent']:
                     view.set_viewport_size({'width': width, 'height': height})
                     reset()
-                    tab('Summary')
+                    # The composer stands under Conversation and nowhere else
+                    # in the approved round-3 design, so that is where the
+                    # reading area has to hold both.
+                    tab('Conversation')
                     if fullness == 'chip':
                         view.evaluate("window.frame.resource.update({context: {ref: 'adm-context111', kind: 'file', label: 'a retained evidence file with a long label'}})")
                     box.fill('ordinary question')
@@ -274,7 +279,7 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                     if fullness == 'sent':
                         bar.locator('.fw-send-main').click()
                         view.wait_for_function('!!window.frame.store().sent')
-                        tab('Summary')
+                        tab('Conversation')
                         box.fill('ordinary question')
                     fit = view.evaluate("""() => {
                       const box = (s) => { const e = document.querySelector(s); if (!e) return null
@@ -282,7 +287,7 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                       const el = document.querySelector('.q2-magnet-view')
                       return { view: el.clientHeight, scrollable: el.scrollHeight > el.clientHeight,
                         card: box('.q2-magnet-card'), send: box('.q2-magnet-composer .fw-send-main'),
-                        collect: box('.q2-magnet-collection .q2-magnet-primary') }
+                        foot: box('.q2-magnet-hint') }
                     }""")
                     fit['viewport'] = f'{width}x{height}'
                     fit['state'] = fullness
@@ -292,8 +297,8 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                           f'the reading area is readable and scrolls at {width}x{height} ({fullness})', fit)
                     check(fit['send']['bottom'] <= fit['card']['bottom'] and fit['send']['top'] >= fit['card']['top'],
                           f'the send control is inside the card at {width}x{height} ({fullness})', fit['send'])
-                    check(fit['collect']['bottom'] <= fit['card']['bottom'],
-                          f'the collect control is still inside the card at {width}x{height} ({fullness})', fit['collect'])
+                    check(fit['foot']['bottom'] <= fit['card']['bottom'],
+                          f'the one footer line is still inside the card at {width}x{height} ({fullness})', fit['foot'])
             view.set_viewport_size({'width': 1440, 'height': 900})
             (OUT / 'frame.json').write_text(json.dumps({'collapsed': collapsed, 'geometry': geometry, 'checks': notes}, indent=2), encoding='utf-8')
             check(not errors, f'no browser JS errors: {errors}')

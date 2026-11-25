@@ -62,6 +62,11 @@ const backToResults = () => {
     places: { ...s.places, search: { ...placeAt(s, 'search'), scroll: s.searchListScroll } } })
 }
 
+/** The search line is a view's own control now, not the frame's: the approved
+ *  design draws it inside Collected items, under its heading. The harness puts
+ *  it at the top of the collection views so that typing, filtering, opening a
+ *  result and Back to results -- the navigations this harness exercises -- are
+ *  driven from where a reader actually reaches them. */
 function SearchLine() {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot)
   return <label className="q2-magnet-search">
@@ -114,10 +119,11 @@ const body = (words: string) => <div>{Array.from({ length: 30 }, (_, i) => <p ke
 Object.assign(window, { seam: { snapshot: () => resource.snapshot() } })
 createRoot(document.getElementById('root')!).render(<div className="q2 q2-arr-one">
   <div className="q2-magnet-canvas" style={{ height: '100vh', position: 'relative' }}>
-    <Magnet resource={resource} onExpand={() => {}} onCollapse={() => {}} searchToolbar={<SearchLine />}
+    <Magnet resource={resource} onExpand={() => {}} onCollapse={() => {}}
       views={{
-        Summary: body('Summary'), All: body('All'), Posts: body('Posts'), Files: body('Files'),
-        Perspectives: body('Perspectives'), Conversation: body('Conversation'), search: <Results />,
+        Summary: body('Summary'),
+        All: <><SearchLine />{body('All')}</>, Posts: <><SearchLine />{body('Posts')}</>, Files: <><SearchLine />{body('Files')}</>,
+        Perspectives: body('Perspectives'), Conversation: body('Conversation'), search: <><SearchLine /><Results /></>,
       }} />
   </div>
 </div>)
