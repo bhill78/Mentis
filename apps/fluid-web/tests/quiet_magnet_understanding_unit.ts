@@ -159,8 +159,13 @@ test('excerpts are the records’ own words, with provenance, and open the recor
   assert.equal(excerpts.length, 3)
   assert.ok(excerpts[0].text.startsWith('Calibration of the bench reference drifted by 37 microns'),
     'the excerpt is the captured characters, not a paraphrase')
-  assert.equal(excerpts[0].origin, `Conversation ${SOURCE}`)
-  assert.equal(excerpts[2].origin, 'Held file col-held / nested/calibration.txt')
+  // THE EXCERPT'S ORIGIN IS CLEAN (owner request ent-1e82a8786c37): it says what
+  // kind of record the words came from, and a held file's name, and carries no
+  // Conversation entry id or collection key. The exact captured key stays in the
+  // inspection's provenance disclosure, which `evidenceOrigin` still states.
+  assert.equal(excerpts[0].origin, 'Collected post')
+  assert.equal(excerpts[2].origin, 'Held file · nested/calibration.txt')
+  for (const e of excerpts) assert.ok(!/ent-[a-z0-9]{6,}|col-[a-z0-9]{6,}/.test(e.origin), `no raw identifier in "${e.origin}"`)
   assert.ok(excerpts.every((e) => !!e.title), 'each excerpt names the record it came from')
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(rendered.includes('In the records’ own words'))

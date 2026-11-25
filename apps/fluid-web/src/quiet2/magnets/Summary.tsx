@@ -24,7 +24,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
-import Inspection, { capturedText, evidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
+import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { goTab, inspect, openOverlay, place } from './places'
 import { resultTitle } from './EvidenceViews'
@@ -172,9 +172,14 @@ export function collectedSpan(results: RouteResult[]): { first: number; last: nu
 export interface Excerpt { id: string; title: string; origin: string; text: string }
 /** The records' own opening words, quoted. The one honest kind of "summary" a
  *  surface that has read nothing can offer: it shows the material instead of
- *  describing it, and every excerpt opens the record it came from. */
+ *  describing it, and every excerpt opens the record it came from.
+ *
+ *  Its `origin` is the clean one (`plainEvidenceOrigin`): the excerpts are the
+ *  Summary's own resting content, so they say what kind of record each came
+ *  from, never the recorded Conversation or collection id. The exact captured
+ *  key stays one press away, in the inspection's provenance disclosure. */
 export function collectedExcerpts(results: RouteResult[], limit = 4, length = 220): Excerpt[] {
-  return results.map((r) => ({ id: r.id, title: resultTitle(r), origin: evidenceOrigin(r),
+  return results.map((r) => ({ id: r.id, title: resultTitle(r), origin: plainEvidenceOrigin(r),
     text: (capturedText(r) || (typeof object(r.value).text === 'string' ? object(r.value).text : '')).replace(/\s+/g, ' ').trim().slice(0, length) }))
     .filter((e) => !!e.text).slice(0, limit)
 }

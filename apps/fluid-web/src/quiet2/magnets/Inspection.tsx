@@ -78,6 +78,25 @@ export function evidenceOrigin(r: RouteResult): string {
   return 'Captured source unstated'
 }
 
+/** THE ORIGIN A READER IS SHOWN, with no recorded identity in it.
+ *
+ *  `sourceLabel` and `evidenceOrigin` keep the exact captured key -- a
+ *  Conversation entry id, a collection key -- and they stay as they are: the
+ *  inspection's own provenance disclosure is where the owner asked for lineage
+ *  to remain readable (request ent-1e82a8786c37). A row, an excerpt or anything
+ *  else on the resting surface says what kind of thing the item came from, and
+ *  for a held file its file name, and never an id ("clean Collection rows ...
+ *  without raw identifiers or unnecessary technical symbols"). */
+export function plainEvidenceOrigin(r: RouteResult): string {
+  const held = object(r.value)
+  if ((r as RouteResult & { via?: string }).via === 'held-source')
+    return `Held file${typeof held.path === 'string' && held.path ? ` · ${held.path}` : ''}`
+  if (r.kind === 'post') return 'Collected post'
+  if (r.post) return 'Attached to a collected post'
+  if (r.conversation) return 'Collected from a Conversation'
+  return 'Captured source unstated'
+}
+
 /** The capture bounds, derived -- never a claim the collector did not record. */
 export function evidenceBounds(r: RouteResult): string {
   const v = object(r.value)

@@ -67,7 +67,8 @@
     "tests/quiet_magnet_inspect_citations_unit.ts",
     "tests/quiet_magnet_reading_position_unit.ts",
     "tests/decision_presentation_unit.ts",
-    "tests/quiet_magnet_collection_authority_unit.ts"
+    "tests/quiet_magnet_collection_authority_unit.ts",
+    "tests/quiet_magnet_clean_rows_unit.ts"
   ],
   "exclude": []
 }

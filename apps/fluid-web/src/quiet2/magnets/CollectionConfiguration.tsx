@@ -37,6 +37,23 @@ export const committedSettings = (config: MagnetConfig): StagedSettings => ({
   after: config.selection.dates?.after ?? '', before: config.selection.dates?.before ?? '', manual: false,
 })
 
+/** WHETHER THE STAGED COPY DIFFERS FROM WHAT IS SAVED.
+ *
+ *  A staged copy is taken as soon as the panel opens, so that Cancel has
+ *  something definite to discard; its existence is therefore not evidence that
+ *  anything was edited. Embedded in the Collection place (the approved mockup's
+ *  own Sources view) the panel is somewhere a reader simply looks, and
+ *  announcing "Unsaved changes" to someone who has changed nothing is exactly
+ *  the administrative noise the redesign removes (owner request
+ *  ent-1e82a8786c37). So the unsaved note and Cancel follow the comparison,
+ *  not the slot. */
+export const settingsEdited = (staged: StagedSettings, config: MagnetConfig): boolean => {
+  const saved = committedSettings(config)
+  const keys = (v: StagedSettings) => v.sources.map(sourceIdentity).join('\u0000')
+  return keys(staged) !== keys(saved) || staged.types.join('\u0000') !== saved.types.join('\u0000')
+    || staged.after !== saved.after || staged.before !== saved.before || staged.manual !== saved.manual
+}
+
 export default function CollectionConfiguration(p: { magnet: string; config: MagnetConfig; brainKey: string; canWrite(key: string): boolean; onSaved(config: MagnetConfig): void
   /** Embedded directly in the Collection place (approved mockup round 3,
    *  03-sources.png), beside `EvidenceViews`'s own toggle, rather than in the
@@ -49,6 +66,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const at = useMemo(() => ({ brainKey: p.brainKey, magnet: p.magnet }), [p.brainKey, p.magnet])
   const drafts = useSyncExternalStore((fn) => subscribePanelDrafts(at, fn), () => panelDrafts(at), () => panelDrafts(at))
   const staged = drafts.settings ?? committedSettings(p.config)
+  const edited = settingsEdited(staged, p.config)
   const edit = (change: Partial<StagedSettings>) => stageSettings(at, { ...staged, ...change })
   const { sources, types, after, before, manual } = staged
   const committedName = magnetName(p.config, '')
@@ -237,11 +255,11 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       <label>Saved location<select value={arrangement} disabled={locked} onChange={(e) => { setMessage(''); setArrangement(e.target.value) }}><option value="">Choose a saved location</option>{arrangements.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}{conversations.map((c) => <option key={c.id} value={c.id}>Conversation: {c.name}</option>)}</select></label>
     </details>
 
-    {drafts.settings && <p className="q2-magnet-muted">Unsaved changes. Save or cancel.</p>}
+    {edited && <p className="q2-magnet-muted">Unsaved changes. Save or cancel.</p>}
     {reading && <p role="status">{reading}</p>}{message && <p role="status">{message}</p>}
     <div className="q2-magnet-settings-actions">
       <button type="button" className="q2-magnet-primary" disabled={saving || !arrangement || !p.canWrite(arrangement) || !sendable} onClick={() => void save()}>{saving ? 'Saving…' : attempt.current ? 'Retry unchanged save' : 'Save collection configuration'}</button>
-      <button type="button" disabled={saving || (!drafts.settings && !renaming)} onClick={() => { setAlert(''); setName(committedName); setMessage('Staged configuration edits were discarded. Nothing was sent.'); discardStagedSettings(at) }}>Cancel configuration edits</button>
+      <button type="button" disabled={saving || (!edited && !renaming)} onClick={() => { setAlert(''); setName(committedName); setMessage('Staged configuration edits were discarded. Nothing was sent.'); discardStagedSettings(at) }}>Cancel configuration edits</button>
     </div>
   </section>
 }

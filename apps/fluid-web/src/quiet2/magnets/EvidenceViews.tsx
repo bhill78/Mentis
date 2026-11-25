@@ -15,7 +15,8 @@
  *
  *  Nothing here reads a live source: the rows are `resource.snapshot().results`,
  *  the batch `state.ts` read and `collectionRows` verified. */
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { CLIENT_HEADERS } from '../../api'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
 import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
@@ -39,14 +40,55 @@ function rowWhen(at?: number | null): string | null {
     ? `today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
     : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
+/* -- WHO, BY NAME ------------------------------------------------------------
+   The collection read states a post's author as the participant's recorded
+   entry id (`route.ts` `author`), which is exactly the raw identifier the
+   approved rows must not carry (owner request ent-1e82a8786c37; the mockup's
+   row reads "Alex · today, 10:31 AM"). The names come from the participants
+   read the conversation card already makes (`conversations/Tombstone.tsx`),
+   once per page, and nothing here reads a live source. A name that is not
+   known leaves the row saying what the item is, never the id. */
+let people: Promise<Map<string, string>> | null = null
+function readPeople(): Promise<Map<string, string>> {
+  people ??= fetch('/fluid/api/participants?limit=500', { headers: CLIENT_HEADERS })
+    .then((r) => (r.ok ? r.json() : { participants: [] }))
+    .then((j: { participants?: { id: string; alias: string }[] }) =>
+      new Map((j.participants ?? []).map((p) => [p.id, String(p.alias ?? '').replace(/^@/, '')])))
+    .catch(() => { people = null; return new Map<string, string>() })
+  return people
+}
+export function usePeople(): Map<string, string> {
+  const [named, setNamed] = useState<Map<string, string>>(new Map())
+  useEffect(() => {
+    let live = true
+    void readPeople().then((m) => { if (live) setNamed(m) })
+    return () => { live = false }
+  }, [])
+  return named
+}
+
 /** THE CLEAN ROW'S BYLINE (approved mockup round 3, 04-browse.png): who or
  *  what it was captured from, and when -- never a raw Conversation id, source
- *  key or recorded digest, which `evidenceOrigin` (Inspection.tsx) carries for
- *  the inspection's own provenance disclosure, not for a list row. */
-export function rowByline(r: RouteResult): string {
+ *  key, participant id or recorded digest, which `evidenceOrigin`
+ *  (Inspection.tsx) carries for the inspection's own provenance disclosure,
+ *  not for a list row. `named` is the participants read above; without it, or
+ *  for an author it does not name, the row says what the item is. */
+/** A recorded identity, in any of the record's own prefixed shapes. What the
+ *  collection read states as a post's `author` is one of these, and no row ever
+ *  shows one; a build that states a name there is shown as it is. */
+const RECORDED_ID = /^(?:ent|adm|col|mag|opr|def)-[a-z0-9]{6,}$/i
+
+export function rowByline(r: RouteResult, named?: Map<string, string>): string {
   const when = rowWhen(r.at)
   if (isHeldSource(r)) return ['Held file', when].filter(Boolean).join(' · ')
-  if (r.kind === 'post') return [r.author, when].filter(Boolean).join(' · ') || 'Collected post'
+  // The participants read states aliases with their leading @; a byline is a
+  // name, not a mention, and a caller that hands over an unstripped map gets
+  // the same clean row. Failing a name, the stated author is used only when it
+  // is not itself a recorded id -- so a row says a person where one is known,
+  // and what the item is otherwise, and an id in neither case.
+  const stated = r.author && !RECORDED_ID.test(r.author) ? r.author : undefined
+  const who = ((r.author ? named?.get(r.author) : undefined) ?? stated)?.replace(/^@/, '')
+  if (r.kind === 'post') return [who || 'Collected post', when].filter(Boolean).join(' · ')
   return [r.post ? 'From the collected post' : 'Collected file', when].filter(Boolean).join(' · ')
 }
 
@@ -103,13 +145,14 @@ export function SupportingItems({ resource, question, onOpen }: {
   onOpen(ref: string): void
 }) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
+  const named = usePeople()
   const { posts, files } = retainedItems(resource)
   const items = [...posts, ...files]
   return <section className="q2-magnet-supporting" aria-label="Supporting items">
     <h4>Supporting items</h4>
     {question && <p className="q2-magnet-muted">For “{question}”</p>}
     {items.length ? <ul className="q2-magnet-items">{items.map((r) => <li key={`${r.kind}:${r.id}`}>
-      <p className="q2-magnet-supporting-head"><strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {rowByline(r)}</small></p>
+      <p className="q2-magnet-supporting-head"><strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {rowByline(r, named)}</small></p>
       {resultPreview(r) && <p className="q2-magnet-quote">“{resultPreview(r)}”</p>}
       <button type="button" className="q2-magnet-link" onClick={() => onOpen(r.id)}>Open this item</button>
     </li>)}</ul>
@@ -143,6 +186,7 @@ export interface EvidenceViewsProps {
 
 export default function EvidenceViews({ resource, lens, onPost, canWrite }: EvidenceViewsProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
+  const named = usePeople()
   const here = place(s)
   const posts = s.results.filter((r) => r.kind === 'post')
   const files = retainedFiles(s.results)
@@ -160,7 +204,7 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
         <span className="q2-magnet-row-text">
           <strong>{resultTitle(r)}</strong>
           {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
-          <small className="q2-magnet-muted">{rowByline(r)}</small>
+          <small className="q2-magnet-muted">{rowByline(r, named)}</small>
         </span>
       </button>
       {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
