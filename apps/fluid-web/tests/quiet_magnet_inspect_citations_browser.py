@@ -95,10 +95,12 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             expect(inspection).to_be_visible()
             view.evaluate('e=>e.scrollTop=120')
             page.wait_for_timeout(150)
-            card.get_by_role('button', name='Expand Magnet', exact=True).click()
+            edge = card.locator('.q2-magnet-resize-e').bounding_box()
+            x, y = edge['x'] + edge['width'] / 2, edge['y'] + edge['height'] / 2
+            page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x + 100, y, steps=5); page.mouse.up()
             page.wait_for_timeout(150)
             check(saved(page, 'Posts')['scroll'] == listed,
-                  'the width toggle while inspecting leaves the list position alone')
+                  'resizing while inspecting leaves the list position alone')
             search = card.get_by_role('searchbox', name='Search this Magnet')
             search.fill('retained')
             page.wait_for_timeout(150)

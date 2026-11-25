@@ -8,6 +8,14 @@
 .q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
 /* The card is a column; `.q2-magnet-view` is the one scroll container. */
 .q2 .q2-magnet-card{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:contain;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
+.q2 .q2-magnet-resize{position:absolute;z-index:5;touch-action:none;user-select:none}
+.q2 .q2-magnet-resize-n,.q2 .q2-magnet-resize-s{left:12px;right:12px;height:8px;cursor:ns-resize}
+.q2 .q2-magnet-resize-n{top:0}.q2 .q2-magnet-resize-s{bottom:0}
+.q2 .q2-magnet-resize-e,.q2 .q2-magnet-resize-w{top:12px;bottom:12px;width:8px;cursor:ew-resize}
+.q2 .q2-magnet-resize-e{right:0}.q2 .q2-magnet-resize-w{left:0}
+.q2 .q2-magnet-resize-ne,.q2 .q2-magnet-resize-nw,.q2 .q2-magnet-resize-se,.q2 .q2-magnet-resize-sw{width:18px;height:18px}
+.q2 .q2-magnet-resize-ne{right:0;top:0;cursor:nesw-resize}.q2 .q2-magnet-resize-sw{left:0;bottom:0;cursor:nesw-resize}
+.q2 .q2-magnet-resize-nw{left:0;top:0;cursor:nwse-resize}.q2 .q2-magnet-resize-se{right:0;bottom:0;cursor:nwse-resize}
 /* The reading area keeps a floor of its own, as the approved preview gives it
    (`.view{min-height:70px}` there): with a persistent composer in the footer
    slot, the furniture around it must not be able to take the whole card and

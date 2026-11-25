@@ -19,6 +19,10 @@ const num = (v: unknown): number | null => typeof v === 'number' && Number.isFin
 const text = (v: unknown, max: number): string | null => typeof v === 'string' && v.length <= max ? v : null
 const ref = (v: unknown): string | null => typeof v === 'string' && v.length > 0 && v.length < 300 ? v : null
 const flag = (v: unknown): boolean | null => typeof v === 'boolean' ? v : null
+const dimensionsOf = (v: unknown): { width: number; height: number } | undefined => {
+  const o = obj(v), width = num(o?.width), height = num(o?.height)
+  return width && height ? { width, height } : undefined
+}
 
 /** v1 named the first tab `Overview`; the approved design names it `All`. */
 const tabOf = (v: unknown): MagnetTab | null => v === 'Overview' ? 'All' : isMagnetTab(v) ? v : null
@@ -157,6 +161,7 @@ export function loadWorking(brainKey: string, id: string): Partial<MagnetSnapsho
       ...(tabOf(v.tab) ? { tab: tabOf(v.tab)! } : {}),
       ...(flag(v.open) !== null ? { open: v.open as boolean } : {}),
       ...(flag(v.wide) !== null ? { wide: v.wide as boolean } : {}),
+      ...(dimensionsOf(v.dimensions) ? { dimensions: dimensionsOf(v.dimensions) } : {}),
       overlay: overlayOf(v.overlay),
       ...(places ? { places } : {}),
       ...(text(v.query, 1000) !== null ? { query: v.query as string } : {}),
@@ -181,7 +186,7 @@ export function saveWorking(brainKey: string, id: string, s: MagnetSnapshot) {
     const key = workingKey(brainKey)
     if (!key) return
     localStorage.setItem(`${key}:${id}`, JSON.stringify({
-      x: s.x, y: s.y, open: s.open, wide: s.wide, tab: s.tab, overlay: s.overlay, places: s.places,
+      x: s.x, y: s.y, open: s.open, wide: s.wide, dimensions: s.dimensions, tab: s.tab, overlay: s.overlay, places: s.places,
       query: s.query, searchType: s.searchType, searchTarget: s.searchTarget, searchListScroll: s.searchListScroll,
       lens: s.lens, returnRoute: s.returnRoute, settingsReturn: s.settingsReturn,
       context: contextStored(s.context),

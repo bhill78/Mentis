@@ -226,9 +226,39 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                       f'collapsed {label} card gives about two-thirds of its height to content at 2048x927', fit)
                 return fit
 
-            collapsed = [collapsed_geometry('compact')]
-            view.get_by_role('button', name='Expand Magnet', exact=True).click()
-            collapsed.append(collapsed_geometry('expanded'))
+            collapsed = [collapsed_geometry('default')]
+
+            # Drag opposite edges and a corner, then reopen and reload.
+            def drag_edge(edge, dx, dy):
+                handle = card.locator('.q2-magnet-resize-' + edge).bounding_box()
+                x, y = handle['x'] + handle['width'] / 2, handle['y'] + handle['height'] / 2
+                view.mouse.move(x, y)
+                view.mouse.down()
+                view.mouse.move(x + dx, y + dy, steps=5)
+                view.mouse.up()
+
+            drag_edge('e', 140, 0)
+            drag_edge('s', 0, -100)
+            drag_edge('nw', 50, 40)
+            chosen = state()['dimensions']
+            check(chosen['width'] == 740 and chosen['height'] == 510, 'edges and corner resize the card', chosen)
+            view.get_by_role('button', name='Close Magnet', exact=True).click()
+            view.locator('.q2-magnet-puck').click()
+            check(state()['dimensions'] == chosen, 'chosen dimensions survive closing and reopening')
+            view.reload()
+            expect(card).to_be_visible()
+            check(state()['dimensions'] == chosen, 'chosen dimensions survive reload')
+            view.set_viewport_size({'width': 390, 'height': 500})
+            view.wait_for_timeout(100)
+            bounds = card.bounding_box()
+            check(bounds['x'] >= 0 and bounds['y'] >= 0 and bounds['x'] + bounds['width'] <= 390 and bounds['y'] + bounds['height'] <= 500,
+                  'the resized card stays inside a smaller viewport', bounds)
+            check(state()['dimensions'] == chosen, 'viewport clamping retains the chosen dimensions')
+            view.set_viewport_size({'width': 2048, 'height': 927})
+            view.wait_for_timeout(100)
+            bounds = card.bounding_box()
+            check(round(bounds['width']) == chosen['width'] and round(bounds['height']) == chosen['height'],
+                  'the chosen dimensions return when space is available', bounds)
 
             # -- B2: a reading area that can be read, at every size -----------
             geometry = []

@@ -66,7 +66,7 @@ test('Summary, Perspectives and Conversation are primary; the collection is one 
   }
   assert.ok(!open.includes('q2-magnet-filters'), 'the type filters cost no row outside the collection')
   assert.ok(open.includes('aria-label="Magnet settings"'), 'the header gear is icon-only with an accessible name')
-  assert.ok(open.includes('aria-label="Expand Magnet"') && open.includes('aria-label="Close Magnet"'))
+  assert.ok(open.includes('q2-magnet-resize-se') && open.includes('aria-label="Close Magnet"'))
   assert.ok(!open.includes('>Settings<'), 'the gear has no visible Settings text')
   // The collection: one place, three filters, each its own lens place.
   goTab(r, 'All')
@@ -125,7 +125,16 @@ test('an unsent draft survives close and reopen', () => {
   assert.equal(miniComposerDraft(r).text, 'words not yet sent')
 })
 
-test('the size button is a width only', () => {
+test('legacy width preference and per-Magnet dimensions survive recreation', () => {
+  const mem = store()
+  const a = resource('mag-sizea'), b = resource('mag-sizeb')
+  a.update({ dimensions: { width: 720, height: 520 } })
+  assert.deepEqual(resource('mag-sizea').snapshot().dimensions, { width: 720, height: 520 })
+  assert.equal(b.snapshot().dimensions, undefined)
+  mem.set(keyFor('mag-sizeb'), JSON.stringify({ open: false, wide: true }))
+  assert.equal(resource('mag-sizeb').snapshot().wide, true)
+  assert.equal(cardGeometry(50, 105, 1440, 900, true, a.snapshot().dimensions).width, 720)
+  assert.equal(cardGeometry(50, 105, 390, 400, false, a.snapshot().dimensions).maxHeight, 376)
   const narrow = cardGeometry(50, 105, 1440, 900, false)
   const wide = cardGeometry(50, 105, 1440, 900, true)
   assert.equal(narrow.width, 650)

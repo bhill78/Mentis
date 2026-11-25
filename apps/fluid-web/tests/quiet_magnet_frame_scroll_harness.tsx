@@ -85,7 +85,7 @@ function Results() {
         {back}
       </div>
       <h3 id="result-title" tabIndex={-1}>{shown?.title ?? 'result'}</h3>
-      <p className="q2-magnet-result-text">{(shown?.text ?? '').repeat(80)}</p>
+      <p className="q2-magnet-result-text">{(shown?.text ?? '').repeat(200)}</p>
     </section>
   }
   return <section aria-label="Search results">

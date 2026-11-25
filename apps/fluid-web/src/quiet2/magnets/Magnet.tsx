@@ -52,12 +52,12 @@ export function clampPuck(x: number, y: number, width: number, height: number) {
 
 /** Keep the card joined to its puck, flipping at the edge rather than detaching.
  *  `wide` is a width only: the card's content never changes with it. */
-export function cardGeometry(x: number, y: number, width: number, height: number, wide = false) {
-  const want = width <= NARROW ? width - GAP * 2 : wide ? WIDTHS.wide : WIDTHS.narrow
+export function cardGeometry(x: number, y: number, width: number, height: number, wide = false, dimensions?: { width: number; height: number }) {
+  const want = dimensions?.width ?? (width <= NARROW ? width - GAP * 2 : wide ? WIDTHS.wide : WIDTHS.narrow)
   const cardWidth = Math.min(want, Math.max(0, width - GAP * 2))
   const right = x + 32 + cardWidth > width - GAP
   const left = right ? Math.max(GAP - x, PUCK - 32 - cardWidth) : Math.min(32, width - GAP - x - cardWidth)
-  const maxHeight = Math.max(80, Math.min(wide ? 740 : 650, height - GAP * 2))
+  const maxHeight = Math.max(0, Math.min(dimensions?.height ?? (wide ? 740 : 650), height - GAP * 2))
   const top = Math.max(GAP - y, Math.min(0, height - GAP - y - maxHeight))
   return { left, top, width: cardWidth, maxHeight, flip: right }
 }
@@ -115,6 +115,8 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const waiting = useRef<{ el: HTMLDivElement; want: number } | null>(null)
   const puck = useRef<HTMLButtonElement>(null)
   const drag = useRef<{ pointer: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
+  const resizing = useRef<{ pointer: number; x: number; y: number; left: number; top: number; width: number; height: number; edge: string } | null>(null)
+  const [resizePosition, setResizePosition] = useState<{ left: number; top: number } | null>(null)
   const suppress = useRef(false)
   /** The position the view container last reported through its scroll handler,
    *  kept with the element so a remounted card restores its saved position
@@ -140,7 +142,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   // Never fabricate a count: unknown until a retained read has returned.
   const counted = s.activation !== undefined ? posts.length + files.length : null
   const here = place(s)
-  const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.wide)
+  const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.wide, s.dimensions)
   const placeKey = placeKeyOf(s)
   const wantScroll = magnetScroll(s)
   /** The opened search result is a surface of its own inside the search place,
@@ -189,6 +191,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     const resized = () => {
       const r = parent.getBoundingClientRect()
       setSize({ width: r.width, height: r.height })
+      setResizePosition(null)
       const now = resource.snapshot(), p = clampPuck(now.x, now.y, r.width, r.height)
       if (p.x !== now.x || p.y !== now.y) resource.update(p)
     }
@@ -213,6 +216,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const focusPuck = () => requestAnimationFrame(() => puck.current?.focus({ preventScroll: true }))
   /** The header × closes the card. It never removes the Magnet. */
   const closeCard = () => {
+    setResizePosition(null)
     remember(resource)
     resource.cancel()
     setOpen(resource, false)
@@ -240,6 +244,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     setDragging(true)
     suppress.current = true
     resource.update(clampPuck(d.startX + dx, d.startY + dy, size.width, size.height))
+    setResizePosition(null)
   }
   const end = (e: ReactPointerEvent<HTMLButtonElement>, cancel = false) => {
     const d = drag.current
@@ -262,6 +267,34 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const collectedWhen = s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : null
   const collectWhy = collectedWhen ?? (collectable ? 'Not collected yet' : 'Manual collection is not configured')
 
+  const resizeDown = (e: ReactPointerEvent<HTMLDivElement>, edge: string) => {
+    if (e.button !== 0) return
+    e.preventDefault(); e.stopPropagation()
+    resizing.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY,
+      left: s.x + (resizePosition?.left ?? geometry.left), top: s.y + (resizePosition?.top ?? geometry.top),
+      width: geometry.width, height: geometry.maxHeight, edge }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const resizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = resizing.current
+    if (!d || d.pointer !== e.pointerId) return
+    const dx = e.clientX - d.x, dy = e.clientY - d.y
+    const minWidth = Math.min(300, Math.max(0, size.width - GAP * 2))
+    const minHeight = Math.min(320, Math.max(0, size.height - GAP * 2))
+    let left = d.left, top = d.top, right = d.left + d.width, bottom = d.top + d.height
+    if (d.edge.includes('w')) left = Math.max(GAP, Math.min(right - minWidth, d.left + dx))
+    if (d.edge.includes('e')) right = Math.min(size.width - GAP, Math.max(left + minWidth, right + dx))
+    if (d.edge.includes('n')) top = Math.max(GAP, Math.min(bottom - minHeight, d.top + dy))
+    if (d.edge.includes('s')) bottom = Math.min(size.height - GAP, Math.max(top + minHeight, bottom + dy))
+    setResizePosition({ left: left - s.x, top: top - s.y })
+    resource.update({ dimensions: { width: right - left, height: bottom - top } })
+  }
+  const resizeEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (resizing.current?.pointer !== e.pointerId) return
+    resizing.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+  }
+
   return <div ref={root} className={`q2-magnet${open ? ' q2-magnet-expanded' : ''}${s.wide ? ' q2-magnet-wide' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
     data-magnet={saved.id} style={{ left: s.x, top: s.y }}
     onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); escape() } }}>
@@ -282,7 +315,9 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     </div>
     {!open && <span className="q2-magnet-rest-title" title={title} style={{ marginLeft: restTitleOffset(s.x, size.width) }}>{title}{counted !== null && <><br /><small>{counted} collected items</small></>}</span>}
     {open && <section id={cardId} role="region" aria-label={`${title} Magnet`} className="q2-magnet-card"
-      style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
+      style={{ left: resizePosition?.left ?? geometry.left, top: resizePosition?.top ?? geometry.top, width: geometry.width, height: geometry.maxHeight } as CSSProperties}>
+      {['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((edge) => <div key={edge} className={`q2-magnet-resize q2-magnet-resize-${edge}`}
+        aria-hidden="true" onPointerDown={(e) => resizeDown(e, edge)} onPointerMove={resizeMove} onPointerUp={resizeEnd} onPointerCancel={resizeEnd} />)}
       <header>
         <div className="q2-magnet-head-text">
           <h2 title={title} tabIndex={0}>{title}</h2>
@@ -293,8 +328,6 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         </div>
         <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
           onClick={() => s.overlay === 'settings' ? leaveSettings(resource) : openOverlay(resource, 'settings')}><span aria-hidden="true">⚙</span></button>
-        <button type="button" className="q2-magnet-icon" aria-label={s.wide ? 'Compact Magnet' : 'Expand Magnet'} title={s.wide ? 'Compact Magnet' : 'Expand Magnet'}
-          onClick={() => { remember(resource); resource.update({ wide: !s.wide }) }}><span aria-hidden="true">⤢</span></button>
         <button type="button" className="q2-magnet-icon q2-magnet-dismiss" aria-label="Close Magnet" title="Close Magnet" onClick={closeCard}>×</button>
       </header>
       <nav className="q2-magnet-tabs" role="tablist" aria-label="Magnet views">

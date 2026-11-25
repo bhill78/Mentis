@@ -112,7 +112,7 @@ export interface MagnetSnapshot {
   activation?: { post: string; artifact: { ref: string; digest?: string; size?: number; media_type?: string }; at: number; state: string } | null
   collecting?: boolean; collectionMessage?: string
   // persisted working state (localStorage; workingState.ts maps v1 onto exactly these)
-  x: number; y: number; open: boolean; wide: boolean; tab: MagnetTab; overlay: MagnetOverlay
+  x: number; y: number; open: boolean; wide: boolean; dimensions?: { width: number; height: number }; tab: MagnetTab; overlay: MagnetOverlay
   places: Record<MagnetPlaceKey, MagnetPlace>
   query: string; searchType: MagnetSearchType; searchTarget: MagnetSearchTarget | null; searchListScroll: number
   lens: string | null

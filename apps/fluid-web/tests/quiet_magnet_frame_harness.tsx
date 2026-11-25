@@ -15,6 +15,7 @@ import ComposerBar from '../src/quiet2/magnets/ComposerBar'
 import { Layer } from '../src/fluid/frame/layer'
 import { page } from '../src/brainBinding'
 import { emptyPlaces } from '../src/quiet2/magnets/places'
+import { loadWorking, saveWorking } from '../src/quiet2/magnets/workingState'
 import { miniConversationOf } from '../src/quiet2/magnets/conversation'
 import '../src/theme.css'
 import '../src/app.css'
@@ -31,12 +32,12 @@ const empty = new URLSearchParams(location.search).has('empty')
 let state: any = { title: 'Frame Magnet', loading: false, results: [], x: 12, y: 12, open: true, wide: false,
   tab: 'Summary', overlay: null, places: emptyPlaces(), query: '', searchType: 'All', searchTarget: null,
   searchListScroll: 0, lens: null, returnRoute: null, settingsReturn: null, context: null,
-  contextSuppressed: false, carried: null }
+  contextSuppressed: false, carried: null, ...loadWorking('http://synthetic.invalid||frame-corpus', 'mag-frame') }
 const heard = new Set<() => void>()
 const r: any = { id: 'frame-browser', brainKey: 'http://synthetic.invalid||frame-corpus',
   saved: { id: 'mag-frame', name: 'Frame Magnet', config: { conversation: OWN, sources: [{ kind: 'conversation', conversation: 'ent-framesource' }] } },
   snapshot: () => state, subscribe: (fn: () => void) => { heard.add(fn); return () => heard.delete(fn) },
-  update: (change: any) => { state = { ...state, ...change }; heard.forEach((fn) => fn()); (window as any).frame?.notify?.() },
+  update: (change: any) => { state = { ...state, ...change }; saveWorking(r.brainKey, r.saved.id, state); heard.forEach((fn) => fn()); (window as any).frame?.notify?.() },
   read: async () => {}, cancel: () => {}, dispose: () => {} }
 const turn = (n: number, text = `Frame post ${n}.`) => ({ id: `ent-framepost${n}11`, number: n, author: ME,
   author_alias: '@fixture', at: 1795000000, parts: [{ type: 'text', text }], replies: [], thread_replies: 0, expectations: [] })

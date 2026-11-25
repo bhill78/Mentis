@@ -110,16 +110,15 @@ with (ROOT / 'quiet-magnet-puck-browser.log').open('w', encoding='utf-8') as log
             page.mouse.move(1100, 20)
             check(page.get_by_role('region').count() == 1, 'Enter on the puck opens the same card')
 
-            # The size button is a width only: tabs and composer stay.
+            # Resizing changes the frame, not the tabs or composer.
             width_before = page.locator('.q2-magnet-card').bounding_box()['width']
-            page.get_by_role('button', name='Expand Magnet', exact=True).click()
+            edge = page.locator('.q2-magnet-resize-e').bounding_box()
+            x, y = edge['x'] + edge['width'] / 2, edge['y'] + edge['height'] / 2
+            page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x + 100, y, steps=5); page.mouse.up()
             page.wait_for_timeout(80)
             width_after = page.locator('.q2-magnet-card').bounding_box()['width']
-            check(width_after > width_before, 'the size button widens the card')
+            check(width_after > width_before, 'dragging the edge widens the card')
             check(page.get_by_role('tab').count() == 4 and page.locator('#message').count() == 1, 'widening changes no content')
-            page.get_by_role('button', name='Compact Magnet', exact=True).click()
-            page.wait_for_timeout(80)
-            check(abs(page.locator('.q2-magnet-card').bounding_box()['width'] - width_before) < 2, 'compacting returns the width')
 
             # Settings is an overlay place: the composer and search line go, the
             # removal is here -- disclosed, because it is the dangerous one.
