@@ -12,12 +12,6 @@
 
 .q2-magnet-work { display: grid; gap: 18px; align-items: start; }
 .q2-magnet-work-main { min-width: 0; }
-/* Wide enough for two readable columns: the work keeps the room, past questions
-   sit beside it. Below that they stack, and past questions come after the work. */
-@container perspectives (min-width: 520px) {
-  .q2-magnet-work { grid-template-columns: minmax(0, 1fr) minmax(170px, 15rem); gap: 26px; }
-}
-
 /* The question being explored. Quiet panel, the words themselves at reading size. */
 .q2-magnet-asked { margin: 2px 0 12px; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); }
 .q2-magnet-asked .q2-magnet-eyebrow { margin: 0 0 3px; }
@@ -66,3 +60,9 @@
 .q2-magnet-why { margin: 16px 0 4px; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); }
 .q2-magnet-why h5 { margin: 0 0 3px; font-size: 13px; font-weight: 600; }
 .q2-magnet-why .q2-magnet-muted { margin: 0; }
+
+.q2-magnet-perspectives .q2-magnet-section-title { align-items: flex-start; }
+.q2-magnet-perspectives .q2-magnet-section-title h3 { margin: 3px 0 0; }
+.q2-magnet-perspectives .q2-magnet-section-title .q2-magnet-eyebrow { margin: 0; }
+.q2-magnet-past-row { padding: 12px 0; }
+.q2-magnet-ask textarea { min-height: 76px; }

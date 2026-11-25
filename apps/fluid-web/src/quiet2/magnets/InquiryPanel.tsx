@@ -106,7 +106,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   // Opened on request, and only one of them at a time: the supporting items
   // take the working area the way the mockups open them, and give it back.
   const [opened, setOpened] = useState<'support' | null>(null)
-  const [find, setFind] = useState('')
+  const [find, setFind] = useState(''), [browsing, setBrowsing] = useState(false)
   const ask = useRef<HTMLTextAreaElement>(null)
   const viewed = s.viewedDetail, saved = viewed?.current_question
   const topic = viewed?.perspective ?? ''
@@ -127,7 +127,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   const wording = (e: typeof s.events[number]) => typeof e.data.text === 'string' ? e.data.text : typeof e.data.name === 'string' ? e.data.name : null
   const told = recordedUnderstanding(s.events)   // what the record holds, derived from nothing
   const past = pastQuestions(s.rows, find)
-  const asked = s.selectedDetail?.current_question?.text ?? viewed?.current_question?.text ?? ''
+  const asked = viewed?.current_question?.text ?? (s.viewed === s.selected ? s.selectedDetail?.current_question?.text : '') ?? ''
 
   /* THE SUPPORTING ITEMS TAKE THE WORKING AREA WHILE THEY ARE OPEN, and give it
      straight back (mockup 06). Opening one of them goes through the card's one
@@ -141,12 +141,12 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
 
   return <section className="q2-magnet-config q2-magnet-perspectives" aria-label="Perspectives">
     <div className="q2-magnet-section-title">
-      <h3 id="inquiry-title" tabIndex={-1}>Perspectives</h3>
-      {s.rows.length > 0 && <span className="q2-magnet-view-meta">{s.rows.length} {s.rows.length === 1 ? 'question' : 'questions'}</span>}
+      <div><p className="q2-magnet-eyebrow">Perspectives</p><h3 id="inquiry-title" tabIndex={-1}>{browsing ? 'Past questions' : asked ? 'Your question' : 'Explore a question'}</h3></div>
+      {s.rows.length > 0 && <button type="button" className="q2-magnet-link" onClick={() => setBrowsing(!browsing)}>{browsing ? 'Back to current ?' : 'Past questions ?'}</button>}
     </div>
 
     <div className="q2-magnet-work">
-      <div className="q2-magnet-work-main">
+      {!browsing && <div className="q2-magnet-work-main">
 
         {/* THE QUESTION BEING EXPLORED, and what is understood of it so far. */}
         {asked ? <>
@@ -161,18 +161,19 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                 {e.data.answer?.ref && <button type="button" className="q2-magnet-link" onClick={() => onEvidence(e.data.answer.ref)}>View the recorded answer</button>}</li>)}
               {told.challenges.map((e) => <li key={`c:${e.post}`}><strong>Recorded challenge</strong>{wording(e) !== null && <p>{wording(e)}</p>}</li>)}
             </ul> : <p className="q2-magnet-muted">{NOTHING_RECORDED_YET}</p>}
+            {s.next && <button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void run(() => store.history(s.next!))}>Load earlier answers and history</button>}
             <FutureMark />
             <button type="button" className="q2-magnet-link" onClick={() => setOpened('support')}>Explore supporting items ↗</button>
           </section>
           {/* The one action that carries this question into the Conversation. */}
-          <button type="button" className="q2-magnet-primary" disabled={!canWrite || !s.selected || busy || !!s.pending} onClick={() => void run(async () => { await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss selected question</button>
-          <p className="q2-magnet-muted">{DISCUSS_IS_ORDINARY}</p>
+          <button type="button" className="q2-magnet-primary" disabled={!canWrite || !viewed || viewed.retired || busy || !!s.pending} onClick={() => void run(async () => { if (viewed && viewed.perspective !== s.selected) await store.select(viewed.perspective); await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss this question ?</button>
+          <p className="q2-magnet-muted">Discussion does not read your collected items.</p>
         </> : <section className="q2-magnet-start" aria-label="Where to start">
           <h4>Explore what you’ve collected</h4>
           <p className="q2-magnet-muted">Ask a question or put a hypothesis in your own words. It is kept with this Magnet, so you can come back to it and to whatever was said about it.</p>
           {/* What discussing a question will and will not do, said once, before
               there is a question to offer it on. */}
-          <p className="q2-magnet-muted">{DISCUSS_IS_ORDINARY}</p>
+          <p className="q2-magnet-muted">Discussion does not read your collected items.</p>
         </section>}
 
         {/* ASK: one box, one press, no name and no configuration. With a
@@ -185,8 +186,12 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             <div className="q2-magnet-ask-actions">
               <button type="button" className="q2-magnet-primary" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
                 await act('create', { name: suggested, question: drafts.question })
+                if (!store.snapshot().pending) { clearQuestionDraft(at); await discussSelectedQuestion(resource, store) }
+              })}>Ask ?</button>
+              <button type="button" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
+                await act('create', { name: suggested, question: drafts.question })
                 if (!store.snapshot().pending) clearQuestionDraft(at)
-              })}>Create this question</button>
+              })}>Save for later</button>
               {/* A follow-up IS a question branched from this one: the same verb,
                   offered where a follow-up is written rather than under the
                   administrative heading. */}
@@ -194,34 +199,34 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             </div>
           </fieldset>
         </section>
-      </div>
+      </div>}
 
       {/* PAST QUESTIONS, beside the work where there is room and under it where
           there is not. Returning to one is a press; which one is durably active
           stays the lens's own choice. */}
-      <aside className="q2-magnet-past" aria-label="Past questions">
-        <h4>Past questions</h4>
-        {s.rows.length > 1 && <label>Find a question<input type="search" aria-label="Find a question" value={find} onChange={(e) => setFind(e.target.value)} /></label>}
+      {browsing && <aside className="q2-magnet-past" aria-label="Past questions">
+        <p className="q2-magnet-muted">Return to a question and see what was recorded.</p>
+        {s.rows.length > 0 && <label>Find a question<input type="search" aria-label="Find a question" value={find} onChange={(e) => setFind(e.target.value)} /></label>}
         {past.length ? <ul className="q2-magnet-past-list">{past.map((p) => <li key={p.perspective}>
-          <button type="button" className="q2-magnet-past-row" aria-current={p.perspective === (s.viewed ?? s.selected) ? 'true' : undefined} disabled={busy} onClick={() => void run(() => store.view(p.perspective))}>
-            <span className="q2-magnet-row-text"><strong>{p.name}</strong><small className="q2-magnet-muted">{questionSubtitle(p, s.selected)}</small></span>
+          <button type="button" className="q2-magnet-past-row" aria-current={p.perspective === (s.viewed ?? s.selected) ? 'true' : undefined} disabled={busy} onClick={() => void run(async () => { await store.view(p.perspective); setBrowsing(false) })}>
+            <span className="q2-magnet-row-text"><strong>{p.current_question?.text || p.name}</strong><small className="q2-magnet-muted">{questionSubtitle(p, s.selected)}</small></span>
             <span aria-hidden="true">→</span>
           </button>
         </li>)}</ul>
           : <p className="q2-magnet-muted">{s.rows.length ? 'No saved question matches those words.' : 'No questions saved here yet.'}</p>}
-        <button type="button" className="q2-magnet-link" onClick={() => ask.current?.focus()}>+ Ask something new</button>
-        <LensSelector resource={resource} canWrite={canWrite && !busy} />
-      </aside>
+        {s.listNext && <button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void run(() => store.read(s.listNext!))}>More questions</button>}
+        <button type="button" className="q2-magnet-link" onClick={() => { setBrowsing(false); setTimeout(() => ask.current?.focus(), 0) }}>+ Ask something new</button>
+        </aside>}
     </div>
 
     {s.pending && <p role="status">Uncertain {s.pending.kind} action for {s.pending.target ?? 'a new question'}; its original wording, target and operation key are kept. <button type="button" disabled={!canWrite || busy} onClick={() => void run(async () => { await store.retryPending(); setMessage(store.snapshot().error ?? 'Original question action saved.') })}>Retry unchanged question action</button></p>}
-    {message && <p role="status">{message}</p>}
+    {(message || s.error) && <p role="status">{message || s.error}</p>}
 
     {/* BELOW THE WORK: what only administers a question, and the wording it
         has had. Both are shut until they are asked for; nothing was removed. */}
     <details className="q2-magnet-secondary-actions" aria-label="Manage this question" onKeyDown={suspend}>
       <summary>{viewed ? <>More about “{viewed.name}”</> : 'More about a question'}</summary>
-      <label>View question history<select aria-label="View question history" value={s.viewed ?? s.selected ?? ''} disabled={busy} onChange={(e) => { if (e.target.value) void run(() => store.view(e.target.value)) }}><option value="">Choose a question</option>{s.rows.map((p) => <option key={p.perspective} value={p.perspective}>{p.name}{p.retired ? ' (retired)' : ''}</option>)}</select></label>
+      <LensSelector resource={resource} canWrite={canWrite && !busy} />
       {viewed && <>
         <p className="q2-magnet-muted">Viewing this question does not select it as the active Perspective.</p>
         <p>Saved wording: {saved?.text}</p>
