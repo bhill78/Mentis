@@ -23,7 +23,7 @@ const entryId = (v: unknown): v is string => typeof v === 'string' && ENTRY.test
 const object = (v: unknown): Record<string, unknown> | null =>
   v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
 
-export const NO_OWN_CONVERSATION = 'Create a Conversation for this Magnet to keep your posts, questions and agent replies together.'
+export const NO_OWN_CONVERSATION = 'Explore this Magnet’s information through questions, replies and shared evidence.'
 export const OWN_IS_A_SOURCE = 'This Magnet’s saved Conversation is one of the sources it collects from, '
   + 'so it is not a Conversation of its own. Nothing here creates, repairs or substitutes one.'
 export const UNREADABLE_DEFINITION = 'This Magnet’s saved definition could not be read, so its own Conversation is unavailable.'

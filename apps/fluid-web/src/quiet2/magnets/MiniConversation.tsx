@@ -296,7 +296,7 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
           disabled={s.creating} onClick={() => void store.createOwn()}>
           {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
         </button>
-        <span className="mgd-subtle">Writing a message below makes it too.</span>
+        <span className="mgd-subtle">Or send your first question below to start.</span>
       </div>}
       {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
       {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
@@ -381,7 +381,9 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
                 <button type="button" className="mgd-link mgd-small"
                   onClick={() => void flow.earlier!()}>{`Earlier posts (${older} older)`}</button>
               </p>}
-              {top.length === 0 && flow.read && <p className="mgd-subtle">No posts have been read here yet.</p>}
+              {top.length === 0 && flow.read && <p className="mgd-subtle">
+                Ask a question about {resource.saved.name || 'this Magnet'} below, or open an item in Collection to discuss it here.
+              </p>}
               {/* THE EXCHANGE AS THE APPROVED DESIGN DRAWS IT
                   (`10-current-discussion.png`): what was asked is a
                   `mgd-chatbubble`, and the reply is a `mgd-answer` with its
