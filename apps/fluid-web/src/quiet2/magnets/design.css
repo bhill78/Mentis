@@ -1,0 +1,286 @@
+/* THE APPROVED ROUND-3 DESIGN, AS A STYLESHEET.
+ *
+ * The approved mockups in `magnet-design-round3/` are not pictures somebody
+ * drew: they are rendered by `render.py` from CSS, which imports the shared
+ * `style` from `magnet-design-round2/render.py` and adds the round-3 overrides.
+ * That CSS is the design -- its proportions, spacing, type scale, colours and
+ * states -- so it is ported here literally rather than described again in
+ * somebody's words and re-interpreted.
+ *
+ * Every rule below is a transcription of a rule in those two files. Where
+ * round 3 overrode round 2 (tab padding, body padding in the wide panel, the
+ * `.wide` body) the round-3 value is the one kept. Class names are the mockup's
+ * own, prefixed `mgd-`; nothing is renamed, so a rule can be read straight
+ * against its source. Values are not "about right": they are the numbers the
+ * approved pictures were rendered from.
+ *
+ * Scope: everything is under `.q2-magnet-card`, so this reaches the panel's own
+ * content and nothing else on the workspace. The frame's own chrome -- puck,
+ * badge, resize edges, remembered dimensions -- is `magnet.css` and is not
+ * touched from here.
+ *
+ * Source: magnet-design-round2/render.py (`style`), magnet-design-round3/render.py (`css`).
+ */
+
+.q2-magnet-card {
+  /* round2 `body`: the panel's text is sized and coloured from one place. */
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 15px;
+  color: #eee8e5;
+}
+
+/* ---- type scale ------------------------------------------------------- */
+
+.q2-magnet-card .mgd-eyebrow {
+  font-size: 11px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: #af9f97;
+  font-weight: 700;
+}
+.q2-magnet-card .mgd-h2 {
+  font-size: 25px;
+  line-height: 1.2;
+  letter-spacing: -.02em;
+  margin: 8px 0 10px;
+  font-weight: 600;
+  color: #eee8e5;
+}
+.q2-magnet-card .mgd-h3 {
+  font-size: 17px;
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: #eee8e5;
+}
+.q2-magnet-card .mgd-p {
+  line-height: 1.5;
+  margin: 8px 0 16px;
+}
+.q2-magnet-card .mgd-muted { color: #aa9c96; }
+.q2-magnet-card .mgd-subtle { color: #a89991; font-size: 13px; }
+.q2-magnet-card .mgd-small { font-size: 13px; }
+.q2-magnet-card .mgd-tiny { font-size: 12px; }
+.q2-magnet-card .mgd-hint { font-size: 12px; color: #a99a92; }
+
+/* ---- layout primitives ------------------------------------------------ */
+
+.q2-magnet-card .mgd-row { display: flex; align-items: center; gap: 12px; }
+.q2-magnet-card .mgd-spread { justify-content: space-between; }
+.q2-magnet-card .mgd-grow { flex: 1; }
+.q2-magnet-card .mgd-space { height: 22px; }
+.q2-magnet-card .mgd-divider { border-top: 1px solid #50423c; margin: 22px 0; }
+.q2-magnet-card .mgd-twocol {
+  display: grid;
+  grid-template-columns: 1.4fr .8fr;
+  gap: 52px;
+}
+
+/* The body padding of the approved panel: 26/28 compact, 28/38 once there is
+   room. Round 3 narrowed round 2's 32/42 to 28/38. The frame publishes
+   `--magnet-room` (0 at 320 px of panel, 1 at 900 px), so this is the one
+   measurement that moves with the panel instead of switching at a breakpoint. */
+.q2-magnet-card .mgd-body {
+  padding: 26px calc(28px + 10px * var(--magnet-room, 0));
+}
+
+/* ---- controls --------------------------------------------------------- */
+
+.q2-magnet-card .mgd-button {
+  display: inline-block;
+  background: #627697;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 10px 15px;
+  color: #fff;
+  font-weight: 650;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.q2-magnet-card .mgd-button:hover:not(:disabled) { background: #6f82a3; }
+.q2-magnet-card .mgd-button:disabled { opacity: .55; cursor: default; }
+.q2-magnet-card .mgd-button.mgd-secondary {
+  background: #3c3432;
+  border: 1px solid #67564c;
+  color: #eee8e5;
+}
+.q2-magnet-card .mgd-button.mgd-secondary:hover:not(:disabled) { background: #473d3a; }
+
+.q2-magnet-card .mgd-link {
+  color: #edc35d;
+  font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.q2-magnet-card .mgd-link:hover { color: #f6d47d; }
+.q2-magnet-card .mgd-link.mgd-small { font-size: 13px; }
+.q2-magnet-card .mgd-action { color: #eac268; font-weight: 600; }
+
+.q2-magnet-card .mgd-search {
+  border: 1px solid #76655c;
+  background: #201b1a;
+  border-radius: 7px;
+  padding: 11px 14px;
+  color: #bcaea8;
+  font-family: inherit;
+  font-size: 15px;
+  width: 100%;
+  display: block;
+}
+.q2-magnet-card .mgd-search::placeholder { color: #bcaea8; }
+.q2-magnet-card .mgd-search:focus-visible { outline: 2px solid #e6bc50; outline-offset: 1px; }
+
+.q2-magnet-card .mgd-pill {
+  border-radius: 20px;
+  background: #413735;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #e5d7ce;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+.q2-magnet-card .mgd-pill.mgd-active { color: #f4d47a; background: #594a2e; }
+
+/* ---- rows and lists --------------------------------------------------- */
+
+/* round2 `.item`: a collected record, a past question, a supporting item. */
+.q2-magnet-card .mgd-item { padding: 17px 0; border-bottom: 1px solid #50423c; }
+.q2-magnet-card .mgd-item b { font-size: 15px; }
+.q2-magnet-card .mgd-item p { margin: 6px 0; color: #c4b6b0; line-height: 1.5; }
+
+/* round3 `.source`: a configured source. Ruled above, not below, so the first
+   row is divided from the sentence over it and the last row closes the list. */
+.q2-magnet-card .mgd-source { border-top: 1px solid #52443e; padding: 15px 0; }
+
+.q2-magnet-card .mgd-example {
+  border-left: 2px solid #786444;
+  padding-left: 14px;
+  color: #d8c8b8;
+  margin: 16px 0;
+}
+
+.q2-magnet-card .mgd-timeline {
+  border-left: 1px solid #7e6c5c;
+  margin: 18px 0 0 8px;
+  padding-left: 22px;
+}
+.q2-magnet-card .mgd-entry { position: relative; margin: 0 0 26px; }
+.q2-magnet-card .mgd-entry::before {
+  content: '';
+  position: absolute;
+  left: -27px;
+  top: 5px;
+  background: #d7b05c;
+  border-radius: 50%;
+  width: 9px;
+  height: 9px;
+}
+
+.q2-magnet-card .mgd-avatar {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #6c5961;
+  color: #fff;
+  font-size: 12px;
+  margin-right: 10px;
+}
+.q2-magnet-card .mgd-emptyicon {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #4a3d2e;
+  color: #e9c361;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+}
+
+/* ---- conversation blocks (round 3) ------------------------------------ */
+
+.q2-magnet-card .mgd-chatbubble {
+  padding: 15px 17px;
+  background: #38302d;
+  border-radius: 10px;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+.q2-magnet-card .mgd-answer {
+  border-left: 2px solid #d6ad54;
+  padding: 2px 0 2px 17px;
+  line-height: 1.55;
+}
+.q2-magnet-card .mgd-compose {
+  border: 1px solid #806e61;
+  background: #211c1b;
+  border-radius: 9px;
+  padding: 14px;
+  color: #bfb0a7;
+  line-height: 1.5;
+}
+.q2-magnet-card .mgd-compose textarea,
+.q2-magnet-card .mgd-compose input {
+  background: none;
+  border: 0;
+  color: #eee8e5;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  width: 100%;
+  resize: none;
+  padding: 0;
+  display: block;
+}
+.q2-magnet-card .mgd-compose textarea::placeholder,
+.q2-magnet-card .mgd-compose input::placeholder { color: #bfb0a7; }
+.q2-magnet-card .mgd-compose textarea:focus-visible,
+.q2-magnet-card .mgd-compose input:focus-visible { outline: none; }
+.q2-magnet-card .mgd-compose:focus-within { border-color: #9a846f; }
+
+/* ---- chips and panels ------------------------------------------------- */
+
+.q2-magnet-card .mgd-future {
+  color: #f0cb75;
+  background: #54442a;
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: .04em;
+  padding: 4px 8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.q2-magnet-card .mgd-today {
+  color: #c7d8c8;
+  background: #334437;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 4px 8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.q2-magnet-card .mgd-tag {
+  font-size: 11px;
+  color: #d1c0a9;
+  border: 1px solid #756658;
+  border-radius: 12px;
+  padding: 3px 8px;
+}
+.q2-magnet-card .mgd-shade { background: #221e1d; border-radius: 7px; padding: 15px 17px; }
+.q2-magnet-card .mgd-help {
+  background: #372f29;
+  border-left: 3px solid #d5ac4d;
+  padding: 16px 18px;
+  border-radius: 4px;
+  line-height: 1.5;
+}
