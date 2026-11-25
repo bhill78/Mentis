@@ -137,9 +137,12 @@ export default function MagnetHost(p: MagnetHostProps) {
           footerComposer={<ComposerBar resource={r} canWrite={mayWrite} cannotWriteBecause={noWriteWhy} />}
           views={withInspections(r, {
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
-            All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
-            Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
-            Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
+            // `canWrite` is the same `writes.arrangement` Settings' own copy of
+            // this panel is given below -- one authority seam, not a second,
+            // permissive one for the embedded Sources view.
+            All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={writes.arrangement} />,
+            Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={writes.arrangement} />,
+            Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={writes.arrangement} />,
             Perspectives: <Perspectives resource={r} canWrite={mayWrite} onEvidence={evidence} />,
             // No external navigation is handed to the Conversation view (owner
             // §3): `toOwn` is Settings' one explicit contextual action, below,

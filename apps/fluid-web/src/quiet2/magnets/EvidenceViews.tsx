@@ -15,11 +15,11 @@
  *
  *  Nothing here reads a live source: the rows are `resource.snapshot().results`,
  *  the batch `state.ts` read and `collectionRows` verified. */
-import { useState, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
 import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
-import { inspect, place } from './places'
+import { inspect, place, placeKeyOf, writePlace } from './places'
 import { SUPPORTING_WHY } from './perspectives'
 import CollectionConfiguration from './CollectionConfiguration'
 import { magnetName } from './configuration'
@@ -122,6 +122,10 @@ export function SupportingItems({ resource, question, onOpen }: {
   </section>
 }
 
+/** Fails closed: with no `canWrite` supplied, the embedded Sources panel
+ *  offers no save a caller did not actually authorise. */
+const NO_WRITE = () => false
+
 export interface EvidenceViewsProps {
   resource: MagnetResource
   lens: 'All' | 'Posts' | 'Files'
@@ -129,9 +133,15 @@ export interface EvidenceViewsProps {
   /** The host's workspace file opening. Reachable in the seam, not rendered as a
    *  control: the approved card inspects a retained file in place. */
   onFile(result: RouteResult): void
+  /** Whether the saved location named may actually be written to -- the same
+   *  `writes.arrangement` Host gives Settings' own copy of this panel
+   *  (`capabilities.ts`). Omitted, it fails closed (`NO_WRITE`): the server's
+   *  own save route still authorises independently, so this is the client
+   *  affordance only, never the only gate. */
+  canWrite?(key: string): boolean
 }
 
-export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsProps) {
+export default function EvidenceViews({ resource, lens, onPost, canWrite }: EvidenceViewsProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const here = place(s)
   const posts = s.results.filter((r) => r.kind === 'post')
@@ -174,28 +184,22 @@ export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsP
   // no seam into Host or the frame: `resource` already carries what it saves
   // through (`saved.config`, `saved.id`).
   //
-  // GAP, left for the integrator: `canWrite` below is permissive rather than
-  // Host's own `useMagnetWrites`-derived gate. That hook reaches
-  // `quiet2/live.ts`'s `import.meta.env`, which only Vite (or a test's own
-  // loader stub) supplies; pulling it into this widely-imported view would
-  // require updating the loader stub of every test that reaches
-  // `EvidenceViews` transitively, for a client-side affordance the server's
-  // own save route still authorizes independently -- a save a reader may not
-  // make is still refused there, exactly as Settings' copy would be; only the
-  // disabled-button hint in a scoped fixture is not yet identical. Wiring
-  // Host's real `writes.arrangement` through here is a one-line, additive
-  // change there (an optional prop here), not a behaviour change.
+  // The disclosure is the place's own (`contract.ts` `MagnetPlace.sources`),
+  // not local state: the shell's own "Sources" entry (`Magnet.tsx`,
+  // `showSourcesInline`) writes the same flag, so the two are one entry, not
+  // a second implementation of source management.
   const config = resource.saved.config
-  const [showSources, setShowSources] = useState(false)
+  const showSources = here.sources
   const integrated = lens === 'All' && !!config
+  const mayWriteArrangement = canWrite ?? NO_WRITE
   return <section>
     {integrated && <p className="q2-magnet-collection-toggle">
       {showSources
-        ? <button type="button" className="q2-magnet-link" onClick={() => setShowSources(false)}>Collected items{read ? ` · ${items.length}` : ''} →</button>
-        : <button type="button" className="q2-magnet-link" onClick={() => setShowSources(true)}>Sources{config!.sources.length ? ` · ${config!.sources.length}` : ''}</button>}
+        ? <button type="button" className="q2-magnet-link" onClick={() => writePlace(resource, placeKeyOf(s), { sources: false })}>Collected items{read ? ` · ${items.length}` : ''} →</button>
+        : <button type="button" className="q2-magnet-link" onClick={() => writePlace(resource, placeKeyOf(s), { sources: true })}>Sources{config!.sources.length ? ` · ${config!.sources.length}` : ''}</button>}
     </p>}
     {integrated && showSources ? <CollectionConfiguration magnet={resource.saved.id} config={config!} brainKey={resource.brainKey} inCollection
-        canWrite={() => true} onSaved={(next) => {
+        canWrite={mayWriteArrangement} onSaved={(next) => {
           resource.saved.config = next; resource.saved.name = magnetName(next, resource.saved.name); resource.saved.reason = undefined
           resource.update({ title: resource.saved.name }); void resource.read()
         }} /> : <>

@@ -9,7 +9,7 @@
 import { MAGNET_PLACE_KEYS, MAGNET_TABS } from './contract'
 import type { MagnetOverlay, MagnetPlace, MagnetPlaceKey, MagnetResource, MagnetRoute, MagnetSnapshot, MagnetTab } from './contract'
 
-export const emptyPlace = (): MagnetPlace => ({ scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false })
+export const emptyPlace = (): MagnetPlace => ({ scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false, sources: false })
 export const emptyPlaces = (): Record<MagnetPlaceKey, MagnetPlace> =>
   Object.fromEntries(MAGNET_PLACE_KEYS.map((k) => [k, emptyPlace()])) as Record<MagnetPlaceKey, MagnetPlace>
 
@@ -104,6 +104,15 @@ export function restore(resource: MagnetResource, r: MagnetRoute) {
 export function goTab(resource: MagnetResource, tab: MagnetTab) {
   remember(resource)
   resource.update({ tab, overlay: null, searchTarget: null })
+}
+
+/** Open the Collection's own inline Sources view (approved mockup round 3,
+ *  03-sources.png / 04-browse.png): the `All` place, disclosing Sources
+ *  instead of the collected items, never the Settings overlay. This is the
+ *  one entry the shell's own "Sources" link and the inline toggle share. */
+export function showSourcesInline(resource: MagnetResource) {
+  goTab(resource, 'All')
+  writePlace(resource, 'All', { sources: true })
 }
 
 export function openOverlay(resource: MagnetResource, overlay: Exclude<MagnetOverlay, null>) {

@@ -3,7 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from
 import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
 import { magnetIndicators, restingCount } from './indicators'
 import { retainedFiles } from './Inspection'
-import { MAGNET_COLLECTION_FILTERS, MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
+import { MAGNET_COLLECTION_FILTERS, MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen, showSourcesInline } from './places'
 import { pendingScroll, reachedScroll, savesReportedScroll } from './position'
 import { supportsManualCollection } from './configuration'
 import './magnet.css'
@@ -400,9 +400,10 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         {/* Source management, reached from inside the Collection experience
             (owner request ent-1e82a8786c37: "Integrate source management into
             the Collection experience as designed") rather than only from the
-            header gear. It opens the same Settings overlay and the same
-            sources panel -- no second implementation of source management. */}
-        <button type="button" className="q2-magnet-link q2-magnet-filters-sources" onClick={() => openOverlay(resource, 'settings')}>Sources →</button>
+            header gear. It opens Collection's own inline Sources view
+            (`EvidenceViews.tsx`, `showSourcesInline`) -- the one approved
+            place for this, not the Settings overlay's separate copy. */}
+        <button type="button" className="q2-magnet-link q2-magnet-filters-sources" onClick={() => showSourcesInline(resource)}>Sources →</button>
       </div>}
       {s.overlay !== 'settings' && <div className="q2-magnet-toolbar">
         {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search this Magnet</span>

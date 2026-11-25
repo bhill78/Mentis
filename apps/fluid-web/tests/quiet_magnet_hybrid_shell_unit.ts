@@ -266,8 +266,8 @@ test('a literal fourteen-key v1 payload migrates row by row, and nothing durable
   assert.equal(v.overlay, null); assert.equal(v.searchType, 'All'); assert.equal(v.searchTarget, null)
   assert.equal(v.searchListScroll, 0); assert.equal(v.settingsReturn, null)
   assert.equal(v.context, null); assert.equal(v.contextSuppressed, false)
-  assert.deepEqual(v.places!.search, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false })
-  assert.deepEqual(v.places!.settings, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false })
+  assert.deepEqual(v.places!.search, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false, sources: false })
+  assert.deepEqual(v.places!.settings, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false, sources: false })
 })
 
 test('v1 `scroll` is used only where `scrolls` has no entry, and the key is not bumped', () => {
@@ -302,7 +302,7 @@ test('working state never holds collection content, and an unrecognised payload 
   assert.equal(junk.tab, 'Summary', 'an unrecognised tab falls back to the default')
   assert.equal(junk.open, false, 'an unrecognised open value never opens the card')
   assert.deepEqual(junk.places!.Summary, emptyPlaces().Summary, 'an unreadable places map falls back to empty places')
-  assert.deepEqual(emptyPlaces().Summary, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false })
+  assert.deepEqual(emptyPlaces().Summary, { scroll: 0, inspected: null, inspectScroll: 0, inspectOrigin: null, provenance: false, history: false, sources: false })
 })
 
 test('the frame is a frame: six slots, one scroll container, no disclosure left in the card', () => {

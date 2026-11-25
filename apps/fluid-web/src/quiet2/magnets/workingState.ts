@@ -63,7 +63,8 @@ const placeOf = (v: unknown): MagnetPlace | null => {
   const o = obj(v)
   if (!o) return null
   return { scroll: num(o.scroll) ?? 0, inspected: ref(o.inspected), inspectScroll: num(o.inspectScroll) ?? 0,
-    inspectOrigin: ref(o.inspectOrigin), provenance: o.provenance === true, history: o.history === true }
+    inspectOrigin: ref(o.inspectOrigin), provenance: o.provenance === true, history: o.history === true,
+    sources: o.sources === true }
 }
 const routeOf = (v: unknown): MagnetRoute | null => {
   const o = obj(v)

@@ -20,6 +20,10 @@ export interface MagnetPlace {
   inspectOrigin: string | null
   provenance: boolean
   history: boolean
+  /** The `All` place's own disclosure: Sources shown inline instead of the
+   *  collected items. The shell's "Sources" entry and Collection's own toggle
+   *  read and write this one flag, so there is one inline Sources view, not two. */
+  sources: boolean
 }
 
 export type MagnetSearchKind = 'Summary' | 'Posts' | 'Files' | 'Perspectives' | 'Conversation' | 'Settings' | 'Batches'
