@@ -104,10 +104,9 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
         <label>New question or hypothesis<textarea aria-label="New question or hypothesis" value={drafts.question} onChange={(e) => setQuestionDraft(at, e.target.value)} /></label>
         <p className="q2-magnet-muted">{drafts.question.trim() ? <>It will be listed as “{suggested}”, taken from the question. You are not asked for a separate name.</> : 'The question is the Perspective. Its name is taken from the question when you create it.'}</p>
         <button type="button" className="q2-magnet-primary" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
-          await act('create', { name: suggested, question: drafts.question, reason: drafts.reason })
+          await act('create', { name: suggested, question: drafts.question })
           if (!store.snapshot().pending) clearQuestionDraft(at)
         })}>Create this question</button>
-        <label className="q2-magnet-optional">Reason (optional)<input aria-label="Reason" value={drafts.reason} onChange={(e) => setReasonDraft(at, e.target.value)} /></label>
       </fieldset>
     </section>
 
@@ -147,14 +146,14 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
 
     {s.pending && <p role="status">Uncertain {s.pending.kind} action for {s.pending.target ?? 'a new question'}; its original wording, target and operation key are kept. <button type="button" disabled={!canWrite || busy} onClick={() => void run(async () => { await store.retryPending(); setMessage(store.snapshot().error ?? 'Original question action saved.') })}>Retry unchanged question action</button></p>}
 
-    <section className="q2-magnet-secondary-actions" aria-label="Wording history">
-      <h4>Wording history</h4>
+    <details className="q2-magnet-secondary-actions" aria-label="Wording history">
+      <summary>Wording history{history.length ? ` (${history.length}${s.next ? '+' : ''})` : ''}</summary>
       <p className="q2-magnet-muted">Newest first. These are earlier wordings and names only: they do not change what is currently saved, and they carry no current qualification.</p>
       <button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void run(async () => { await store.read(); if (s.viewed ?? s.selected) await store.view((s.viewed ?? s.selected)!) })}>Refresh wording history</button>
       <ul className="q2-magnet-items">{history.map((e) => <li key={e.post}><strong>{e.event === 'rename' ? 'Earlier name' : e.event === 'question' ? 'Earlier wording' : e.event}</strong>{wording(e) !== null && <p>{wording(e)}</p>}<details><summary>The exact version, and where it came from</summary><button type="button" className="q2-magnet-link" onClick={() => onEvidence(e.snapshot.ref)}>View this earlier wording as it was recorded</button><p>{e.snapshot.ref} · {e.snapshot.digest}</p>{e.data.answer?.ref && <button type="button" onClick={() => onEvidence(e.data.answer.ref)}>View the recorded answer</button>}</details></li>)}</ul>
       {s.next && <button type="button" disabled={busy} onClick={() => void run(() => store.history(s.next!))}>More wording history</button>}
       {!s.next && s.historyComplete && <p className="q2-magnet-muted">All recorded wording for this Perspective is shown.</p>}
-    </section>
+    </details>
 
     <div className="q2-magnet-grounding">
       <button type="button" className="q2-magnet-secondary" disabled aria-describedby="inquiry-grounded-status">Answer from selected evidence</button>

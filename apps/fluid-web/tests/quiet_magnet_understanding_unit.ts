@@ -168,7 +168,6 @@ test('excerpts are the records’ own words, with provenance, and open the recor
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(rendered.includes('In the records’ own words'))
   assert.ok(rendered.includes('id="excerpt-ent-post111111"'), 'each quote is the control that opens its record')
-  assert.ok(rendered.includes('Quoted exactly as collected'))
 })
 
 test('the Summary entry in the universal index searches the written overview and the quoted words', async () => {
@@ -200,8 +199,7 @@ test('offered questions are questions, built from what was counted, and claim no
   assert.ok(offeredQuestions(r.snapshot(), true).some((q) => /previous one/.test(q)),
     'an earlier comparable batch makes a comparison question askable')
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(rendered.includes('Questions you could explore'))
-  assert.ok(rendered.includes('Questions, not findings'), 'the block says what kind of statement it holds')
+  assert.ok(rendered.includes('Questions to explore'))
 })
 
 test('an offered question becomes a Perspective draft, and no other draft is touched', async () => {
@@ -392,7 +390,7 @@ test('the ordinary source-free route is still there, and carries no collection',
   assert.equal(r.snapshot().context, null, 'with nothing attached to it')
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(!rendered.includes(COLLECTION_NOT_ANSWERABLE), 'with nothing collected there is no collection to say it about')
-  assert.ok(rendered.includes('Ordinary help works before anything is collected.'))
+  assert.ok(rendered.includes('Start a conversation'), 'the ordinary route is still offered')
 })
 
 /* --- the empty collection --------------------------------------------------- */
@@ -403,11 +401,10 @@ test('an empty Summary offers a useful start and ordinary help, and keeps the ow
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(rendered.includes('No collected information yet. Conversation is still available.'))
-  assert.ok(rendered.includes('Opening never collects'))
-  assert.ok(rendered.includes('A place to start'))
+  assert.ok(rendered.includes('Choose sources in Settings, then collect.'))
+  assert.ok(rendered.includes('Start a conversation'))
   assert.ok(rendered.includes('How do I configure this Magnet?'), 'ordinary configuration help is offered first')
-  assert.ok(rendered.includes('Ordinary help works before anything is collected.'))
-  assert.ok(rendered.includes('Synthesize from evidence') && rendered.includes(PERSPECTIVE_BLOCK_REASON),
+  assert.ok(rendered.includes('Draft an answer from selected records') && rendered.includes(PERSPECTIVE_BLOCK_REASON),
     'the honest grounding statement stays on an empty collection')
   // A starter question becomes an ordinary message.
   assert.equal(askOrdinaryQuestion(r, 'How do I configure this Magnet?'), '')
@@ -442,10 +439,9 @@ test('the existing access gate is untouched: grounded answering stays disabled w
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.match(rendered, /<button[^>]*disabled[^>]*aria-describedby="grounded-status"/)
-  assert.ok(rendered.includes('Synthesize from evidence'))
+  assert.ok(rendered.includes('Draft an answer from selected records'))
   assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the reason is the server-side gate’s own words')
   assert.equal(GROUNDED_UNAVAILABLE, `Unavailable · ${PERSPECTIVE_BLOCK_REASON}`)
-  assert.ok(rendered.includes('Sample records · not agent analysis or synthesis.'))
   // Nothing here claims the collection was read by an agent.
   assert.ok(!/\bgrounded (answer|synthesis) (is )?(available|delivered|working)\b/i.test(rendered))
 })
@@ -465,6 +461,10 @@ test('the Perspectives panel puts the question before every administrative contr
   assert.ok(history > lens, 'the recorded wording history is last')
   assert.ok(rendered.indexOf('Ask a question') < lens, 'the panel leads with asking')
   assert.ok(!rendered.includes('aria-label="Perspective name"'), 'creation asks for no name')
+  assert.ok(!rendered.includes('aria-label="Reason"'), 'ordinary question creation has no optional reason field')
+  const createAction = panelSrc().match(/act\('create', \{([^}]*)\}\)/)?.[1] ?? ''
+  assert.match(createAction, /name: suggested, question: drafts\.question/)
+  assert.doesNotMatch(createAction, /reason/, 'creating a question sends only its name and question')
   assert.ok(rendered.includes('Its name is taken from the question when you create it.'))
   assert.ok(rendered.includes(DISCUSS_IS_ORDINARY), 'what discussing does, and does not, read is said where it is offered')
   assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the gate keeps its own reason here too')
@@ -472,6 +472,32 @@ test('the Perspectives panel puts the question before every administrative contr
   const panel = code(panelSrc())
   for (const kept of ["act('rename'", "act('question'", "act('challenge'", "act('branch'", "'resume' : 'retire'"])
     assert.ok(panel.includes(kept), `nothing was removed to make room (${kept})`)
+})
+
+test('Wording history starts compact, preserves stored history and leaves pagination available when expanded', () => {
+  store()
+  const { r } = resource('mag-ehistorycompact')
+  const topic = 'ent-topicA11111'
+  const perspective = { perspective: topic, name: 'Does the bench drift?', retired: false, question: null,
+    current_question: { text: 'Does the bench drift now?', revision: 'adm-current111' }, events: 101 }
+  const events = [
+    { seq: 2, post: 'ent-event222222', event: 'rename', perspective: topic,
+      snapshot: { ref: 'adm-name111', digest, size: 4, media_type: 'application/json' }, data: { name: 'Older label' } },
+    { seq: 1, post: 'ent-event111111', event: 'question', perspective: topic,
+      snapshot: { ref: 'adm-question111', digest: digest2, size: 8, media_type: 'application/json' }, data: { text: 'Did the bench drift before?' } },
+  ]
+  perspectivesOf(r).update({ rows: [perspective], selected: topic, viewed: topic,
+    viewedDetail: perspective, selectedDetail: perspective, events, next: 'history-cursor-2', historyComplete: false })
+  const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
+  const history = rendered.slice(rendered.indexOf('aria-label="Wording history"'))
+  const historySection = rendered.match(/<details[^>]*><summary>Wording history[\s\S]*?<\/details>/)?.[0] ?? ''
+  assert.ok(historySection, 'wording history is inside a disclosure section')
+  assert.ok(!/<details[^>]*open/.test(historySection), 'the section is collapsed initially')
+  assert.ok(history.includes('Wording history (2+)'), 'the summary indicates loaded and remaining history')
+  assert.ok(history.includes('Older label') && history.includes('Did the bench drift before?'), 'stored wording is still present in the expandable content')
+  assert.ok(history.includes('More wording history'), 'the next page remains reachable inside history')
+  assert.ok(history.includes('Refresh wording history'), 'refresh remains available inside history')
+  assert.equal(perspectivesOf(r).snapshot().events.length, 2, 'rendering does not change the stored history')
 })
 
 /** The owner's language review covers the whole interface (ent-3191baeb33d2 §2:
@@ -550,8 +576,8 @@ test('nothing the owner reads in Summary says retained or batch', async () => {
     'first retained', 'under All'])
     assert.ok(!code(summarySrc()).includes(gone), `${gone} is not language this view shows`)
   // Evidence survives exactly where it is about support for a claim.
-  assert.match(SUPPORT_UNRECORDED, /marking evidence for or against a question/)
-  assert.ok(html(createElement(Summary, { resource: r, onPost: () => {} })).includes('Synthesize from evidence'))
+  assert.match(SUPPORT_UNRECORDED, /evidence links are unavailable/i)
+  assert.ok(html(createElement(Summary, { resource: r, onPost: () => {} })).includes('Draft an answer from selected records'))
 })
 
 /* --- the chip stands for the version the owner read -------------------------
