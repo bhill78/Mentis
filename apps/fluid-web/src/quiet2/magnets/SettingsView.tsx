@@ -75,7 +75,7 @@ export default function SettingsView({ resource, identity, collectionConfigurati
       <h4>Position</h4>
       <div>
         <button type="button" disabled={!canReset} onClick={onReset}>Reset position</button>
-        <span>Or drag the puck; arrow keys move it, Shift moves it farther.</span>
+      <details><summary>Position controls</summary><span>Drag the puck or use the arrow keys. Hold Shift to move farther.</span></details>
       </div>
     </section>
 
@@ -102,7 +102,7 @@ export default function SettingsView({ resource, identity, collectionConfigurati
     <section className="q2-magnet-danger" aria-label="Remove from workspace">
       <details>
         <summary>Remove from the workspace</summary>
-        <p>This takes the Magnet off this canvas. It is not the card’s close button, which only shuts the card. The Magnet, its sources, its collection and its Conversation are kept in the Brain and can be opened again from Magnet Management.</p>
+        <p>Removes this Magnet from the canvas. Its settings and collection remain available in Magnet Management.</p>
         <button type="button" onClick={onRemove}>Remove this Magnet from the workspace</button>
       </details>
     </section>

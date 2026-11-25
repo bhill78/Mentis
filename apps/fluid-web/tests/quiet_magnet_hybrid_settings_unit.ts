@@ -110,8 +110,8 @@ test('the gear is icon-only, and the two closes are different controls with diff
   const html = settings(r)
   assert.ok(html.includes('Remove this Magnet from the workspace'))
   assert.ok(!html.includes('Close Magnet'), 'the overlay holds no second card-close')
-  assert.ok(html.includes('It is not the card’s close button') || html.includes('It is not the card&#x27;s close button'),
-    'removal says in words that it is not the close button')
+  assert.ok(html.includes('Removes this Magnet from the canvas.'), 'removal describes its effect briefly')
+  assert.ok(html.includes('Position controls'), 'position guidance is available on demand')
 })
 
 test('Save commits and returns, Cancel discards the staged copy only, Escape keeps it', () => {
@@ -183,6 +183,7 @@ test('the source model is presented honestly: supported and actionable, proposed
   for (const s of PROPOSED_SOURCES) assert.ok(html.includes(s.words), `proposed: ${s.words}`)
   assert.ok(html.includes('Proposed only, and not interactive here'))
   assert.ok(html.includes('An existing connector does not enable a Magnet adapter.'))
+  assert.ok(html.includes('Collection limits'), 'unsupported filters and source kinds remain available as contextual help')
   // Only the two supported kinds are offered as choices.
   assert.ok(html.includes('Add Conversations') && html.includes('Add files'))
   for (const s of PROPOSED_SOURCES) assert.ok(!html.includes(`Add ${s.words}`), `${s.words} is not offered as a choice`)

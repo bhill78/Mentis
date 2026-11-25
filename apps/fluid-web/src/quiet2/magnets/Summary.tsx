@@ -44,10 +44,10 @@ export const GROUNDED_UNAVAILABLE = `Unavailable · ${PERSPECTIVE_BLOCK_REASON}`
 
 /** What the written overview says about itself, so no reader has to guess
  *  whether an agent wrote it. */
-export const EXTRACTIVE_LABEL = 'Counted from the collected records and quoted from them word for word. No agent read or summarised this collection.'
+export const EXTRACTIVE_LABEL = 'Counts and quotations from this collection.'
 /** Per-record support and contradiction belong to grounded Perspective work,
  *  which is refused: say so rather than show an empty frame as if it worked. */
-export const SUPPORT_UNRECORDED = 'No records are recorded as supporting or contradicting any of these: marking evidence for or against a question is part of grounded Perspective answering, which is unavailable.'
+export const SUPPORT_UNRECORDED = 'Evidence links are unavailable while grounded answers are disabled.'
 export const NO_COMPARISON = 'No comparison with an earlier collection. Nothing here claims anything changed.'
 /** ANSWERING FROM THE COLLECTED RECORDS IS NOT OFFERED HERE, by any control.
  *  Supplying the retained batch to an agent to answer from is the retained-content
@@ -58,7 +58,7 @@ export const NO_COMPARISON = 'No comparison with an earlier collection. Nothing 
  *  and not for the collection as a whole -- and says so where such an offer
  *  would otherwise sit. What stays is what is already true: counted and quoted
  *  facts above, and ordinary conversation that reads no collected material. */
-export const COLLECTION_NOT_ANSWERABLE = 'Answering from the collected records is unavailable: configured-source access has to be enforced first. Ordinary conversation about this Magnet, its sources and your questions works now.'
+export const COLLECTION_NOT_ANSWERABLE = 'Answering from collected records is unavailable until configured-source access is enforced.'
 
 const when = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleString() : null
 const day = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleDateString() : null
@@ -405,7 +405,7 @@ function Questions({ resource, rows, events, loading, error, onLoad, read }: {
         <small className="q2-magnet-muted">Recorded challenge · {e.post}</small>
       </li>)}</ul>
     </>}
-    {read && <p className="q2-magnet-muted">{SUPPORT_UNRECORDED}</p>}
+    {read && <details className="q2-magnet-provenance"><summary>Evidence links</summary><p className="q2-magnet-muted">{SUPPORT_UNRECORDED}</p></details>}
     {error && <p className="q2-magnet-muted" role="status">{error}</p>}
     <button type="button" className="q2-magnet-link" onClick={() => goTab(resource, 'Perspectives')}>Work on questions</button>
   </section>
@@ -463,12 +463,11 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
     {read && !s.activation
       ? <div className="q2-magnet-collection-empty">
           <p>No collected information yet. Conversation is still available.</p>
-          <p className="q2-magnet-muted">Choose sources in settings, or press Collect now. Opening never collects.</p>
-          <h4>A place to start</h4>
+          <p className="q2-magnet-muted">Choose sources in Settings, then collect.</p>
+          <h4>Start a conversation</h4>
           <ul className="q2-magnet-questions">{questions.map((q) => <li key={q}>
             <button type="button" className="q2-magnet-question" onClick={() => askOrdinary(q)}>{q}</button>
           </li>)}</ul>
-          <p className="q2-magnet-muted">These go to the Composer as ordinary questions. Ordinary help works before anything is collected.</p>
         </div>
       : <>
         {/* Before the one retained read answers there is nothing to say about
@@ -477,7 +476,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         {!!s.activation && <>
         <div className="q2-magnet-written">
           {overview.map((line, i) => <p key={i}>{line}</p>)}
-          {!!overview.length && <p className="q2-magnet-muted">{EXTRACTIVE_LABEL}</p>}
+          {!!overview.length && <details className="q2-magnet-provenance"><summary>About this overview</summary><p className="q2-magnet-muted">{EXTRACTIVE_LABEL}</p></details>}
         </div>
 
         {!!excerpts.length && <section className="q2-magnet-understanding" aria-label="In the collected records’ own words">
@@ -489,7 +488,6 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
               <small className="q2-magnet-muted">{e.title} · {e.origin}</small>
             </button>
           </li>)}</ul>
-          <p className="q2-magnet-muted">Quoted exactly as collected, each one opening the record it came from.</p>
         </section>}
 
         <section className="q2-magnet-understanding" aria-label="Changes since the previous collection">
@@ -507,8 +505,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         </section>
 
         <section className="q2-magnet-understanding" aria-label="Questions to explore">
-          <h4>Questions you could explore</h4>
-          <p className="q2-magnet-muted">Questions, not findings: each one is built from what was counted above and nothing has answered any of them.</p>
+          <h4>Questions to explore</h4>
           <ul className="q2-magnet-questions">{questions.map((q) => <li key={q}>
             <button type="button" className="q2-magnet-question" onClick={() => exploreQuestion(resource, q)}>{q}</button>
           </li>)}</ul>
@@ -520,7 +517,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         {/* Where the whole-collection discussion offer used to be. It is a
             statement, not a control: there is nothing to press that would
             supply the collection to an agent. */}
-        {batch && <p className="q2-magnet-muted">{COLLECTION_NOT_ANSWERABLE}</p>}
+        {batch && <details className="q2-magnet-provenance"><summary>Answer from collected records</summary><p className="q2-magnet-muted">{COLLECTION_NOT_ANSWERABLE}</p></details>}
         </>}
 
         <details className="q2-magnet-provenance" open={here.history}>
@@ -538,9 +535,8 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
     {message && <p className="q2-magnet-muted" role="status">{message}</p>}
     {/* Inline, inside the Summary section: never a separate screen. */}
     {here.inspected && <Inspection resource={resource} refId={here.inspected} source={onPost} />}
-    <p className="q2-magnet-dependency">Sample records · not agent analysis or synthesis.</p>
     <div className="q2-magnet-grounding">
-      <button type="button" className="q2-magnet-secondary" disabled aria-describedby="grounded-status">Synthesize from evidence</button>
+      <button type="button" className="q2-magnet-secondary" disabled aria-describedby="grounded-status">Draft an answer from selected records</button>
       <span id="grounded-status" className="q2-magnet-muted">{GROUNDED_UNAVAILABLE}</span>
     </div>
   </section>

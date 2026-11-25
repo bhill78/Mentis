@@ -172,28 +172,28 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     <details><summary>Add files</summary><label>Where the files are<select value={collection} disabled={locked} onChange={(e) => { setCollection(e.target.value); setFileOffset(0) }}><option value="">Choose a file collection</option>{collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Find a file<input type="search" value={fileQuery} disabled={locked} onChange={(e) => { setFileQuery(e.target.value); setFileOffset(0) }} /></label><div className="q2-magnet-config-choices">{files.map((f) => { const issue = exactFileIssue(collection, f.path) || (f.text !== true ? 'Only plain text files are supported.' : null); return <div key={f.path}><button type="button" disabled={locked || !!issue || sources.some((s) => s.kind === 'file' && s.collection === collection && s.path === f.path)} title={issue ?? undefined} onClick={() => add({ kind: 'file', collection, path: f.path })}>{f.path}</button>{issue && <small>{issue}</small>}{typeof f.size === 'number' && f.size > 65536 && <small>Only the first 64 KiB will be captured, ending on a UTF-8 character boundary.</small>}</div> })}</div><div>{fileOffset > 0 && <button type="button" className="q2-magnet-link" onClick={() => setFileOffset(Math.max(0, fileOffset - 40))}>Previous files</button>}{fileNext !== null && <button type="button" className="q2-magnet-link" onClick={() => setFileOffset(fileNext)}>More files</button>}</div></details>
 
     <h4>What to collect</h4>
-    <p className="q2-magnet-muted">{SUPPORTED_REASON}</p>
+    <details><summary>Supported collection</summary><p className="q2-magnet-muted">{SUPPORTED_REASON}</p></details>
     <div className="q2-magnet-config-types">{['post', 'file', 'image', 'attachment'].map((t) => <label key={t}><input type="checkbox" checked={types.includes(t)} disabled={locked} onChange={(e) => { setAlert(''); edit({ types: e.target.checked ? [...types, t] : types.filter((v) => v !== t) }) }} />{t}</label>)}</div>
     <details><summary>Date limits</summary><p>Types and dates apply to Conversation content. Files are chosen one by one, by their exact path.</p><label>After (date or ISO time)<input type="text" placeholder="2026-01-01 or 2026-01-01T12:00:00Z" value={after} disabled={locked} onChange={(e) => { setAlert(''); edit({ after: e.target.value }) }} /></label><label>Before (date or ISO time)<input type="text" placeholder="2026-01-31 or 2026-01-31T12:00:00Z" value={before} disabled={locked} onChange={(e) => { setAlert(''); edit({ before: e.target.value }) }} /></label></details>
 
     {!supportsManualCollection(p.config) && <label><input type="checkbox" checked={manual} disabled={locked} onChange={(e) => edit({ manual: e.target.checked })} />Use supported manual collection: one extraction when I press Collect now, manual synthesis, no automatic notifications or agent processing. This replaces the saved collection and processing modes.</label>}
 
-    <details><summary>Other source kinds, and how collection runs</summary>
+    <details><summary>Collection limits</summary>
       <h5>Supported here, and actionable</h5>
       <ul className="q2-magnet-items">{SUPPORTED_SOURCES.map((s) => <li key={s.kind}>{s.words}</li>)}</ul>
       <h5>Proposed only, and not offered as a choice</h5>
       <ul className="q2-magnet-items">{PROPOSED_SOURCES.map((s) => <li key={s.words}>{s.words}</li>)}</ul>
       <p>{PROPOSED_REASON}</p>
-      <p>Individual post selection, schedules and automatic collection are also unsupported.</p>
-      <p>Saved collection: {p.config.collection.mode}; synthesis: {p.config.synthesis.mode}; activation: {p.config.activation?.mode ?? 'not configured'}. Saved modes are kept unless you explicitly choose supported manual collection. Relevance and semantic filters are not applied.</p>
-      {Object.entries(p.config.selection).filter(([k]) => !['informationTypes', 'dates'].includes(k)).map(([k, v]) => <p key={k}>{k}: {JSON.stringify(v)} (not applied)</p>)}
+      <p>Individual post selection, schedules and automatic collection are unsupported.</p>
+      <p>Saved modes are kept unless you choose manual collection. Relevance and semantic filters are not applied.</p>
+    {Object.entries(p.config.selection).filter(([k]) => !['informationTypes', 'dates'].includes(k)).map(([k, v]) => <p key={k}>{k}: {JSON.stringify(v)} (not applied)</p>)}
     </details>
     <details><summary>Where this configuration is saved through</summary>
-      <p className="q2-magnet-muted">The Magnet itself belongs to no saved location, and its name and configuration are the same wherever it is shown; only this save is addressed through a saved location, which keeps its operation key. {arrangement ? `Using ${arrangements.find((a) => a.id === arrangement)?.name ?? arrangement}.` : locations ? 'None found yet.' : 'Looking for one…'}{arrangement && !holds ? ' This location does not hold this Magnet, and saving through it attaches nothing to it.' : ''}</p>
+      <p className="q2-magnet-muted">{arrangement ? `Saving through ${arrangements.find((a) => a.id === arrangement)?.name ?? arrangement}.` : locations ? 'No saved location found.' : 'Looking for a saved location…'}{arrangement && !holds ? ' This location does not hold the Magnet; saving will not add it there.' : ''}</p>
       <label>Saved location<select value={arrangement} disabled={locked} onChange={(e) => { setMessage(''); setArrangement(e.target.value) }}><option value="">Choose a saved location</option>{arrangements.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}{conversations.map((c) => <option key={c.id} value={c.id}>Conversation: {c.name}</option>)}</select></label>
     </details>
 
-    {drafts.settings && <p className="q2-magnet-muted">Unsaved staged edits. Save commits them; Cancel discards them; leaving with Escape keeps them for when you reopen this panel.</p>}
+    {drafts.settings && <p className="q2-magnet-muted">Unsaved changes. Save or cancel.</p>}
     {reading && <p role="status">{reading}</p>}{message && <p role="status">{message}</p>}
     <div className="q2-magnet-settings-actions">
       <button type="button" className="q2-magnet-primary" disabled={saving || !arrangement || !p.canWrite(arrangement) || !sendable} onClick={() => void save()}>{saving ? 'Saving…' : attempt.current ? 'Retry unchanged save' : 'Save collection configuration'}</button>

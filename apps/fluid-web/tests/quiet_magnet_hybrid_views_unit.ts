@@ -82,7 +82,7 @@ test('Summary opens alone with the composer, and renders only retained facts', a
   assert.ok(!card.includes('id="view-title"') && !card.includes('id="inquiry-title"'), 'Summary opens alone: no evidence list or Perspectives panel beside it')
   assert.ok(card.includes('1 posts · 1 files'), 'the badge is the real retained count')
   assert.ok(card.includes('Collection overview · facts only'))
-  assert.ok(card.includes('Sample records · not agent analysis or synthesis.'), 'the boundary line is rendered in the approved wording')
+  assert.ok(card.includes('Draft an answer from selected records'), 'the evidence-answer action keeps natural wording')
 })
 
 test('every Summary line is a fact about the collection, from the batch and the definition only', async () => {
@@ -179,7 +179,6 @@ test('inspection is inline: inside the Summary section, and beneath the clicked 
   const section = summary.indexOf('q2-magnet-summary'), inspectTitle = summary.indexOf('id="inspect-title"')
   assert.ok(section >= 0 && inspectTitle > section, 'the inspection renders inside the Summary section')
   assert.ok(summary.includes('Collection overview · facts only'), 'Summary is not replaced by a separate inspection screen')
-  assert.ok(summary.includes('Sample records · not agent analysis or synthesis.'))
   assert.ok(summary.includes('aria-expanded="true"'), 'the support that was clicked says it is expanded')
   // Ordinary words for ordinary things (owner request §2): a collected record is
   // a record; "evidence" is kept for what supports a claim.
@@ -222,7 +221,7 @@ test('the grounding affordance is disabled and carries the gate’s own reason',
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.match(rendered, /<button[^>]*disabled[^>]*aria-describedby="grounded-status"/)
-  assert.ok(rendered.includes('Synthesize from evidence'))
+  assert.ok(rendered.includes('Draft an answer from selected records'))
   assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the reason is the server-side gate’s own words')
   assert.equal(GROUNDED_UNAVAILABLE, `Unavailable · ${PERSPECTIVE_BLOCK_REASON}`)
   assert.ok(!/Unavailable · [a-z]/.test(code(summarySrc()).replace('`Unavailable · ${PERSPECTIVE_BLOCK_REASON}`', '')), 'the reason is not a sentence written here')
@@ -234,8 +233,8 @@ test('an empty collection says Conversation is still available, on Summary and i
   await r.read()
   const summary = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(summary.includes('No collected information yet. Conversation is still available.'))
-  assert.ok(summary.includes('Opening never collects'), 'it says what opening does not do')
-  assert.ok(summary.includes('Synthesize from evidence'), 'the honest grounding statement stays on an empty collection')
+  assert.ok(summary.includes('Choose sources in Settings, then collect.'))
+  assert.ok(summary.includes('Draft an answer from selected records'), 'the disabled action remains visible')
   for (const lens of ['All', 'Posts', 'Files'] as const) {
     const list = html(createElement(EvidenceViews, { resource: r, lens, onPost: () => {}, onFile: () => {} }))
     assert.ok(list.includes('No collected information yet. Conversation is still available.'), `${lens} says the collection is empty`)
