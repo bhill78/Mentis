@@ -59,14 +59,26 @@ with (root / 'quiet-magnet-cohesive-browser.log').open('w',encoding='utf-8') as 
 
             view.evaluate('e=>e.scrollTop=350')
             page.wait_for_timeout(120)
-            position=view.evaluate('e=>e.scrollTop')
-            check(position>0,'the view scrolls')
+            check(view.evaluate('e=>e.scrollTop')>0,'the view scrolls')
             # Opening a collected record and closing it again. The selectors are
             # the rows and the close this build actually renders: the leg used
             # `.q2-magnet-item` and a "Back to Magnet" control, neither of which
             # the collection list or this harness has ever had, so it could not
             # reach what it was written to check. Same intent, nothing weakened.
-            view.locator('.q2-magnet-evidence-row').nth(5).click(force=True)
+            #
+            # THE POSITION IS READ WHERE THE READER ACTUALLY IS. The approved
+            # rows are taller than the ones this was written against (round 3,
+            # 04-browse.png), so bringing the sixth row under the pointer moves
+            # the view -- and what must be restored is where the reader was when
+            # they opened the record, not an earlier offset. Scrolling the row
+            # into view first and reading the position then checks exactly that,
+            # and it is still a position the reader scrolled to.
+            opened=view.locator('.q2-magnet-evidence-row').nth(5)
+            opened.scroll_into_view_if_needed()
+            page.wait_for_timeout(120)
+            position=view.evaluate('e=>e.scrollTop')
+            check(position>0,'the row opened from is below the top of the list')
+            opened.click(force=True)
             expect(card.locator('.q2-magnet-post-text')).to_contain_text('captured words')
             card.get_by_role('button',name='Close this record',exact=True).click()
             page.wait_for_timeout(120)
@@ -80,10 +92,14 @@ with (root / 'quiet-magnet-cohesive-browser.log').open('w',encoding='utf-8') as 
             page.wait_for_timeout(120)
             check(abs(view.evaluate('e=>e.scrollTop')-position)<2,'filter switches retain independent Posts reading position')
 
-            filtered('Everything')
+            # The unified filter reads "All" in the approved design, which is
+            # also what `MAGNET_COLLECTION_TABS` has always called it; the pills
+            # are drawn inside Collected items now, not by the frame (plan
+            # seam 1), and they are the same lens places as before.
+            filtered('All')
             expect(card.get_by_role('tabpanel',name='All')).to_be_visible()
             check(view.locator('.q2-magnet-evidence-row').count()==36,'the unified collection lists posts and collected attachments together')
-            search=card.get_by_role('searchbox',name='Search this Magnet')
+            search=card.get_by_role('searchbox',name='Search collected items')
             search.fill('Retained file')
             page.wait_for_timeout(120)
             check(card.get_by_role('heading',name='Results',exact=True).count()==1,'typing in the search line opens the search overlay')

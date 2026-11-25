@@ -338,7 +338,10 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
             onClick={() => void save()}>{saving ? 'Saving…' : attempt.current ? 'Retry' : 'Save'}</button>
         </span>
       </div>}
-      {reading && <p className="mgd-subtle" role="status">{reading}</p>}
+      {/* A failed read of the choices is feedback about adding a source, and is
+          said where adding happens -- not on a surface somebody is only
+          looking at. The same for the saved location a save goes through. */}
+      {reading && addOpen && <p className="mgd-subtle" role="status">{reading}</p>}
       {message && (edited || saving || announce) && <p className="mgd-subtle" role="status">{message}</p>}
 
       <div className="mgd-space" />

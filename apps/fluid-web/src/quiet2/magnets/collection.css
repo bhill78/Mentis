@@ -29,8 +29,27 @@
 .q2 .q2-magnet-collected .q2-magnet-search .q2-magnet-icon,
 .q2 .q2-magnet-results .q2-magnet-search .q2-magnet-icon { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
 
-/* The type filters, between the search and the first item. */
-.q2 .q2-magnet-type-pills { margin: 15px 0; flex-wrap: wrap; gap: 8px; }
+/* The type filters, between the search and the first item.
+
+   They stay reachable once the list is scrolled. The approved design puts them
+   in the body rather than in the frame's chrome (plan seam 1), and a control in
+   the scrolling body that has to be scrolled back to is a control that costs
+   the reader their place: reaching it scrolls the view, and the view's
+   remembered position is wherever it was left. Each filter keeps its own
+   reading position (`places.ts`), so staying reachable is what preserves that.
+   At rest this is exactly what `04-browse.png` shows; only a scrolled list --
+   a state no mockup gives -- differs. The frame publishes the panel's own
+   surface colour, so nothing here invents one. */
+.q2 .q2-magnet-type-pills {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 15px 0;
+  padding: 7px 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--magnet-brown);
+}
 
 .q2 .q2-magnet-partial { margin: 0 0 10px; }
 
