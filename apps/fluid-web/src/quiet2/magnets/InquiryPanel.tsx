@@ -142,7 +142,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   return <section className="q2-magnet-config q2-magnet-perspectives" aria-label="Perspectives">
     <div className="q2-magnet-section-title">
       <div><p className="q2-magnet-eyebrow">Perspectives</p><h3 id="inquiry-title" tabIndex={-1}>{browsing ? 'Past questions' : asked ? 'Your question' : 'Explore a question'}</h3></div>
-      {s.rows.length > 0 && <button type="button" className="q2-magnet-link" onClick={() => setBrowsing(!browsing)}>{browsing ? 'Back to current ?' : 'Past questions ?'}</button>}
+      {s.rows.length > 0 && <button type="button" className="q2-magnet-link" onClick={() => setBrowsing(!browsing)}>{browsing ? 'Back to current →' : 'Past questions ▾'}</button>}
     </div>
 
     <div className="q2-magnet-work">
@@ -166,7 +166,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             <button type="button" className="q2-magnet-link" onClick={() => setOpened('support')}>Explore supporting items ↗</button>
           </section>
           {/* The one action that carries this question into the Conversation. */}
-          <button type="button" className="q2-magnet-primary" disabled={!canWrite || !viewed || viewed.retired || busy || !!s.pending} onClick={() => void run(async () => { if (viewed && viewed.perspective !== s.selected) await store.select(viewed.perspective); await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss this question ?</button>
+          <button type="button" className="q2-magnet-primary" disabled={!canWrite || !viewed || viewed.retired || busy || !!s.pending} onClick={() => void run(async () => { if (viewed && viewed.perspective !== s.selected) await store.select(viewed.perspective); await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss this question →</button>
           <p className="q2-magnet-muted">Discussion does not read your collected items.</p>
         </> : <section className="q2-magnet-start" aria-label="Where to start">
           <h4>Explore what you’ve collected</h4>
@@ -187,7 +187,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
               <button type="button" className="q2-magnet-primary" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
                 await act('create', { name: suggested, question: drafts.question })
                 if (!store.snapshot().pending) { clearQuestionDraft(at); await discussSelectedQuestion(resource, store) }
-              })}>Ask ?</button>
+              })}>Ask →</button>
               <button type="button" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
                 await act('create', { name: suggested, question: drafts.question })
                 if (!store.snapshot().pending) clearQuestionDraft(at)

@@ -63,6 +63,12 @@
 .q2-magnet-evidence-row:hover, .q2-magnet-evidence-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
 .q2-magnet-evidence-row[aria-expanded='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
 .q2-magnet-evidence-row .q2-magnet-row-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* THE BYLINE IS ITS OWN LINE. A row with a captured excerpt got one from the
+   excerpt's own block; a row with none -- an attachment, say -- ran its byline
+   straight on from the title ("magnet-acceptance-calibration.txtFrom the
+   collected post"). The approved row is a title, then what it is and when
+   (round-3 mockup 04-browse.png). */
+.q2-magnet-evidence-row .q2-magnet-row-text > small { display: block; margin-top: 3px; }
 .q2-magnet-evidence-row .q2-magnet-preview { margin: 3px 0 0; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
 .q2-magnet-type-icon { flex: none; width: 1.2em; opacity: .75; }
 

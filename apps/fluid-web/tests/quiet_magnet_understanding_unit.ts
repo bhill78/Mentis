@@ -468,7 +468,7 @@ test('the Perspectives panel puts the question before every administrative contr
   const { r } = resource('mag-equestionfirst')
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
   const ask = rendered.indexOf('New question or hypothesis')
-  const create = rendered.indexOf('Ask ?')
+  const create = rendered.indexOf('Ask →')
   const lens = rendered.indexOf('aria-label="Active question"')
   const history = rendered.indexOf('Wording history')
   assert.ok(ask > 0 && create > ask, 'the question box and its one press come first, in that order')
@@ -542,7 +542,7 @@ test('every control the Perspectives panel shows uses ordinary question language
   assert.ok(labels.length >= 4, 'the labelled controls are there to be checked')
   for (const label of labels) assert.doesNotMatch(label, /inquir/i, `a control is still announced as inquiry: ${label}`)
   for (const named of ['Active question', 'No question — ordinary Conversation', 'More questions',
-    'Ask ?', 'Save for later',
+    'Ask →', 'Save for later',
     'Branch a new question from this one', 'Retry unchanged question action']) {
     assert.ok(rendered.includes(named), `${named} is the control's name now`)
   }

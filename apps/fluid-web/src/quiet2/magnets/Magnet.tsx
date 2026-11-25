@@ -402,8 +402,14 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
             the Collection experience as designed") rather than only from the
             header gear. It opens Collection's own inline Sources view
             (`EvidenceViews.tsx`, `showSourcesInline`) -- the one approved
-            place for this, not the Settings overlay's separate copy. */}
-        <button type="button" className="q2-magnet-link q2-magnet-filters-sources" onClick={() => showSourcesInline(resource)}>Sources →</button>
+            place for this, not the Settings overlay's separate copy.
+
+            It is an ENTRY, so it is offered where it leads somewhere: once the
+            inline view is already open, that view carries its own
+            "Collected items" toggle back, and a second "Sources" beside it
+            would be a control that does nothing (round-3 mockup 03-sources.png
+            shows the one link). */}
+        {!place(s).sources && <button type="button" className="q2-magnet-link q2-magnet-filters-sources" onClick={() => showSourcesInline(resource)}>Sources →</button>}
       </div>}
       {s.overlay !== 'settings' && <div className="q2-magnet-toolbar">
         {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search this Magnet</span>
