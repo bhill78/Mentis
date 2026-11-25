@@ -791,7 +791,7 @@ test('mini interactions never navigate, poll, inject markup or touch the main st
 test('an unavailable own Conversation is visibly unavailable and offers no composer', () => {
   forgetMiniDrafts()
   const html = renderToStaticMarkup(createElement(MiniConversation, {
-    resource: resourceFor({ conversation: null }), onFull: () => {}, canWrite: true,
+    resource: resourceFor({ conversation: null }), canWrite: true,
   }))
   assert.match(html, /Start a Conversation here/)
   assert.match(html, /Create own Conversation/)
@@ -801,10 +801,12 @@ test('an unavailable own Conversation is visibly unavailable and offers no compo
 
 test('without the capability the composer is visibly unavailable, with it the card writes', () => {
   forgetMiniDrafts()
-  const readOnly = renderToStaticMarkup(createElement(MiniConversation, { resource: resourceFor(), onFull: () => {}, canWrite: false }))
+  const readOnly = renderToStaticMarkup(createElement(MiniConversation, { resource: resourceFor(), canWrite: false }))
   assert.match(readOnly, /Sending is unavailable for this Magnet here/)
   assert.doesNotMatch(readOnly, /textarea/)
-  assert.match(readOnly, /Open full Conversation/)
+  /* AND NO WAY OUT OF THE MAGNET, not even when it cannot be written in
+     (owner §3): read-only is not a reason to offer navigation elsewhere. */
+  assert.doesNotMatch(readOnly, /Open full Conversation/)
 
   // The real Composer is client-only (its facts store has no server snapshot).
   // Its writable rendering, split menu and permissions run in the Edge fixture.
@@ -815,13 +817,13 @@ test('without the capability the composer is visibly unavailable, with it the ca
 test('the mini Conversation follows the record without a manual Refresh affordance', () => {
   forgetMiniDrafts()
   for (const canWrite of [false]) {
-    const html = renderToStaticMarkup(createElement(MiniConversation, { resource: resourceFor(), onFull: () => {}, canWrite }))
+    const html = renderToStaticMarkup(createElement(MiniConversation, { resource: resourceFor(), canWrite }))
     assert.doesNotMatch(html, /Refresh conversation/, `canWrite=${canWrite}`)
-    assert.match(html, /Open full Conversation/, `canWrite=${canWrite}`)
+    assert.doesNotMatch(html, /Open full Conversation/, `canWrite=${canWrite}`)
   }
   /* a Magnet with no own Conversation has nothing to refresh */
   const none = renderToStaticMarkup(createElement(MiniConversation, {
-    resource: resourceFor({ conversation: null }), onFull: () => {}, canWrite: true,
+    resource: resourceFor({ conversation: null }), canWrite: true,
   }))
   assert.doesNotMatch(none, /Refresh conversation/)
 })
@@ -1555,7 +1557,7 @@ const barView = (over: Partial<ComposerBarViewProps> = {}) => renderToStaticMark
 test('the Conversation view holds no composer: the card’s one composer is the footer bar', () => {
   forgetMiniDrafts()
   const view = renderToStaticMarkup(createElement(MiniConversation, {
-    resource: resourceFor(), onFull: () => {}, canWrite: true,
+    resource: resourceFor(), canWrite: true,
   }))
   /* Deliberate, and the reason is the approved design: there is one composer,
      in the footer, so this view has none -- and the two controls that used to
@@ -1570,7 +1572,9 @@ test('the Conversation view holds no composer: the card’s one composer is the 
      carries is said by the composer, beside the words, when there is something
      to say. */
   assert.doesNotMatch(view, /Selected collection evidence is recorded separately/)
-  assert.match(view, /Open full Conversation/)
+  /* NOR A PERSISTENT WAY OUT (owner §3): see "the Conversation view draws no
+     way out of the Magnet" below for the whole of that property. */
+  assert.doesNotMatch(view, /Open full Conversation/)
 
   const bar = barView()
   assert.equal([...bar.matchAll(/<textarea/g)].length, 1, 'exactly one composer textarea in the bar')
@@ -1585,6 +1589,70 @@ test('the Conversation view holds no composer: the card’s one composer is the 
   const readOnly = barView({ canWrite: false })
   assert.doesNotMatch(readOnly, /textarea/)
   assert.match(readOnly, /Sending is unavailable for this Magnet here/)
+  forgetMiniDrafts()
+})
+
+/* -- NO WAY OUT OF THE MAGNET, AND THE WAY BACK KEPT (owner §3) --------------
+   The invariant: this view draws no PERSISTENT navigation out of the card. A
+   Magnet is a self-contained working surface, so leaving it is one explicit
+   contextual action, in Settings, chosen deliberately -- not a link standing in
+   the Conversation header above the posts on every open, which is what the
+   product-path inspection found a Magnet with its own Conversation drawing
+   (adm-8850ac2b2bfa, "§3 a Magnet with its own Conversation draws no persistent
+   Open full Conversation link"). The contextual return is the opposite thing and
+   is required to stay: it is drawn only when the owner actually came from
+   somewhere, and restoring it moves the card, not the words. */
+
+const wayBack = (tab: 'All' | 'Perspectives' = 'All') => ({
+  tab, overlay: null, searchTarget: null, lens: null,
+  query: '', searchType: 'All' as const, searchListScroll: 0,
+  placeKey: tab, placeSnapshot: emptyPlace(),
+})
+
+test('the Conversation view draws no way out of the Magnet, and keeps the way back', () => {
+  forgetMiniDrafts()
+  /* The view a Magnet that OWNS a Conversation draws -- the exact state the
+     inspection failed on -- and the two states around it. */
+  const owning = renderToStaticMarkup(createElement(MiniConversation, { resource: living(), canWrite: true }))
+  const noOwn = renderToStaticMarkup(createElement(MiniConversation, {
+    resource: resourceFor({ conversation: null }), canWrite: true,
+  }))
+  for (const [where, html] of [['owning its Conversation', owning], ['with none of its own', noOwn]] as const) {
+    assert.doesNotMatch(html, /Open full Conversation/, where)
+    assert.doesNotMatch(html, /q2-mini-external/, where)
+    /* nor any other wording for the same act */
+    assert.doesNotMatch(html, /in the workspace/, where)
+  }
+  /* With nowhere to go back to, the header holds no actions at all: an empty
+     row is not left behind where the link was. */
+  assert.doesNotMatch(owning, /q2-mini-head-actions/)
+
+  /* THE WAY BACK IS UNTOUCHED, and it is contextual: it appears exactly when a
+     route was saved, naming where it goes. */
+  const returning = renderToStaticMarkup(createElement(MiniConversation, {
+    resource: living({ returnRoute: wayBack('All') }), canWrite: true,
+  }))
+  assert.match(returning, /q2-mini-head-actions/)
+  assert.match(returning, /Return to All/)
+  assert.doesNotMatch(returning, /Open full Conversation/)
+  const fromSearch = renderToStaticMarkup(createElement(MiniConversation, {
+    resource: living({ returnRoute: { ...wayBack(), overlay: 'search' as const } }), canWrite: true,
+  }))
+  assert.match(fromSearch, /Return to search results/)
+
+  /* AND THE SEAM IS CLOSED, not merely unused: no external navigation is a prop
+     of this view, and the frame hands it none. A later round cannot put the
+     link back by passing a callback again. */
+  const source = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /onFull/)
+  assert.doesNotMatch(source, /q2-mini-external/)
+  const host = readFileSync(new URL('../src/quiet2/magnets/Host.tsx', import.meta.url), 'utf8')
+  const mounted = /<MiniConversation[^>]*\/>/.exec(host)?.[0] ?? ''
+  assert.match(mounted, /resource=/, 'the frame mounts the Conversation view')
+  assert.doesNotMatch(mounted, /onFull/)
+  /* Settings still has it, contextually, which is where §3 keeps it. */
+  const settings = readFileSync(new URL('../src/quiet2/magnets/SettingsView.tsx', import.meta.url), 'utf8')
+  assert.match(settings, /onConversation/)
   forgetMiniDrafts()
 })
 
@@ -1671,7 +1739,10 @@ test('the candidate reference is the inspected item of the current place, else t
   assert.equal(contextCandidate(r), null)
   /* a held file whose digest the collection read states is one exact reference */
   r.update({ results: [{ kind: 'file', id: 'adm-batch111111', value: { digest: 'a'.repeat(64), title: 'notes.txt' } }] as never })
-  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'notes.txt' })
+  /* ... at the version the view is showing, which is what the chip then stands
+     for: a record that is a different version at the press refuses, rather
+     than going quietly in place of the one the owner was reading. */
+  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'notes.txt', version: null, digest: 'a'.repeat(64) })
   /* the Perspectives view offers the selected Perspective and nothing else */
   r.update({ tab: 'Perspectives', lens: 'ent-lens1111111' })
   assert.deepEqual(contextCandidate(r, { perspective: 'ent-lens1111111', name: 'Cost of delay' }), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
@@ -1911,7 +1982,11 @@ test('the composer bar adds no send semantics of its own: the five conventions a
   assert.match(real, /e\.key === 'Enter' && e\.altKey[\s\S]{0,80}record-only/)
   assert.match(real, /if \(e\.ctrlKey \|\| e\.metaKey\)/)
   assert.match(real, /e\.key === 'Enter' && e\.shiftKey/)
-  assert.match(real, /disabled=\{busy \|\| isEmpty\(draft\) \|\| !me\}/)
+  /* The send gate is the draft AND what the surface attached outside it, so a
+     message whose whole point is the record it is about can be sent without
+     words being written for it (`sendsNothing`, composer/draft.ts). */
+  assert.match(real, /disabled=\{busy \|\| nothingToSend \|\| !me\}/)
+  assert.match(real, /const nothingToSend = sendsNothing\(draft, asking\?\.attached\)/)
   assert.match(bar, /import Composer from '\.\.\/\.\.\/fluid\/Composer'/)
 })
 

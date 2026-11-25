@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import MiniConversation from '../src/quiet2/magnets/MiniConversation'
 import ComposerBar from '../src/quiet2/magnets/ComposerBar'
+import { perspectivesOf } from '../src/quiet2/magnets/perspectives'
 import Composer from '../src/fluid/Composer'
 import { Layer } from '../src/fluid/frame/layer'
 import { page } from '../src/brainBinding'
@@ -25,7 +26,11 @@ let state:any={title:'Synthetic Magnet',loading:false,results:[],x:12,y:12,open:
 const heard=new Set<() => void>()
 const r:any={id:'review-browser',brainKey:'http://synthetic.invalid||review-corpus',saved:{id:'mag-review',name:'Synthetic Magnet',config:{conversation:noOwn?null:OWN,sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}},
  snapshot:()=>state,subscribe:(fn:()=>void)=>{heard.add(fn);return ()=>heard.delete(fn)},
- update:(change:any)=>{state={...state,...change};heard.forEach(fn=>fn());(window as any).review?.notify?.()},
+ /* `carried` is LATCHED as it is written: it is the note a send makes as it
+    leaves the composer (`carryContext`), and a successful send retires it, so
+    a check that wants to know whether the press reached the adapter at all
+    cannot read it off the live state afterwards. */
+ update:(change:any)=>{state={...state,...change};if(change.carried)(window as any).review.carried=change.carried;heard.forEach(fn=>fn());(window as any).review?.notify?.()},
  read:async()=>{},cancel:()=>{},dispose:()=>{}}
 /* AS THE SERVER'S OWN TURN VIEW GIVES IT (`mentis/web/__init__.py`
    `_turn_view`): `topics`, `root`, `written_by` and `addressees` come with
@@ -37,7 +42,31 @@ const turn=(n:number,text=n===2?'Synthetic post 2, with **strong** words.':`Synt
 /* What a Conversation search result does to the card (`MagnetSearchTarget`):
     the exact message it meant. The index and the search overlay are not in
     this fixture; the target they write is. */
-const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),context:(context:any,results:any[]=[])=>r.update({context,results,contextSuppressed:false}),snapshot:()=>state,calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0}
+/* A DURABLE SAVED QUESTION, as the Perspectives route answers one: the exact
+   artifact its current wording IS, with that artifact's own digest. `revise()`
+   saves a later version of it, exactly as the owner editing the question would:
+   the record and every fresh read of it move on together, so nothing but the
+   chip's own stamp can say which version the owner actually read. */
+const LENS='ent-reviewlens11'
+const QUESTION_ONE='adm-reviewq11111',DIGEST_ONE='1'.repeat(64)
+const QUESTION_TWO='adm-reviewq22222',DIGEST_TWO='2'.repeat(64)
+const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),snapshot:()=>state,
+ /* A chip attached by another part's view (A's check of an intentionally
+    attached record and its removal): it arrives stating no version, exactly as
+    C's inspected record and E's Perspective chip do before they are stamped. */
+ context:(context:any,results:any[]=[])=>r.update({context,results,contextSuppressed:false}),
+ /* The way back, as a send from another tab or an opened search result writes
+    one (`afterSent`, `route`): the contextual return §3 requires to stay. */
+ wayBack:(tab='All',overlay:any=null)=>r.update({returnRoute:{tab,overlay,searchTarget:null,lens:null,query:'',searchType:'All',searchListScroll:0,placeKey:overlay??tab,placeSnapshot:{scroll:0,inspected:null,inspectScroll:0,inspectOrigin:null,provenance:false,history:false}}}),calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0,
+ carried:null,lens:null as null|string,
+ question:{ref:QUESTION_ONE,digest:DIGEST_ONE,text:'What does this Magnet collect?'},
+ /* Select the durable lens the way the Perspectives view does: the route says
+    it is selected, and the card's own store reads it. */
+ selectLens:()=>{api.lens=LENS;return perspectivesOf(r).read()},
+ revise:()=>{api.question={ref:QUESTION_TWO,digest:DIGEST_TWO,text:'What does this Magnet collect, exactly?'}},
+ perspectiveRow:()=>({perspective:LENS,name:'What does this Magnet collect?',retired:false,events:0,
+  question:{ref:api.question.ref,digest:api.question.digest,size:64,media_type:'text/plain'},
+  current_question:{text:api.question.text,revision:api.question.ref}})}
 ;(window as any).review=api
 window.fetch=async(input:any,init:any={})=>{
  const path=String(input), response=(body:any)=>new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})
@@ -53,9 +82,15 @@ window.fetch=async(input:any,init:any={})=>{
  if(path.startsWith('/api/who/'))return response({designated_persona:null})
  if(path==='/api/execution')return response({runtimes:[],running:[],default_runtime:null})
  if(path==='/api/capacity')return response({runtimes:[]})
- /* The Perspectives seam the bar reads a durable lens through: none selected,
-    so an ordinary message carries the ordinary marker and no lens. */
- if(path.includes('/perspectives'))return response({brain:'review-corpus@review-instance',magnet:r.saved.id,perspectives:[],selected:null,next:null})
+ /* The Perspectives seam the bar reads a durable lens through. Nothing is
+    selected until the fixture selects one; the detail route answers the ONE
+    saved question version the record holds now, which is what a fresh read at
+    the press reads and what `revise()` moves on. */
+ if(path.includes('/perspectives')){
+  const detail=/\/perspectives\/([^?/]+)/.exec(path)
+  if(detail)return response({brain:'review-corpus@review-instance',magnet:r.saved.id,selected:api.lens,...api.perspectiveRow()})
+  return response({brain:'review-corpus@review-instance',magnet:r.saved.id,perspectives:api.lens?[api.perspectiveRow()]:[],selected:api.lens,next:null})
+ }
  if(path.endsWith('/collection'))return response({magnet:r.saved.id,config:r.saved.config,activation:{post:'ent-reviewcollect',at:1795000000,artifact:{ref:'adm-reviewbatch1',digest:'captured',size:42,media_type:'application/json'}},page:{sources:[]}})
  if(path.endsWith('/conversation')&&init.method==='POST'){api.create={body:JSON.parse(init.body),headers:init.headers};r.saved.config.conversation=OWN;return response({conversation:OWN})}
  if(path==='/fluid/api/posts'||path==='/fluid/api/requests'){
@@ -100,7 +135,10 @@ function App(){const[show,setShow]=useState(true);const[,bump]=useState(0);api.n
  <div className="q2-magnet" style={{position:'relative',width:'min(620px,95vw)',height:760,marginTop:20}}><button className="q2-magnet-puck">M</button>
  {show&&<div className="q2-magnet-card" style={{top:30,left:0,width:'min(560px, calc(100vw - 48px))',maxHeight:700}}>
   <header><h2>Synthetic Magnet</h2></header>
-  <div className="q2-magnet-view"><MiniConversation resource={r} canWrite={api.canWrite} onFull={()=>{api.full=true}} onEvidence={(ref)=>{api.evidence=ref}}/></div>
+  {/* No external navigation is supplied: the view takes none (owner §3), so
+      nothing in the card can take the fixture anywhere, and the browser checks
+      read the page's own URL as the evidence that nothing did. */}
+  <div className="q2-magnet-view"><MiniConversation resource={r} canWrite={api.canWrite} onEvidence={(ref)=>{api.evidence=ref}}/></div>
   <ComposerBar resource={r} canWrite={api.canWrite}/>
  </div>}</div>
  </main>}

@@ -108,7 +108,7 @@ const views = withInspections(resource, {
   Posts: <EvidenceViews resource={resource} lens="Posts" onPost={source} onFile={source} />,
   Files: <EvidenceViews resource={resource} lens="Files" onPost={source} onFile={source} />,
   Perspectives: <Perspectives resource={resource} canWrite={true} onEvidence={evidence} />,
-  Conversation: <MiniConversation resource={resource} canWrite={true} onFull={() => { probe.full = true }} onEvidence={evidence} />,
+  Conversation: <MiniConversation resource={resource} canWrite={true} onEvidence={evidence} />,
   search: <SearchView resource={resource} />,
 }, source)
 

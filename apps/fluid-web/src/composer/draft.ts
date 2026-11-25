@@ -376,6 +376,16 @@ export const targetOf = (d: Draft): string | null => {
 export const isEmpty = (d: Draft) =>
   !d.text.trim() && d.to.length === 0 && d.attached.length === 0 && !d.refs?.length
 
+/** WHETHER THERE IS NOTHING TO SEND, which is not the same question as whether
+ *  the draft is empty. A surface may hold what the message is about beside the
+ *  composer rather than in the draft -- a Magnet's chip, which travels as the
+ *  audited selector and is validated by the door -- and then a draft with no
+ *  characters is still a message with something in it (`WorkspaceAsking.attached`;
+ *  contract adm-c5c73679ac1e §3). This is the send gate only: `isEmpty` still
+ *  decides what the composer draws and keeps. Nothing is ever written into the
+ *  draft to make a wordless send possible; the words stay exactly the owner's. */
+export const sendsNothing = (d: Draft, attached = false) => isEmpty(d) && !attached
+
 /** WHAT A REPLY SAYS WHEN IT ANSWERS BY CHOOSING ONE OF THE OPTIONS OFFERED.
  *
  *  The label leads, so the Turn reads as an answer rather than as a comment

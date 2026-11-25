@@ -16,16 +16,18 @@ import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import {
   CONTEXT_WORDS, DROPPED_REF_NOT_SENDABLE, FILE_NOT_SENDABLE, MANAGED_REFUSAL_WORDS,
-  POST_NOT_SENDABLE, QUESTION_CHANGED, RETAINED_NOT_SENDABLE,
-  configurationDigest, contextCandidate, definitionBody, managedSelector, refusalWords,
-  selectedQuestion, selectedReference, type SelectionSeam,
+  POST_NOT_SENDABLE, QUESTION_CHANGED, RECORD_CHANGED, RETAINED_NOT_SENDABLE,
+  attachedVersion, configurationDigest, contextCandidate, definitionBody, managedSelector, refusalWords,
+  selectedQuestion, selectedReference, stamped, versionOfRecord, versionOfRow, type SelectionSeam,
 } from '../src/quiet2/magnets/ComposerBar'
 import {
   MANAGED_REFUSAL, SELECTOR_FIELD, authoredTextAgrees, canonicalJson, digestOf, flowText,
   validateExplicitSelector, type MagnetContext, type MagnetResource, type MagnetSnapshot,
 } from '../src/quiet2/magnets/contract'
-import { bodyOf, emptyDraft, refIdentities, type Draft } from '../src/composer/draft'
+import { bodyOf, emptyDraft, isEmpty, refIdentities, sendsNothing, type Draft } from '../src/composer/draft'
 import { emptyPlaces } from '../src/quiet2/magnets/places'
+import { loadWorking, saveWorking } from '../src/quiet2/magnets/workingState'
+import { page } from '../src/brainBinding'
 
 /* -- fixtures -------------------------------------------------------------- */
 
@@ -267,6 +269,171 @@ test('a question the record no longer holds stops the send, and nothing else is 
     new RegExp(QUESTION_CHANGED.slice(0, 40)))
 })
 
+/* -- a wordless message whose point is what it is about -------------------- */
+
+test('an intentionally attached reference is something to send, with no words invented for it', () => {
+  const nothing = draftWith({ text: '' })
+  assert.equal(isEmpty(nothing), true, 'the draft itself holds nothing')
+  assert.equal(sendsNothing(nothing), true, 'generic posting: an empty draft is still nothing to send')
+  assert.equal(sendsNothing(nothing, false), true, 'and a surface with nothing attached is the same')
+  assert.equal(sendsNothing(nothing, true), false,
+    'a reference the surface holds and means to send IS something to send')
+  assert.equal(sendsNothing(draftWith({ text: '   \r\n' }), true), false,
+    'whitespace the owner typed does not become the content, and does not need to')
+  /* AND NOTHING IS WRITTEN TO MAKE IT SENDABLE: the body of that send is the
+     published vector's chip-only shape -- no parts, no words, agreeing. */
+  const body = bodyOf(nothing, ME, [], 'ask-mentis', { references: 'audited' })
+  assert.deepEqual(body.parts, [])
+  assert.equal(body.text, '')
+  assert.ok(authoredTextAgrees(body.text, body.parts as never))
+  /* With words, the chip changes nothing about them. */
+  const typed = bodyOf(draftWith({ text: 'and this too' }), ME, [], 'ask-mentis', { references: 'audited' })
+  assert.equal(typed.text, 'and this too')
+})
+
+test('the one send gate reads what the surface attached; what the composer draws does not', () => {
+  const composer = readFileSync(new URL('../src/fluid/Composer.tsx', import.meta.url), 'utf8')
+  assert.match(composer, /const nothingToSend = sendsNothing\(draft, asking\?\.attached\)/)
+  /* Both ways of sending -- the button and every keyboard path through `go` --
+     read the same predicate, so they cannot disagree about what is sendable. */
+  assert.match(composer, /if \(busy \|\| nothingToSend \|\| !me\) return/)
+  assert.match(composer, /className="fw-send-main" disabled=\{busy \|\| nothingToSend \|\| !me\}/)
+  /* What is drawn, collapsed and kept is still the draft's own question: a
+     chip merely being attached does not force an expanded composer. */
+  assert.match(composer, /const closed = !open && isEmpty\(draft\)/)
+  assert.match(composer, /const kept = !isEmpty\(draft\)/)
+  /* And the Magnet's bar is what declares it, from the chip it is showing. */
+  const bar = readFileSync(new URL('../src/quiet2/magnets/ComposerBar.tsx', import.meta.url), 'utf8')
+  assert.match(bar, /attached: !!s\.context/)
+})
+
+/* -- the exact version the chip stands for --------------------------------- */
+
+test('a chip says which version it stands for, and only a real version counts as one', () => {
+  const chip: MagnetContext = { ref: LENS, kind: 'perspective', label: 'A question' }
+  assert.equal(attachedVersion(chip), null, 'an identifier alone stands for no version')
+  assert.equal(attachedVersion(null), null)
+  assert.equal(attachedVersion({ ...chip, digest: 'not-a-digest' }), null, 'and neither does a non-digest')
+  assert.deepEqual(attachedVersion(stamped(chip, { version: QUESTION, digest: QUESTION_DIGEST })),
+    { version: QUESTION, digest: QUESTION_DIGEST })
+  /* An immutable artifact has no version of its own: null is a real answer. */
+  assert.deepEqual(attachedVersion({ ref: 'adm-held1111111', kind: 'file', label: 'notes.txt', version: null, digest: DIGEST }),
+    { version: null, digest: DIGEST })
+  assert.deepEqual(stamped(chip, null), chip, 'nothing to say is said as nothing, not as a made-up version')
+
+  /* What a version is READ FROM: the durable row the owner is looking at. */
+  assert.deepEqual(versionOfRow([{ perspective: LENS, question: { ref: QUESTION, digest: QUESTION_DIGEST } }], LENS),
+    { version: QUESTION, digest: QUESTION_DIGEST })
+  assert.equal(versionOfRow([{ perspective: LENS, question: null }], LENS), null)
+  assert.equal(versionOfRow([], LENS), null)
+  assert.deepEqual(versionOfRecord([{ id: 'adm-held1111111', value: { digest: DIGEST } }], 'adm-held1111111'),
+    { version: null, digest: DIGEST })
+  assert.equal(versionOfRecord([{ id: 'ent-collected111', value: { digest: DIGEST } }], 'ent-collected111'), null,
+    'only a held artifact is stated this way; a post needs its authored revision')
+  assert.equal(versionOfRecord([], 'adm-held1111111'), null)
+})
+
+test('a question revised since the chip was attached refuses; it is never sent in its place', () => {
+  const rows = [{ perspective: LENS, question: { ref: QUESTION, digest: QUESTION_DIGEST } }]
+  const ordinary = { perspective: LENS, revision: QUESTION }
+  const held = { version: QUESTION, digest: QUESTION_DIGEST }
+  assert.deepEqual(selectedQuestion(ordinary, rows, LENS, held),
+    { ok: true, value: { id: LENS, question_ref: QUESTION, question_digest: QUESTION_DIGEST } })
+
+  /* THE DEFECT THIS CLOSES. The record has moved on to a later saved question
+     and is perfectly self-consistent about it -- the fresh read and the row
+     agree -- so nothing but the chip's own version says the owner read
+     something else. Both of these went out silently before. */
+  const laterRef = { perspective: LENS, revision: 'adm-question2222' }
+  const laterRows = [{ perspective: LENS, question: { ref: 'adm-question2222', digest: QUESTION_DIGEST } }]
+  const revised = selectedQuestion(laterRef, laterRows, LENS, held)
+  assert.equal(revised.ok, false, 'a later saved question is not the one this message was about')
+  assert.equal(revised.ok === false && revised.why, QUESTION_CHANGED)
+  const rewritten = selectedQuestion(ordinary, [{ perspective: LENS, question: { ref: QUESTION, digest: 'c'.repeat(64) } }], LENS, held)
+  assert.equal(rewritten.ok === false && rewritten.why, QUESTION_CHANGED,
+    'the same artifact with another digest is another version too')
+
+  /* A chip that states no version is unchanged behaviour: the fresh read's own
+     consistency is all there is, and that is what travels. */
+  assert.equal(selectedQuestion(laterRef, laterRows, LENS, null).ok, true)
+  assert.equal(selectedQuestion(laterRef, laterRows, LENS).ok, true, 'and the argument is optional')
+})
+
+test('a held record that is not the attached version refuses, and a deleted one refuses', () => {
+  const rows = [{ kind: 'file', id: 'adm-held1111111', version: 'adm-held1111111', value: { digest: DIGEST } }]
+  const chip: MagnetContext = { ref: 'adm-held1111111', kind: 'file', label: 'notes.txt' }
+  assert.deepEqual(selectedReference(rows, stamped(chip, { version: null, digest: DIGEST })),
+    { ok: true, value: { kind: 'artifact', ref: 'adm-held1111111', version: null, digest: DIGEST } })
+  const changed = selectedReference([{ ...rows[0], value: { digest: 'd'.repeat(64) } }], stamped(chip, { version: null, digest: DIGEST }))
+  assert.equal(changed.ok === false && changed.why, RECORD_CHANGED)
+  const gone = selectedReference([], stamped(chip, { version: null, digest: DIGEST }))
+  assert.equal(gone.ok === false && gone.why, FILE_NOT_SENDABLE, 'a record the card no longer holds is not substituted')
+})
+
+test('a stamped chip stops the send at the composer, with the words, the key and the chip kept', async () => {
+  const chip = stamped({ ref: LENS, kind: 'perspective', label: 'A question' },
+    { version: QUESTION, digest: QUESTION_DIGEST })
+  const resource = resourceFor({ lens: LENS, context: chip })
+  const revised = {
+    ordinary: { perspective: LENS, revision: 'adm-question2222' },
+    rows: [{ perspective: LENS, question: { ref: 'adm-question2222', digest: QUESTION_DIGEST } }],
+  }
+  for (const [what, post] of SENDS) {
+    await assert.rejects(() => managedSelector(seamFor(resource, revised), post),
+      new RegExp(QUESTION_CHANGED.slice(0, 40)), what)
+  }
+  /* Nothing was rewritten to get past it: the chip still stands for the
+     version the owner attached, and the card's state is as it was. */
+  assert.deepEqual(resource.snapshot().context, chip)
+  /* And the unrevised record still sends that exact version. */
+  const same = await managedSelector(seamFor(resource, {
+    ordinary: { perspective: LENS, revision: QUESTION },
+    rows: [{ perspective: LENS, question: { ref: QUESTION, digest: QUESTION_DIGEST } }],
+  }), SENDS[1][1])
+  assert.deepEqual(same.perspective, { id: LENS, question_ref: QUESTION, question_digest: QUESTION_DIGEST })
+})
+
+test('the version the chip stands for survives being put away and reopened; removal stays removed', () => {
+  const data = new Map<string, string>()
+  const old = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value),
+    removeItem: (key: string) => data.delete(key),
+  } })
+  page.saw('corpus-a@one-instance')
+  try {
+    const brainKey = 'https://fixture.invalid|dev|corpus-a'
+    const chip = stamped({ ref: LENS, kind: 'perspective', label: 'A question' },
+      { version: QUESTION, digest: QUESTION_DIGEST })
+    saveWorking(brainKey, 'mag-fixtureA', snapshotFor({ lens: LENS, context: chip }))
+    const back = loadWorking(brainKey, 'mag-fixtureA')
+    assert.deepEqual(back.context, chip, 'the chip comes back as the version it stood for, not as an id alone')
+    assert.deepEqual(attachedVersion(back.context ?? null), { version: QUESTION, digest: QUESTION_DIGEST })
+    /* Captured text is still never kept. */
+    saveWorking(brainKey, 'mag-fixtureA', snapshotFor({ context: { ...chip, text: 'captured body' } }))
+    assert.equal('text' in (loadWorking(brainKey, 'mag-fixtureA').context ?? {}), false)
+    /* A send in flight carries its own note, with the same exact version. */
+    saveWorking(brainKey, 'mag-fixtureA', snapshotFor({ context: chip,
+      carried: { op: 'op-1', context: chip, suppressed: false, from: null as never } }))
+    assert.equal(loadWorking(brainKey, 'mag-fixtureA').carried, null, 'a note without its route is not restored')
+    /* AN INTENTIONAL REMOVAL STAYS REMOVED across the same reopen, and brings
+       back no version of anything. */
+    saveWorking(brainKey, 'mag-fixtureA', snapshotFor({ lens: LENS, context: null, contextSuppressed: true }))
+    const removed = loadWorking(brainKey, 'mag-fixtureA')
+    assert.equal(removed.context, null)
+    assert.equal(removed.contextSuppressed, true)
+    /* A chip written by a release that kept no version comes back as an id
+       alone, and says so rather than claiming one. */
+    data.set(`mentis.magnet.working.v1:${brainKey}:corpus-a@one-instance:mag-fixtureA`,
+      JSON.stringify({ open: true, wide: false, context: { ref: LENS, kind: 'perspective', label: 'A question', digest: 'not-a-digest' } }))
+    assert.equal(attachedVersion(loadWorking(brainKey, 'mag-fixtureA').context ?? null), null)
+  } finally {
+    if (old) Object.defineProperty(globalThis, 'localStorage', old)
+    else delete (globalThis as { localStorage?: unknown }).localStorage
+  }
+})
+
 /* -- what the owner is told, and what the composer offers ------------------ */
 
 test('every refusal the door can answer with has words that say what to do', () => {
@@ -288,7 +455,8 @@ test('automatic attachment offers only what a message can actually carry', () =>
     places: { ...places, Conversation: { ...places.Conversation, inspected } },
   })
   const got = contextCandidate(inspecting(carriable, 'adm-held1111111'))
-  assert.deepEqual(got, { ref: 'adm-held1111111', kind: 'file', label: 'notes.txt' })
+  assert.deepEqual(got, { ref: 'adm-held1111111', kind: 'file', label: 'notes.txt', version: null, digest: DIGEST },
+    'and offers it AT the version the view is showing, which is what the chip then stands for')
 
   /* A collected record the card cannot state exactly is NOT attached by the
      act of typing: that would leave Send with nothing it could do. The owner
