@@ -467,8 +467,6 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
   const excerpts = collectedExcerpts(s.results)
   const starting = startingAction(resource.saved)
   const questions = offeredQuestions(s, !!comparison)
-  // Real retained items, offered as the Summary's supports.
-  const supports = items.slice(0, 6)
 
   const askOrdinary = (question: string) => setMessage(askOrdinaryQuestion(resource, question))
   const compare = () => {
@@ -577,16 +575,14 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         {batch && <details className="q2-magnet-provenance"><summary>Answer from collected records</summary><p className="q2-magnet-muted">{COLLECTION_NOT_ANSWERABLE}</p></details>}
         </>}
 
+        {/* Facts only, and nothing else: every other route into a collected
+            record already lives above (the records' own words) or on the
+            Collection tab itself, so this disclosure does not repeat them
+            (owner request ent-1e82a8786c37: "Simplify the Summary presentation
+            and remove unnecessary explanatory content"). */}
         <details className="q2-magnet-provenance" open={here.history}>
           <summary><span className="q2-magnet-eyebrow">Collection overview · facts only</span></summary>
           <div className="q2-magnet-facts">{summaryFacts(resource.saved, s).map((line, i) => <p key={i}>{line}</p>)}</div>
-          {(items.length > 0 || batch) && <div className="q2-magnet-support">
-            {batch && <button type="button" className="q2-magnet-link" id={`support-${batch}`} aria-expanded={here.inspected === batch}
-              onClick={() => inspect(resource, batch, `support-${batch}`)}>View collection record ↗</button>}
-            {supports.map((r) => <button type="button" key={`${r.kind}:${r.id}`} className="q2-magnet-link" id={`support-${r.id}`} aria-expanded={here.inspected === r.id}
-              onClick={() => inspect(resource, r.id, `support-${r.id}`)}>View {resultTitle(r)} ↗</button>)}
-            {items.length > supports.length && <span className="q2-magnet-muted">{items.length - supports.length} more collected records are in the collection.</span>}
-          </div>}
         </details>
       </>}
     {message && <p className="q2-magnet-muted" role="status">{message}</p>}

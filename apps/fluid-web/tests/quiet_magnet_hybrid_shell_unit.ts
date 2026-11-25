@@ -59,7 +59,9 @@ test('Summary, Perspectives and Conversation are primary; the collection is one 
   assert.ok(!html.includes('role="tablist"'), 'a closed Magnet renders no card')
   setOpen(r, true)
   const open = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
-  const order = [...MAGNET_PRIMARY_TABS, 'Collection'].map((t) => open.indexOf(`>${t}<`))
+  // The approved order (owner request ent-1e82a8786c37): Summary, Collection,
+  // Perspectives, Conversation.
+  const order = ['Summary', 'Collection', 'Perspectives', 'Conversation'].map((t) => open.indexOf(`>${t}<`))
   assert.ok(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `the hierarchy renders in order: ${order}`)
   for (const gone of ['>All<', '>Posts<', '>Files<']) {
     assert.ok(!open.includes(gone), `${gone} is no longer a primary tab of its own`)

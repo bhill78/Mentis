@@ -382,14 +382,27 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         <button type="button" className="q2-magnet-icon q2-magnet-dismiss" aria-label="Close Magnet" title="Close Magnet" onClick={closeCard}>×</button>
       </header>
       <nav className="q2-magnet-tabs" role="tablist" aria-label="Magnet views">
-        {MAGNET_PRIMARY_TABS.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
-        <button type="button" key="Collection" role="tab" className="q2-magnet-tab-collection" aria-selected={inCollectionNow} aria-controls={viewId}
-          title={counted === null ? 'Collected information, once this collection has been read' : `${counted} collected ${counted === 1 ? 'item' : 'items'}`}
-          onClick={() => goTab(resource, collectionTab)}>Collection{counted !== null && <small> {counted}</small>}</button>
+        {/* The approved order (owner request ent-1e82a8786c37): Summary, then
+            Collection as the second place, then the remaining primary tabs.
+            `MAGNET_PRIMARY_TABS` stays the underlying model -- Summary first,
+            Collection is inserted after it rather than appended at the end. */}
+        {(() => { const [firstTab, ...restTabs] = MAGNET_PRIMARY_TABS; return <>
+          <button type="button" key={firstTab} role="tab" aria-selected={!s.overlay && s.tab === firstTab} aria-controls={viewId} onClick={() => goTab(resource, firstTab)}>{firstTab}</button>
+          <button type="button" key="Collection" role="tab" className="q2-magnet-tab-collection" aria-selected={inCollectionNow} aria-controls={viewId}
+            title={counted === null ? 'Collected information, once this collection has been read' : `${counted} collected ${counted === 1 ? 'item' : 'items'}`}
+            onClick={() => goTab(resource, collectionTab)}>Collection{counted !== null && <small> {counted}</small>}</button>
+          {restTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
+        </> })()}
       </nav>
       {inCollectionNow && <div className="q2-magnet-filters" role="group" aria-label="Show in the collection">
         {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className="q2-magnet-filter"
           aria-pressed={s.tab === f.tab} onClick={() => goTab(resource, f.tab)}>{f.label}</button>)}
+        {/* Source management, reached from inside the Collection experience
+            (owner request ent-1e82a8786c37: "Integrate source management into
+            the Collection experience as designed") rather than only from the
+            header gear. It opens the same Settings overlay and the same
+            sources panel -- no second implementation of source management. */}
+        <button type="button" className="q2-magnet-link q2-magnet-filters-sources" onClick={() => openOverlay(resource, 'settings')}>Sources →</button>
       </div>}
       {s.overlay !== 'settings' && <div className="q2-magnet-toolbar">
         {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search this Magnet</span>

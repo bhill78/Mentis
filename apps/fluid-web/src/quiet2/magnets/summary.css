@@ -6,7 +6,6 @@
 .q2-magnet-facts { margin: 6px 0 12px; }
 .q2-magnet-facts p { margin: 5px 0; overflow-wrap: anywhere; }
 .q2-magnet-dependency { margin: 12px 0; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
-.q2-magnet-support { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 10px 0; }
 
 /* The route into the collected records, beside the title rather than on a line
    of its own (round-3 mockups: the compact panel's right-hand cross-link). */
