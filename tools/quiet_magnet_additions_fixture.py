@@ -19,10 +19,8 @@ operations, before setup closes:
     and no agent reply is fabricated.
   * a TRUTHFUL, NON-EXECUTING Work record: an expectation recorded against a
     post in C and never dispatched, so the mini's Work status reads what it
-    actually is -- recorded, nothing started. It is attempted through the
-    shared posting operation; where this build cannot record one without an
-    agent service, the manifest says so in `work_fixture` and nothing is
-    faked.
+    actually is -- recorded, nothing started. Setup records the expectation
+    explicitly through `Conversations.expect`; it creates no dispatch or grant.
   * trusted-local owner mode ON THE DISPOSABLE FIXTURE BRAIN ONLY, so the two
     sanctioned writes are the owner's without a passphrase or a borrowed
     cookie. The credential file sits beside the fixture Brain inside this
@@ -86,7 +84,7 @@ def _extend(brain: Path, mid: str) -> dict:
             "MAGNET C: a fixture record of work that was never started. The "
             "Work status below is the truth about this record: it was asked "
             "for and nothing has run.")])
-        work = _work_fixture(cv, corpus, c, anchor, by, other)
+        work = _work_fixture(cv, anchor, by, other)
         return {"conversation": c, "history_reply": reply,
                 "first_post": first, "work_anchor": anchor,
                 "work_fixture": work,
@@ -95,39 +93,23 @@ def _extend(brain: Path, mid: str) -> dict:
         corpus.close()
 
 
-def _work_fixture(cv, corpus, c, anchor, by, other) -> dict:
+def _work_fixture(cv, anchor, by, other) -> dict:
     """An expectation recorded and NEVER dispatched, or why none was recorded.
 
-    `posting.post` hands the dispatches back for the caller to start; nothing
-    here starts one, and no agent service is attached, so what the record holds
-    afterwards is exactly what it says: work asked for, nothing run. If this
-    build refuses to record one without an agent service, that refusal is
-    reported as it stands rather than worked around.
+    This is fixture setup, alongside the synthetic history's `cv.say`, not a
+    product request or an execution-capable preview write. It records no routed
+    managed context, authority or dispatch. The product dispatch boundary will
+    refuse to run this unbound expectation if somebody tries to execute it.
     """
     try:
-        out, later = posting_post(
-            cv, corpus, c,
-            {"author": by, "text": "FIXTURE WORK: recorded, never started.",
-             "action": "ask-participant", "replies_to": anchor,
-             "op": "quiet-magnet-additions-fixture-work",
-             "dispatch": [{"participant": other, "work": "Nothing runs for "
-                           "this fixture record; it exists so the mini "
-                           "Conversation can read a truthful Work status."}]})
+        expectation = cv.expect(anchor, of=other, kind="result", by=by,
+            because="synthetic fixture setup: recorded work, never started")
     except Exception as exc:                                     # noqa: BLE001
         return {"recorded": False, "why_not": f"{type(exc).__name__}: {exc}",
                 "started": False}
-    if "error" in out:
-        return {"recorded": False, "why_not": out["error"], "started": False}
-    # The dispatches are deliberately dropped on the floor: never started.
-    return {"recorded": True, "started": False, "post": out.get("turn"),
-            "expectations": list(out.get("expectations") or []),
-            "dispatches_returned_and_not_started": len(later)}
-
-
-def posting_post(cv, corpus, cid, body):
-    from mentis.conversation import posting
-    return posting.post(cv, corpus, cid, body, agents=None,
-                        written_by=lambda: "fixture/setup")
+    return {"recorded": True, "started": False, "post": anchor,
+            "expectations": [expectation],
+            "dispatches_returned_and_not_started": 0}
 
 
 def brain_state(brain: Path) -> dict:
@@ -191,8 +173,8 @@ def seed(root: Path) -> dict:
             "open/join/say, artifact hold/stage/submit, arrangements."
             "create_magnet, magnet_definition_command conversation)",
             "Conversations.join/say for C's history",
-            "conversation.posting.post with no agent service, dispatches "
-            "returned and not started",
+            "Conversations.expect for synthetic non-executing Work, no "
+            "dispatch or authority grant",
             "owner_auth trust-local on the disposable fixture Brain only"],
         # WHAT THE PROXY MAY LET THROUGH, and nothing else. It is checked
         # against the running server's own identity before it is believed.

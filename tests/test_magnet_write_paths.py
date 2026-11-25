@@ -283,3 +283,18 @@ def test_send_back_cannot_turn_a_retained_artifact_into_answer_context(world):
     status, out = post(world, {"op": "input"}, path=f"response-sets/{sid}/send-back")
     assert status == 422 and out["code"] == "grounded-answers-blocked"
     assert world["cv"]._c.advance() == before and not world["sent"]
+
+
+def test_preview_seed_work_is_recorded_without_dispatch_authority(world):
+    from tools.quiet_magnet_additions_fixture import _work_fixture
+    _, cid, agent, root = setup_post(world)
+    out = _work_fixture(world["cv"], root, world["who"]["@brian"], agent)
+    assert out["recorded"] and not out["started"]
+    assert out["dispatches_returned_and_not_started"] == 0
+    exp = out["expectations"][0]
+    assert world["cv"]._act(exp)["turn"] == root
+    assert D.authority_for(world["cv"], exp)["organising"] == []
+    result = D.dispatch(world["state"], conversation=cid, turn=root,
+        participant=agent, expectation=exp, work="cannot run fixture work")
+    assert not result["ok"] and result["before_execution_started"]
+    assert result["refusal"]["code"] == "missing-managed-context"
