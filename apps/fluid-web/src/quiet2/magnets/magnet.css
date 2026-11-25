@@ -1,4 +1,4 @@
-.q2 .q2-magnet{position:absolute;width:64px;height:64px;z-index:18;color:#eee8e6;--magnet-gold:#edbf50;--magnet-brown:#2b2423;font-size:14px;line-height:1.45;pointer-events:auto}
+.q2 .q2-magnet{position:absolute;width:64px;height:64px;z-index:18;color:#eee8e6;--magnet-gold:#edbf50;--magnet-brown:#292322;font-size:14px;line-height:1.45;pointer-events:auto}
 .q2 .q2-magnet button{font:inherit;cursor:pointer}
 .q2 .q2-magnet button:focus-visible,.q2 .q2-magnet summary:focus-visible{outline:3px solid #fff3be;outline-offset:4px}
 .q2 .q2-magnet-puck{position:relative;z-index:2;display:grid;place-items:center;width:64px;height:64px;padding:0;border:3px solid #f6d26f;border-radius:50%;background:#edbf50;box-shadow:0 0 0 3px #68502d,0 0 0 6px #d8aa39,inset 0 0 0 3px #d6a847;color:#24211c;font-size:30px!important;font-weight:800!important;touch-action:none;user-select:none}
@@ -34,8 +34,13 @@
      the close control is never under it. */
   --magnet-head-near:48px;
   --magnet-head-far:24px;
-  border:1px solid #5d514b;border-radius:calc(10px + 4px * var(--magnet-room));background:var(--magnet-brown);
-  box-shadow:0 18px 46px #0000006e,0 2px 10px #00000047;
+  /* The approved `.magnet` shell, exactly: border #78685c, 14px, and the
+     mockups' single shadow. The old #5d514b read noticeably fainter against the
+     workspace than the approved pictures, and the radius was interpolated with
+     the room although both approved panels -- the 510px compact one and the
+     1100px wide one -- are drawn at 14px. */
+  border:1px solid #78685c;border-radius:14px;background:var(--magnet-brown);
+  box-shadow:0 18px 45px #0008;
   /* The card itself holds no inset: the head, the tabs, the body and the
      footer each carry the padding the design gives them, which is why the
      body can be generous while the chrome around it stays at 24px. */
@@ -99,7 +104,11 @@
 .q2 .q2-magnet-muted,.q2 .q2-magnet-attribution{color:#c1b3ad;font-size:12px;line-height:1.45}
 .q2 .q2-magnet-muted{margin:4px 0 10px}
 .q2 .q2-magnet-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.q2 .q2-magnet-count{display:inline-block;border-radius:20px;background:#5a4e4b;font-size:12px;min-width:22px;text-align:center;padding:1px 9px;margin-left:5px;vertical-align:1px}
+/* (A second `.q2-magnet-count` rule stood here for an inline count pill. Nothing
+   renders that class but the resting puck's badge, and at equal specificity this
+   rule came later, so it was drawing the badge grey with the pill's padding
+   instead of the gold badge its own rule above describes. Removed: the badge is
+   one of the things this round was told to preserve exactly.) */
 .q2 .q2-magnet-view-meta{margin:2px 0 7px;color:#c1b3ad;font-size:12px;line-height:1.35}
 .q2 .q2-magnet-link{border:0;background:none;color:#f3c453;padding:0;text-align:left;line-height:1.5}
 .q2 .q2-magnet-link:disabled{cursor:default;color:#bbaca0}
