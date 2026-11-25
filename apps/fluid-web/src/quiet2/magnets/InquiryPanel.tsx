@@ -22,6 +22,16 @@
  *  5. WITH ROOM -- the same content in two columns, from the frame's
  *     `--magnet-room`, never from a viewport media query.
  *
+ *  **A PERSISTENT QUESTION, NOT A SECOND CONVERSATION SYSTEM** (owner
+ *  ent-901ef1a816bb). A Perspective is one question that is kept, and what is
+ *  understood of it may change as the Magnet collects more. So the question
+ *  surface tells the answer STANDING NOW apart from the answers it follows,
+ *  keeps every earlier one readable at its own recorded version under
+ *  `Earlier answers`, and offers both halves of refresh: the owner's own read
+ *  (`READ_AGAIN`) beside the answer, and one automatic read when -- and only
+ *  when -- the Magnet reports a different collected batch. Discussion stays in
+ *  the Conversation, which is why nothing here grows a thread of its own.
+ *
  *  **Ordinary question language.** The owner's language review
  *  (ent-3191baeb33d2 §2) governs every word: no control, option, label or
  *  message here says "inquiry".
@@ -48,10 +58,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { MagnetResource } from './contract'
 import {
-  derivedPerspectiveName, pastQuestions, perspectivesOf, questionSubtitle, recordedUnderstanding,
-  stampAttachedQuestion, EVENT_WORDS, FUTURE_CONCEPT, GROUNDED_NOT_YET, NOTHING_RECORDED_YET,
-  PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON, SUPPORTING_WHY,
-  type InquiryEvent, type PerspectiveStore,
+  answerHistory, derivedPerspectiveName, pastQuestions, perspectivesOf, questionSubtitle,
+  recordedUnderstanding, stampAttachedQuestion, ANSWER_STANDS_NOW, CHECKED_NEW, CHECKED_SAME,
+  COLLECTION_MOVED, EARLIER_ANSWERS_KEPT, EVENT_WORDS, FUTURE_CONCEPT, GROUNDED_NOT_YET,
+  NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON, QUESTION_IS_KEPT,
+  SUPPORTING_WHY, type InquiryEvent, type PerspectiveStore,
 } from './perspectives'
 import { retainedItems, resultPreview, resultTitle, rowByline, usePeople } from './EvidenceViews'
 import { miniComposerDraft, saveMiniComposer } from './conversation'
@@ -81,6 +92,24 @@ export const HELP_TITLE = 'What can I do today?'
 export const HELP_WORDS = 'You can discuss a question now, or browse collected items yourself. Discussion does not read those items to form its answer.'
 /** `02-compact-current`: something to ask when nothing has been asked. */
 export const TRY_ASKING = 'What might be slowing our releases?'
+/** The manual half of refreshing a kept question (owner ent-901ef1a816bb:
+ *  "support manual or automatic refresh"). It reads the record again; it forms
+ *  no answer, which is why it is worded as a read. */
+export const READ_AGAIN = 'Read this question again'
+/** The heading the kept answer and the ones before it live under. */
+export const EARLIER_ANSWERS = 'Earlier answers'
+
+/** THE COLLECTION THIS MAGNET NOW HOLDS, watched for change, because that
+ *  change is the only thing that can alter what is understood of a kept
+ *  question. Tolerates a resource that publishes no subscription (the panel's
+ *  own fixtures): then nothing is watched and only manual reading is offered,
+ *  rather than the panel failing to render. */
+function useCollectedMark(resource: MagnetResource): string | null {
+  const subscribe = useMemo(() => (fn: () => void) =>
+    typeof resource.subscribe === 'function' ? resource.subscribe(fn) : () => {}, [resource])
+  const read = useMemo(() => () => resource.snapshot().activation?.artifact.ref ?? null, [resource])
+  return useSyncExternalStore(subscribe, read, read)
+}
 
 /** Copy the fresh saved question; preserve any existing Composer draft and send choices. */
 export async function discussSelectedQuestion(resource: MagnetResource, store: PerspectiveStore) {
@@ -281,6 +310,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   useEffect(() => { void store.read() }, [store])
   useEffect(() => { if (!s.viewed && s.selected) void store.view(s.selected).catch((e) => setMessage(e.message)) }, [s.viewed, s.selected, store, setMessage])
   const told = recordedUnderstanding(s.events)   // what the record holds, derived from nothing
+  const answers = answerHistory(s.events)        // the one standing now, and the ones it follows
   const viewed = s.viewedDetail
   const asked = viewed?.current_question?.text ?? (s.viewed === s.selected ? s.selectedDetail?.current_question?.text : '') ?? ''
   const mayWrite = canWrite && !busy && !s.pending
@@ -295,6 +325,30 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   const record = () => asked
     ? act('branch', { name: derivedPerspectiveName(drafts.question), question: drafts.question, reason: drafts.reason })
     : act('create', { name: suggested, question: drafts.question })
+  /** READING THE KEPT QUESTION AGAIN -- the manual and the automatic refresh
+   *  are the same one read, and say which of them asked for it. */
+  const [readAgain, setReadAgain] = useState('')
+  const reread = async (automatic = false) => {
+    const found = await store.recheck()
+    setReadAgain(found === 'none' ? '' : found === 'changed' ? CHECKED_NEW : automatic ? COLLECTION_MOVED : CHECKED_SAME)
+  }
+  /* AUTOMATIC REFRESH, ONCE PER CHANGE OF THE COLLECTION. The collected batch
+     is the only thing that can change what is understood of a kept question,
+     so the panel reads again exactly when the Magnet reports a different one,
+     and does nothing at all while it reports the same one. This is not a
+     timer, a poll or a retry: one read per observed change, and the first
+     value observed is only remembered, never read against. */
+  const seen = useRef<{ mark: string | null } | null>(null)
+  const collected = useCollectedMark(resource)
+  useEffect(() => {
+    if (!seen.current) { seen.current = { mark: collected }; return }
+    if (seen.current.mark === collected) return
+    seen.current = { mark: collected }
+    void run(() => reread(true))
+    // Only the collected mark may start this: adding the panel's own changing
+    // state here would read again for reasons that are not new evidence.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collected])
   /** The one press that asks: record the question, then carry its own saved
    *  words into the Conversation, which is where discussion happens. */
   const sendAsk = () => void run(async () => {
@@ -384,15 +438,35 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             <span className="mgd-subtle">You asked</span>
             <b className="q2p-asked">{asked}</b>
           </div>
+          {/* WHAT IS UNDERSTOOD OF A QUESTION THAT STAYS. One answer stands
+              now; the ones it follows are kept under it, never replaced. */}
           <div className="mgd-answer">
             <b>Current understanding</b>
-            {told.answers.length || told.challenges.length ? <>
-              {told.answers.map((e) => <p key={`a:${e.post}`}>{wordingOf(e) ?? 'An answer is recorded against this question.'}
-                {e.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(e.data.answer.ref)}>View the recorded answer</button></>}</p>)}
+            {answers.current || told.challenges.length ? <>
+              {answers.current && <>
+                <span className="mgd-subtle q2p-answer-mark">{ANSWER_STANDS_NOW}</span>
+                <p>{wordingOf(answers.current) ?? 'An answer is recorded against this question.'}
+                  {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
+              </>}
               {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span>{wordingOf(e) ?? ''}</p>)}
             </> : <p>{NOTHING_RECORDED_YET}</p>}
-            <button type="button" className="mgd-link mgd-small" onClick={() => setPlace('support')}>Explore supporting items ↗</button>
+            {answers.superseded.length > 0 && <details className="q2p-answer-history">
+              <summary>{EARLIER_ANSWERS} ({answers.superseded.length})</summary>
+              <p className="mgd-small mgd-muted">{EARLIER_ANSWERS_KEPT}</p>
+              <ol className="q2p-answers">{answers.superseded.map((e, i) => <li key={`s:${e.post}`}>
+                <span className="mgd-subtle">{EARLIER_ANSWERS} {answers.superseded.length - i}</span>
+                <p>{wordingOf(e) ?? 'An answer is recorded against this question.'}</p>
+                <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(e.data.answer?.ref ?? e.snapshot.ref)}>View it as it was recorded</button>
+              </li>)}</ol>
+            </details>}
+            <div className="mgd-row mgd-spread q2p-answer-foot">
+              <button type="button" className="mgd-link mgd-small" onClick={() => setPlace('support')}>Explore supporting items ↗</button>
+              {/* The manual half of refresh, beside the answer it refreshes. */}
+              <button type="button" className="mgd-link mgd-small" disabled={busy} onClick={() => void run(() => reread())}>{READ_AGAIN}</button>
+            </div>
+            {readAgain && <p className="mgd-small mgd-muted" role="status">{readAgain}</p>}
           </div>
+          <p className="mgd-small mgd-muted q2p-kept">{QUESTION_IS_KEPT}</p>
           <div className="mgd-space" />
           {compose}
           <p className="mgd-hint">{GROUNDED_NOT_YET}</p>

@@ -37,6 +37,9 @@ TRY_ASKING = 'What might be slowing our releases?'
 HELP_TITLE = 'What can I do today?'
 HELP_WORDS = 'You can discuss a question now, or browse collected items yourself. Discussion does not read those items to form its answer.'
 BLOCK_REASON = 'Grounded Perspective answers are blocked'
+QUESTION_IS_KEPT = 'This question is kept. What is understood of it can change as this Magnet collects more, and earlier answers stay readable.'
+READ_AGAIN = 'Read this question again'
+CHECKED_SAME = 'Read again: no newer answer is recorded against this question.'
 SAVED_WORDS = 'Saved. No agent or collection was started.'
 # 640 px of panel is where the aside comes up (a container query on the panel's
 # own inline size), so the compact surface needs a narrower page than that.
@@ -105,6 +108,26 @@ with (root / 'quiet-magnet-perspective-browser.log').open('w', encoding='utf-8')
             expect(page.get_by_role('button', name='Explore supporting items ↗', exact=True)).to_be_visible()
             seen.append(page.inner_text('body'))
             check('the selected question, what the record holds of it and the follow-up box are the resting surface')
+
+            # -- a kept question, and refreshing what is understood of it --------
+            # The question stays and its answer may change under it, so the
+            # resting surface says so and offers the manual read. The fixture
+            # records no answer against it, so there is no "standing now" answer
+            # and no kept earlier ones -- and the read must say that plainly
+            # rather than imply something changed.
+            expect(page.locator('.q2p-kept')).to_have_text(QUESTION_IS_KEPT)
+            expect(page.locator('.mgd-answer')).not_to_contain_text('Answer standing now')
+            expect(page.locator('.q2p-answer-history')).to_have_count(0)
+            before = len(page.evaluate('window.perspectiveTest.calls'))
+            page.get_by_role('button', name=READ_AGAIN, exact=True).click()
+            expect(page.get_by_role('status').filter(has_text=CHECKED_SAME)).to_be_visible()
+            after = page.evaluate('window.perspectiveTest.calls')
+            # Reading again is reading: the detail and its history, no write.
+            assert all(c['method'] == 'GET' for c in after[before:]), after[before:]
+            assert any('/history' in c['tail'] for c in after[before:]), after[before:]
+            expect(page.locator('.q2p-asked')).to_have_text('Latest saved question α\U0001f642')
+            seen.append(page.inner_text('body'))
+            check('a kept question says its answer may change, and reading it again re-reads the record without writing')
 
             # -- past questions, and the saved current question ------------------
             to_past()

@@ -50,6 +50,21 @@
 .q2-magnet-perspectives .mgd-answer p { margin: 8px 0 12px; }
 .q2-magnet-perspectives .mgd-answer > .mgd-link { display: inline-block; margin: 2px 0 4px; }
 .q2-magnet-perspectives .mgd-hint { margin: 8px 0 0; }
+
+/* -- the answer standing now, and the ones it follows --------------------- *
+   Arrangement only: the gold rule, the type and the colours are `mgd-answer`
+   and `mgd-subtle` from `design.css`. The kept earlier answers sit inside that
+   same block, shut, so the resting surface still shows one answer. */
+.q2-magnet-perspectives .q2p-answer-mark { display: block; margin-top: 6px; }
+.q2-magnet-perspectives .q2p-answer-history { margin: 4px 0 10px; }
+.q2-magnet-perspectives .q2p-answer-history summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.q2-magnet-perspectives .q2p-answers { list-style: none; margin: 8px 0 0; padding: 0; }
+.q2-magnet-perspectives .q2p-answers > li { margin: 0 0 12px; overflow-wrap: anywhere; }
+.q2-magnet-perspectives .q2p-answers > li > .mgd-subtle { display: block; }
+.q2-magnet-perspectives .q2p-answers > li > p { margin: 3px 0 2px; }
+.q2-magnet-perspectives .q2p-answer-foot { gap: 12px; margin-top: 2px; }
+.q2-magnet-perspectives .q2p-answer-foot > .mgd-link { margin: 2px 0 4px; }
+.q2-magnet-perspectives .q2p-kept { margin: 10px 0 0; }
 .q2-magnet-perspectives .mgd-example { overflow-wrap: anywhere; }
 .q2-magnet-perspectives .mgd-help .mgd-row { margin-top: 12px; }
 .q2-magnet-perspectives .mgd-help p { margin: 6px 0 0; }

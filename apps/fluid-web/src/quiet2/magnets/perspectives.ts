@@ -39,6 +39,36 @@ export function recordedUnderstanding(events: InquiryEvent[]): RecordedUnderstan
   }
 }
 
+/** A PERSISTENT QUESTION, AND AN ANSWER THAT EVOLVES (owner ent-901ef1a816bb).
+ *
+ *  A Perspective is a question that is KEPT: it is asked once and stays, and
+ *  what is understood of it changes as the Magnet collects more. So the answer
+ *  that stands now is told apart from the answers that stood before it --
+ *  `current` is the newest recorded answer, `superseded` the ones recorded
+ *  earlier, newest first. A newer answer never removes an earlier one: each is
+ *  a durable event that stays readable at its own recorded version, which is
+ *  what preserving answer history means here.
+ *
+ *  Nothing in this derives, merges or summarises an answer. It splits what the
+ *  history already returned, in the order the record holds. */
+export interface AnswerHistory { current: InquiryEvent | null; superseded: InquiryEvent[] }
+export function answerHistory(events: InquiryEvent[]): AnswerHistory {
+  const [current, ...superseded] = recordedUnderstanding(events).answers
+  return { current: current ?? null, superseded }
+}
+
+/** Said where a kept question is read, so a Perspective is never taken for a
+ *  second conversation system: it is one question that stays, with what is
+ *  understood of it recorded under it. */
+export const QUESTION_IS_KEPT = 'This question is kept. What is understood of it can change as this Magnet collects more, and earlier answers stay readable.'
+export const ANSWER_STANDS_NOW = 'Answer standing now'
+export const EARLIER_ANSWERS_KEPT = 'Earlier answers are kept in the order they were recorded. A newer answer never removes one.'
+/** What reading the record again found. Reading is all it is: no agent is
+ *  started, nothing is recorded, and no answer is formed here. */
+export const CHECKED_SAME = 'Read again: no newer answer is recorded against this question.'
+export const CHECKED_NEW = 'Read again: a newer answer is recorded. The one it follows is kept below.'
+export const COLLECTION_MOVED = 'This Magnet has collected more since this question was last read, so it was read again. No newer answer is recorded yet.'
+
 /** The past questions, narrowed by what was typed in the find box. Both the
  *  name and the saved wording are searched, because the name is derived from
  *  the wording and a later revision may have moved them apart. */
@@ -339,6 +369,26 @@ export class PerspectiveStore {
     if (mine !== this.historyVersion || this.state.viewed !== perspective) return
     this.update({ viewedDetail: v, rows: this.merged(this.state.rows, v) })
     await this.history()
+  }
+  /** REFRESH WHAT IS RECORDED AGAINST THE KEPT QUESTION, by hand or when the
+   *  collection moves. It re-reads the question being viewed through `view()`
+   *  -- the same guarded durable read, with the same identity and lens checks
+   *  -- and says whether the answer standing now is a different recorded event
+   *  than the one just shown. It writes nothing, selects nothing and starts no
+   *  agent: a refresh that formed an answer would be grounded answering, which
+   *  stays refused (`PERSPECTIVE_ANSWERS_ENABLED`).
+   *
+   *  One read per call, and no caller may turn it into a loop: there is no
+   *  timer here and nothing retries. An unresolved write still blocks it, so a
+   *  refresh never runs over an action whose outcome is unknown. */
+  async recheck(): Promise<'none' | 'unchanged' | 'changed'> {
+    const target = this.state.viewed ?? this.state.selected
+    if (!target) return 'none'
+    if (this.state.pending) throw new Error('Resolve the unchanged question action before reading this question again.')
+    const before = answerHistory(this.state.events).current?.post ?? null
+    await this.view(target)
+    if ((this.state.viewed ?? this.state.selected) !== target) return 'none'
+    return (answerHistory(this.state.events).current?.post ?? null) === before ? 'unchanged' : 'changed'
   }
   /** Every page is bounded and frozen by the server cursor. Before a new
    * request, inspect durable unresolved intents even when browser state was lost. */

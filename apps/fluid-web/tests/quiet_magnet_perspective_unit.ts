@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
-import { derivedPerspectiveName, PerspectiveStore } from '../src/quiet2/magnets/perspectives'
+import { answerHistory, derivedPerspectiveName, PerspectiveStore } from '../src/quiet2/magnets/perspectives'
 import { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { miniComposerDraft, removeContext, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
@@ -200,6 +200,52 @@ test('an uncertain rename keeps its original name, target and key for the unchan
   await reopened.store.retryPending()
   assert.deepEqual(sent, [[`/${A}/rename`, { name: 'Original name' }, 'rename-key'], [`/${A}/rename`, { name: 'Original name' }, 'rename-key']])
   assert.equal(reopened.store.snapshot().pending, undefined)
+})
+
+/** A kept question's recorded answers, oldest first, as a history page returns them. */
+const answered = (...texts: string[]) => texts.map((text, i) => ({
+  seq: i + 1, post: `ent-answer${i}`, event: 'answer', perspective: A,
+  snapshot: { ref: `adm-answer${i}`, digest: 'b'.repeat(64), size: 10, media_type: 'application/json' },
+  data: { text, answer: { ref: `adm-recorded${i}` } },
+}))
+
+test('a kept question keeps every earlier answer and names only the newest as standing now', () => {
+  assert.deepEqual(answerHistory([]), { current: null, superseded: [] })
+  const events = [...answered('First understanding', 'Second understanding', 'Third understanding'),
+    { seq: 9, post: 'ent-challenge1', event: 'challenge', perspective: A, snapshot: { ref: 'adm-c' }, data: { text: 'Doubt' } } as any]
+  const h = answerHistory(events)
+  assert.equal(h.current?.data.text, 'Third understanding')
+  // Earlier answers are kept, newest first, and none of them is discarded.
+  assert.deepEqual(h.superseded.map((e) => e.data.text), ['Second understanding', 'First understanding'])
+  // A challenge is not an answer and never stands as one.
+  assert.ok(![h.current, ...h.superseded].some((e) => e?.event === 'challenge'))
+})
+
+test('reading a kept question again reports a newer answer, reports no change, and refuses over an unknown write', async () => {
+  const f = fixture()
+  let events = answered('First understanding')
+  const base = f.store.get
+  f.store.get = async (tail = '') => tail.includes('/history')
+    ? { magnet: f.r.saved.id, perspective: tail.split('/')[1], events, next: null } : base(tail)
+  f.store.update({ selected: A, viewed: A })
+  await f.store.view(A)
+  assert.equal(answerHistory(f.store.snapshot().events).current?.data.text, 'First understanding')
+  // Nothing new recorded: the read says so rather than claiming a change.
+  assert.equal(await f.store.recheck(), 'unchanged')
+  // A newer answer recorded since: the read finds it and the earlier one stays.
+  events = answered('First understanding', 'Second understanding')
+  assert.equal(await f.store.recheck(), 'changed')
+  const after = answerHistory(f.store.snapshot().events)
+  assert.equal(after.current?.data.text, 'Second understanding')
+  assert.deepEqual(after.superseded.map((e) => e.data.text), ['First understanding'])
+  // Reading again records nothing and starts nothing: every call was a read.
+  assert.ok(f.calls.every((p) => !/prepare|reconcile|bind/.test(p)))
+  // With no question in hand there is nothing to read again.
+  f.store.update({ selected: null, viewed: null })
+  assert.equal(await f.store.recheck(), 'none')
+  // An action whose outcome is unknown is resolved before anything is re-read.
+  f.store.update({ viewed: A, pending: { kind: 'question' } as any })
+  await assert.rejects(f.store.recheck(), /unchanged question action/)
 })
 
 test('wrong or missing Brain response is refused; pending action never migrates to a replacement Brain', async () => {
