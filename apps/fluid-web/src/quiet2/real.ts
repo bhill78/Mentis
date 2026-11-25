@@ -159,6 +159,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   else if (pictures.length > 1) blocks.push({ kind: 'wide', images: pictures })
   return {
     id: t.id,
+    agentWork: t.agent_work,
     /* an agent's post is written by a run (`<runtime>/<run>`); a person's is
        not, even when the request it answered named a runtime */
     by: { id: t.author, name: t.author_alias, agent: !!t.written_by && t.written_by.includes('/') },

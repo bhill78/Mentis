@@ -1,3 +1,5 @@
+import { useAgentWork, showsAgentWork, setShowsAgentWork } from '../fluid/conversation/agentWork'
+import { showConversationPost } from './conversationFilter'
 /* QUIET CHAT MARK 2 — DESIGN ROUND 1: the editorial conversation.
  *
  * Served at /quiet2 beside Mark 1 (docs/quiet-chat/MARK-2.md). The
@@ -363,12 +365,13 @@ function useMe() {
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
    Settings. */
-function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed, trashed, onNewInstruction, onOpenRecord }: {
+function ConversationTools({ people, conversation, name, named, who, setWho, showWork, setShowWork, say, onRenamed, trashed, onNewInstruction, onOpenRecord }: {
   people: Person[]; conversation: Id | null; name: string
   /** in Trash: no Rename here (restore it first) */
   trashed?: boolean
   /** the name to start a rename from: empty while it is still unnamed */
   named: string
+  showWork: boolean; setShowWork: (on: boolean) => void
   who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
   /** a rename was recorded: whatever shows the name reads it again */
   onRenamed: () => void
@@ -401,6 +404,7 @@ function ConversationTools({ people, conversation, name, named, who, setWho, say
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></svg>
         <span>{who ? who.name.replace(/^@/, '') : `${people.length} participants`}</span>
       </button>
+      {conversation && <button type="button" aria-pressed={showWork} onClick={() => setShowWork(!showWork)} title="Show agent work in this conversation">Agent work</button>}
       {conversation && !READ_ONLY && <button aria-expanded={open === 'instructions'} aria-haspopup="dialog" onClick={() => setOpen(open === 'instructions' ? null : 'instructions')}>
         <span aria-hidden="true">≡</span><span>Instructions</span>
       </button>}
@@ -1225,7 +1229,11 @@ function Quiet2Page() {
     return () => clearTimeout(t)
   }, [notice])
 
-  const shown = (p: PostT) => (!who || p.by.id === who.id || p.requestedBy?.id === who.id) && (!topic || !!p.topics?.includes(topic))
+  useAgentWork()
+  const showWork = showsAgentWork(conversationId)
+  const linked = at && realId ? heldIn(realId).find((p) => p.number === at) : undefined
+  const linkedRoot = linked?.root ?? linked?.id
+  const shown = (p: PostT) => showConversationPost(p, showWork, linkedRoot) && (!who || p.by.id === who.id || p.requestedBy?.id === who.id) && (!topic || !!p.topics?.includes(topic))
   /* posts that do not match the filter fold into one quiet line per run */
   const rows: ({ post: PostT } | { hidden: number; key: string })[] = []
   for (const id of top) {
@@ -1971,7 +1979,7 @@ function Quiet2Page() {
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>}
         {conversationId && <ConversationState row={convRow} say={setNotice} />}
-        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed}
+        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} showWork={showWork} setShowWork={(on) => { if (conversationId) setShowsAgentWork(conversationId, on) }} say={setNotice} trashed={trashed}
           onNewInstruction={() => setAuthorNew({ kind: 'conversation-instruction', conversation: conversationId ? { id: conversationId, name } : null })}
           onOpenRecord={(id) => enterBrain({ page: 'record', entry: id }, { from: 'link' })}
           named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />}

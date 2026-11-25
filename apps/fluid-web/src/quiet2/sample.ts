@@ -42,6 +42,7 @@ export interface Attachment { name: string; type: string; size: string; url?: st
   item?: import('../quiet/media/view').ViewerItem }
 
 export interface Post {
+  agentWork?: import('../api').AgentWork | null
   id: Id
   /** the anchor this post is about (an anchored reply or comment): its id */
   anchor?: Id
