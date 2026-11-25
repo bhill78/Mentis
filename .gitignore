@@ -9,6 +9,16 @@ __pycache__/
 /.preview/
 # Artifact bytes an agent's `read_artifact` writes into the checkout.
 /.mentis-artifacts/
+# What a round's own checks write beside the checkout: suite logs, the preview
+# server's output, product-path logs and pytest basetemps. They are evidence, so
+# they are kept where they were written and their counts are recorded in the
+# round's report -- which Mentis holds as an artifact, not this repository.
+/.pytest-*.log
+/.ui-suite-*.log
+/.preview-*.log
+/.product-path-*.log
+/.test-integrated-*/
+/INTEGRATION-REPORT-*.md
 
 # Rust build output
 /target/
