@@ -370,12 +370,23 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             check(chip_only['context']['digest']==DIGEST_ONE,
                   'the wordless press leaves this part’s composer, carrying that exact version')
             chip_only_said=bar.inner_text()
-            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
-            check(box.input_value()=='' and view.evaluate('window.review.snapshot().context.digest')==DIGEST_ONE,
-                  'and whatever the door answers, the chip and the words are kept exactly as they are')
+            # INTEGRATED, THE WORDLESS SEND ACTUALLY COMPLETES, and the
+            # reference that went is let go (`retireContext`, A's file). On D's
+            # own branch nothing could be sent without words, so the chip stayed
+            # where it was and the check read it there. The invariant is the same
+            # either way -- no version is substituted and no words are invented --
+            # and this is what the owner sees here: the message took its question
+            # with it, and the next one starts from no choice rather than from
+            # the last one.
+            view.wait_for_function('window.review.snapshot().context===null')
+            check(box.input_value()=='' and view.evaluate('window.review.snapshot().contextSuppressed')is False,
+                  'the recorded wordless message took its question with it, and the composer starts the next one from no choice')
             # A QUESTION REVISED UNDER THE COMPOSER IS NOT THIS MESSAGE'S
             # QUESTION. The record and every fresh read of it move on together;
             # only the chip's own version says what the owner actually read.
+            reset()
+            view.evaluate('window.review.selectLens()')
+            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
             box.fill('What has been collected so far?')
             before=view.evaluate('window.review.calls.length')
             view.evaluate('window.review.revise()')
