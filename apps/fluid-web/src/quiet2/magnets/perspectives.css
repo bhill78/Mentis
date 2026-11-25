@@ -32,6 +32,14 @@
     gap: calc(30px + 24px * var(--magnet-room, 0));
   }
   .q2-magnet-perspectives .q2p-aside { display: block; }
+  /* SAY EACH THING ONCE WHEN BOTH COLUMNS ARE UP. `07-future-expanded.png`
+     carries no `Past questions ▾` on the left, because the list it leads to is
+     the right-hand column, and it carries the grounded-answers sentence once,
+     at the foot of that column. Said twice, side by side, those are exactly
+     the redundant disclosures the owner asked to be rid of; both stay, in
+     their compact place, the moment the aside goes away again. */
+  .q2-magnet-perspectives .q2p-main .q2p-open-past,
+  .q2-magnet-perspectives .q2p-main > .mgd-hint { display: none; }
 }
 
 /* -- the question, and what is understood of it (05, 10) ------------------ */

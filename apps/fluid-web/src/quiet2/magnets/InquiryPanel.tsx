@@ -304,7 +304,11 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
     await discussSelectedQuestion(resource, store)
   })
 
-  const openPast = <button type="button" className="mgd-link mgd-small" onClick={() => { setPlace('past'); setHelping(false) }}>Past questions ▾</button>
+  /* `q2p-open-past` is the hook the wide layout drops this on: once the aside
+     stands beside the work, the list it leads to is already on the surface
+     (07-future-expanded.png shows no such link), so offering it again is one
+     of the redundant disclosures the owner asked to be rid of. */
+  const openPast = <button type="button" className="mgd-link mgd-small q2p-open-past" onClick={() => { setPlace('past'); setHelping(false) }}>Past questions ▾</button>
   const toAsk = () => { setPlace('current'); setHelping(false); setTimeout(() => ask.current?.focus(), 0) }
 
   /* 06 -- THE SUPPORTING ITEMS TAKE THE WORKING AREA, and give it straight
