@@ -6,8 +6,27 @@
 .q2 .q2-magnet-rest-title{display:block;margin:18px 0 0 -26px;width:116px;max-width:calc(100vw - 32px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:600;text-align:center;pointer-events:none;color:var(--q2-ink,#eee8e6);text-shadow:0 1px 3px #151515}
 .q2 .q2-magnet-flipped .q2-magnet-rest-title{margin-left:-26px}
 .q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
-/* The card is a column; `.q2-magnet-view` is the one scroll container. */
-.q2 .q2-magnet-card{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:contain;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
+/* THE OPENED PANEL (round-3 mockups adm-abc995a3f832 / adm-49555c498afb).
+   The card is a column; `.q2-magnet-view` is the one scroll container.
+
+   Every measurement that changes with room is interpolated along the two
+   scalars the frame publishes on this element -- `--magnet-room` (width) and
+   `--magnet-room-h` (height), each 0 at a 320 px panel and 1 at a roomy one.
+   There is no narrow rule and no expanded rule: the compact mockup and the
+   larger working surface are the two ends of these `calc()`s, and a panel
+   dragged to any width in between gets the measurement that belongs to it.
+   Views supplied into the frame inherit the same two numbers and may do the
+   same. Viewport media queries below stay only as a phone floor; they can see
+   the screen, which is not what a panel's own layout answers to. */
+.q2 .q2-magnet-card{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:contain;touch-action:pan-y;
+  --magnet-room:0;--magnet-room-h:0;
+  --magnet-pad-i:calc(13px + 11px * var(--magnet-room));
+  --magnet-rule:#4b3f3b;
+  --magnet-head-near:calc(46px + 12px * var(--magnet-room));
+  --magnet-head-far:0px;
+  border:1px solid #5d514b;border-radius:calc(10px + 4px * var(--magnet-room));background:var(--magnet-brown);
+  box-shadow:0 18px 46px #0000006e,0 2px 10px #00000047;
+  padding:0 var(--magnet-pad-i) 0}
 .q2 .q2-magnet-resize{position:absolute;z-index:5;touch-action:none;user-select:none}
 .q2 .q2-magnet-resize-n,.q2 .q2-magnet-resize-s{left:12px;right:12px;height:8px;cursor:ns-resize}
 .q2 .q2-magnet-resize-n{top:0}.q2 .q2-magnet-resize-s{bottom:0}
@@ -20,16 +39,36 @@
    (`.view{min-height:70px}` there): with a persistent composer in the footer
    slot, the furniture around it must not be able to take the whole card and
    leave nothing to read on a 320x640 screen. */
-.q2 .q2-magnet-view{flex:1 1 auto;min-height:70px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.q2 .q2-magnet-view{flex:1 1 auto;min-height:70px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;
+  padding-top:calc(10px + 8px * var(--magnet-room-h))}
 .q2 .q2-magnet-view:focus{outline:none}
-.q2 .q2-magnet-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0 7px 48px;min-height:40px;flex:none}
+/* The mockups' one footer line, under a hairline, saying the edges drag. It is
+   the smallest thing in the panel and it says it once (owner §4). */
+.q2 .q2-magnet-hint{flex:none;margin:0;border-top:1px solid var(--magnet-rule);
+  padding:calc(5px + 4px * var(--magnet-room-h)) 0;
+  font-size:11px;line-height:1.3;color:#9b8d72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The header: the name, and one quiet cluster of controls at the far edge,
+   over a hairline. `--magnet-head-near` clears the puck, which overhangs the
+   panel's near corner; flipped, the puck overhangs the far corner instead, so
+   the two insets swap and the close control is never under it. */
+.q2 .q2-magnet-card>header{display:flex;align-items:center;justify-content:space-between;gap:calc(2px + 6px * var(--magnet-room));flex:none;
+  padding:calc(9px + 7px * var(--magnet-room-h)) var(--magnet-head-far) calc(9px + 6px * var(--magnet-room-h)) var(--magnet-head-near);
+  min-height:40px;border-bottom:1px solid var(--magnet-rule);background:var(--magnet-brown)}
+.q2 .q2-magnet-flipped .q2-magnet-card{--magnet-head-near:0px;--magnet-head-far:calc(40px + 4px * var(--magnet-room))}
 .q2 .q2-magnet-head-text{min-width:0;flex:1 1 auto;align-self:center}
 .q2 .q2-magnet-collection{display:flex;align-items:center;gap:7px;min-width:0;max-width:260px;color:#c1b3ad;font-size:11px;line-height:1.2}
 .q2 .q2-magnet-collection>span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.q2 .q2-magnet-collection .q2-magnet-primary{flex:none;padding:4px 8px;border-radius:7px;font-size:11px!important}
-.q2 .q2-magnet-icon{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:18px!important;line-height:1;padding:2px 4px;border-radius:6px}
-.q2 .q2-magnet-icon:hover{background:#3a312f}
-.q2 .q2-magnet-toolbar{flex:none;padding:0 0 3px}
+/* In the mockups the header carries no filled button: Collect now keeps its
+   place and its words, as a quiet outlined control beside the icons. */
+.q2 .q2-magnet-card>header .q2-magnet-primary{flex:none;padding:4px 10px;border-radius:999px;font-size:11px!important;font-weight:600!important;
+  border:1px solid #6d5f58;background:none;color:#e4cf96}
+.q2 .q2-magnet-card>header .q2-magnet-primary:hover:not(:disabled){border-color:#edbf50;background:#3b3128;color:#f5cd6b}
+.q2 .q2-magnet-card>header .q2-magnet-primary:disabled{opacity:.55;cursor:default}
+.q2 .q2-magnet-icon{flex:none;display:grid;place-items:center;width:28px;height:28px;border:0;background:transparent;color:#bcaea7;font-size:17px!important;line-height:1;padding:0;border-radius:7px}
+.q2 .q2-magnet-icon:hover{background:#3a312f;color:#f1e7e1}
+.q2 .q2-magnet-step span{display:block;font-size:15px}
+.q2 .q2-magnet-step[aria-pressed=true]{color:#f3c453}
+.q2 .q2-magnet-toolbar{flex:none;padding:calc(7px + 4px * var(--magnet-room-h)) 0 0}
 .q2 .q2-magnet-foot{flex:none}
 .q2 .q2-magnet-secondary{border:1px solid #88776a;border-radius:9px;background:none;color:#dfc78e;padding:6px 12px}
 .q2 .q2-magnet-secondary:disabled{opacity:.7;cursor:default}
@@ -37,7 +76,8 @@
 .q2 .q2-magnet-summary h4,.q2 .q2-magnet-settings h4{margin:0 0 6px;font-size:14px;color:#f2eae8}
 .q2 .q2-magnet-settings section{border-top:1px solid #554946;padding:14px 0}
 .q2 .q2-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.q2 .q2-magnet-card h2{margin:0;font-size:16px;line-height:1.25;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;color:#f3eeee}
+.q2 .q2-magnet-card h2{margin:0;line-height:1.25;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;max-width:70ch;color:#f6f1ef;
+  font-size:calc(15px + 3px * var(--magnet-room));font-weight:700;letter-spacing:.1px}
 .q2 .q2-magnet-dismiss{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:22px!important;line-height:1;padding:0 2px}
 .q2 .q2-magnet-body h3{font-size:16px;margin:0;color:#f2eae8}
 .q2 .q2-magnet-body section{border-top:1px solid #554946;padding:14px 0}
@@ -68,23 +108,49 @@
 .q2 .q2-magnet-move summary{cursor:pointer;width:max-content}
 .q2 .q2-magnet-move p{margin:8px 0}
 .q2 .q2-magnet-move div{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-/* Settings opens on its controls: the heading row is one compact line and the
-   disclosed sections below it are the advanced material (§4). */
-.q2 .q2-magnet-settings-head{margin-bottom:2px}
-.q2 .q2-magnet-settings>section:first-of-type{border-top:0;padding-top:4px}
+/* OVERLAY FRAMING (round-3 mockups). An overlay inside the panel is not a form
+   on the panel's background: it is a titled surface, framed like the panel
+   itself. These three are the whole language, and any view supplied into the
+   frame may use them -- `-overlay-head` for its own title row, `-panel` for a
+   framed block of controls, `-note` for the contextual help card of
+   adm-7ea00ac26f45 (a quiet inset with a gold rule down its near edge). */
+.q2 .q2-magnet-overlay-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin:0 0 calc(10px + 4px * var(--magnet-room-h));padding-bottom:calc(7px + 4px * var(--magnet-room-h));border-bottom:1px solid var(--magnet-rule)}
+.q2 .q2-magnet-overlay-head h3{margin:0;font-size:calc(14px + 2px * var(--magnet-room));font-weight:700;color:#f6f1ef}
+.q2 .q2-magnet-overlay-head h3:focus-visible{outline:3px solid #fff3be;outline-offset:4px}
+.q2 .q2-magnet-panel{border:1px solid var(--magnet-rule);border-radius:12px;background:#322a28;
+  padding:calc(10px + 3px * var(--magnet-room-h)) calc(11px + 4px * var(--magnet-room));margin:calc(8px + 3px * var(--magnet-room-h)) 0}
+.q2 .q2-magnet-note{border:1px solid #5c4c33;border-left:3px solid #edbf50;border-radius:10px;background:#352c24;
+  padding:calc(10px + 3px * var(--magnet-room-h)) calc(12px + 4px * var(--magnet-room));margin:calc(10px + 4px * var(--magnet-room-h)) 0;color:#e6dcd4}
+.q2 .q2-magnet-note>:first-child{margin-top:0}
+.q2 .q2-magnet-note>:last-child{margin-bottom:0}
+/* Settings opens on its controls: the heading row is the overlay's title line
+   and the framed blocks below it hold the advanced material (§4). */
+.q2 .q2-magnet-settings>section{border:1px solid var(--magnet-rule);border-radius:12px;background:#322a28;
+  padding:calc(10px + 3px * var(--magnet-room-h)) calc(11px + 4px * var(--magnet-room));margin:calc(8px + 3px * var(--magnet-room-h)) 0}
+.q2 .q2-magnet-settings>section:first-of-type{padding-top:calc(10px + 3px * var(--magnet-room-h))}
+.q2 .q2-magnet-settings>section>h4:first-child{margin-top:0}
 .q2 .q2-magnet-settings summary{cursor:pointer;width:max-content}
+.q2 .q2-magnet-settings .q2-magnet-move{padding-top:calc(10px + 3px * var(--magnet-room-h))}
 .q2 .q2-magnet-identity p{margin:0}
 .q2 .q2-magnet-move button{border:1px solid #88776a;background:none;color:#dfc78e;border-radius:5px;padding:4px 8px}
-.q2 .q2-magnet-tabs{display:flex;gap:24px;border-top:1px solid #554946;border-bottom:1px solid #554946;margin:3px 0;overflow-x:auto}
-.q2 .q2-magnet-tabs button{border:0;border-bottom:3px solid transparent;background:none;padding:7px 0;color:#c3b5af;white-space:nowrap}
-.q2 .q2-magnet-tabs button[aria-selected=true]{border-bottom-color:#edbf50;color:#f5cd6b;font-weight:700}
-/* The collection is the secondary place: it sits apart from the three primary
-   views and carries its own count, rather than one tab per source type. */
-.q2 .q2-magnet-tab-collection{margin-left:auto;font-size:13px!important;color:#b5a8a2}
-.q2 .q2-magnet-tab-collection small{font-size:11px;opacity:.85;margin-left:2px}
+/* The primary-tab bar: one row of words under the header, the place in force
+   in gold over a short underline, the rest quiet. No top rule -- the header's
+   own hairline already separates them (adm-abc995a3f832). */
+.q2 .q2-magnet-tabs{display:flex;align-items:stretch;gap:calc(13px + 13px * var(--magnet-room));border-bottom:1px solid var(--magnet-rule);margin:0;overflow-x:auto;scrollbar-width:none}
+.q2 .q2-magnet-tabs::-webkit-scrollbar{height:0}
+.q2 .q2-magnet-tabs button{border:0;border-bottom:2px solid transparent;background:none;white-space:nowrap;color:#a99c96;
+  padding:calc(8px + 4px * var(--magnet-room-h)) 0 calc(7px + 3px * var(--magnet-room-h));
+  font-size:calc(13px + 1px * var(--magnet-room))!important;margin-bottom:-1px}
+.q2 .q2-magnet-tabs button:hover{color:#e6dcd4}
+.q2 .q2-magnet-tabs button[aria-selected=true]{border-bottom-color:#edbf50;color:#f3c453;font-weight:700}
+/* The collection is the secondary place: it carries its own count, rather than
+   one tab per source type. It sits in the row with the primary three, as the
+   mockups draw it, and is not floated off to the far edge. */
+.q2 .q2-magnet-tab-collection small{font-size:11px;opacity:.85;margin-left:3px;font-weight:600}
 /* The type filters, shown only while the collection is open, so no row of
    furniture is spent on them anywhere else. */
-.q2 .q2-magnet-filters{flex:none;display:flex;gap:7px;flex-wrap:wrap;padding:5px 0 1px}
+.q2 .q2-magnet-filters{flex:none;display:flex;gap:7px;flex-wrap:wrap;padding:calc(8px + 4px * var(--magnet-room-h)) 0 0}
 .q2 .q2-magnet-filter{border:1px solid #6d5f58;border-radius:20px;background:none;color:#cfc2bb;padding:2px 11px;font-size:12px!important;line-height:1.5}
 .q2 .q2-magnet-filter[aria-pressed=true]{border-color:#edbf50;background:#4a3d27;color:#f5cd6b;font-weight:650!important}
 .q2 .q2-magnet-expanded{z-index:30}
@@ -96,55 +162,36 @@
 .q2 .q2-magnet-indicator-files{right:-10px;top:50%;transform:translateY(-50%)}
 .q2 .q2-magnet-indicator-new{bottom:-10px;left:50%;transform:translateX(-50%)}
 .q2 .q2-magnet-indicator-perspectives{left:-10px;top:50%;transform:translateY(-50%);opacity:.82}
-.q2 .q2-magnet-expanded>.q2-magnet-card{padding:0 24px 14px}
-.q2 .q2-magnet-expanded .q2-magnet-card>header{padding-left:58px;padding-top:10px;min-height:40px}
-.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:18px;max-width:70ch}
+/* `.q2-magnet-expanded` is on the frame whenever the card is open at all, so
+   the chrome it used to re-measure here is now one set of room-driven rules
+   above. What stays is what is genuinely about an open card. */
 .q2 .q2-magnet-expanded .q2-magnet-body{padding-top:4px}
 .q2 .q2-magnet-expanded .q2-magnet-card section{padding:18px 0}
 .q2 .q2-magnet-scope{color:#d5c8c0;font-size:13px}
-.q2 .q2-magnet-read-status{padding:9px 12px;background:#4a3630;border-radius:6px;color:#f0c6a4;font-size:13px}
+.q2 .q2-magnet-read-status{flex:none;margin:8px 0 0;padding:9px 12px;background:#4a3630;border-radius:8px;color:#f0c6a4;font-size:13px}
 .q2 .q2-magnet-unavailable p{max-width:560px;color:#cbbeb7}
-.q2 .q2-magnet-flipped:not(.q2-magnet-expanded) .q2-magnet-card>header{padding-left:0;padding-right:40px}
 @media(max-width:600px){
-.q2 .q2-magnet-expanded>.q2-magnet-card{padding:0 14px 12px}
-.q2 .q2-magnet-expanded .q2-magnet-card>header{padding-left:42px}
-.q2 .q2-magnet-card{padding-left:18px;padding-right:14px}
-.q2 .q2-magnet-card h2{font-size:18px}
-.q2 .q2-magnet-tabs{gap:20px}
 .q2 .q2-magnet-perspectives-link{flex-wrap:wrap;gap:3px}
 .q2 .q2-magnet-card footer{gap:12px}
-.q2 .q2-magnet-primary{padding:8px 11px}
-.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:17px}}
-/* A PHONE-SIZED CARD HAS TO HOLD BOTH. The card's own furniture -- header,
-   tabs, search line and foot -- took 52% of a 320x640 card's height, and with
-   the persistent composer in the footer slot there was nothing left to read.
-   The approved preview compacts exactly these at its own narrow width
-   (`@media(max-width:700px)`: `card-head`, `tabs button`, `toolbar`,
-   `card-foot{min-height:26px}`); these are those measurements. Nothing moves
-   or disappears, and no view changes. */
-@media(max-width:700px){
-.q2 .q2-magnet-card>header{padding-top:12px;padding-bottom:9px;min-height:40px}
-.q2 .q2-magnet-tabs{margin:6px 0 4px;gap:14px}
-.q2 .q2-magnet-tabs button{padding:8px 0}
-.q2 .q2-magnet-filters{padding:4px 0 0;gap:6px}
-.q2 .q2-magnet-filter{padding:2px 9px}
-.q2 .q2-magnet-toolbar{padding:0 0 4px}
+.q2 .q2-magnet-primary{padding:8px 11px}}
+/* A SMALL PANEL HAS TO HOLD BOTH. The card's own furniture -- header, tabs,
+   search line and foot -- took 52% of a 320x640 card's height, and with the
+   persistent composer in the footer slot there was nothing left to read. That
+   measurement still governs; what has changed is what it is taken against.
+   These used to be `@media(max-width:700px)` rules, and a viewport media query
+   is blind to the thing that actually squeezes the furniture -- a panel dragged
+   narrow, which since the panel became resizable can be 340 px on a 2560 px
+   screen. They are now the low end of the room-driven `calc()`s above, so the
+   compaction arrives with the panel's own width and height. Nothing moves or
+   disappears, and no view changes. */
+.q2 .q2-magnet-card>header .q2-magnet-primary{padding-inline:calc(6px + 4px * var(--magnet-room))}
 .q2 .q2-magnet-collection>span{display:none}
-.q2 .q2-magnet-card>header{gap:4px}
-.q2 .q2-magnet-card>header .q2-magnet-icon{padding-left:2px;padding-right:2px}
-.q2 .q2-magnet-collection .q2-magnet-primary{padding-left:6px;padding-right:6px;font-size:0!important}
-.q2 .q2-magnet-collection .q2-magnet-primary::after{content:'Collect';font-size:11px}
-.q2 .q2-magnet-collection .q2-magnet-primary.collecting::after{content:'Working…'}
-.q2 .q2-magnet-search{margin:6px 0}
-.q2 .q2-magnet-search input{padding:5px 7px}
-.q2 .q2-magnet-card footer{margin:3px 0 6px;gap:10px;flex-wrap:nowrap}
-.q2 .q2-magnet-card footer .q2-magnet-muted{font-size:11px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.q2 .q2-magnet-card footer .q2-magnet-primary{padding:5px 11px;flex:none}}
-/* A phone-width card keeps a little more of its own width for the same reason:
-   it is what puts the composer's tools and its send control on one line. */
-@media(max-width:600px){
-.q2 .q2-magnet-expanded>.q2-magnet-card{padding-left:10px;padding-right:10px}
-.q2 .q2-magnet-card{padding-left:12px;padding-right:10px}}
+.q2 .q2-magnet-filter{padding:2px calc(9px + 2px * var(--magnet-room))}
+.q2 .q2-magnet-search{margin:calc(4px + 2px * var(--magnet-room-h)) 0}
+.q2 .q2-magnet-search input{padding:calc(5px + 1px * var(--magnet-room-h)) 7px}
+.q2 .q2-magnet-card footer{margin:calc(3px + 2px * var(--magnet-room-h)) 0 calc(6px + 4px * var(--magnet-room-h));gap:calc(10px + 4px * var(--magnet-room))}
+.q2 .q2-magnet-card footer .q2-magnet-muted{font-size:calc(11px + 1px * var(--magnet-room));min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.q2 .q2-magnet-card footer .q2-magnet-primary{padding:calc(5px + 3px * var(--magnet-room-h)) calc(11px + 5px * var(--magnet-room));flex:none}
 
 .q2 .q2-magnet-collect{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .q2 .q2-magnet-destinations{font-size:12px;color:#d9c9be;margin:10px 0}

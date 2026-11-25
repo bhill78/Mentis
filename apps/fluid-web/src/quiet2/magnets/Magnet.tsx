@@ -62,6 +62,26 @@ export function cardGeometry(x: number, y: number, width: number, height: number
   return { left, top, width: cardWidth, maxHeight, flip: right }
 }
 
+/** HOW MUCH ROOM THE OPENED PANEL HAS, as two continuous 0–1 scalars.
+ *
+ *  The approved round-3 mockups show a compact panel (adm-abc995a3f832) and a
+ *  larger working surface (adm-49555c498afb). Those are two points on one line,
+ *  not two modes: the owner's §1 asks the layout to "adapt continuously to the
+ *  available panel space … not fixed size presets". So nothing in the chrome
+ *  branches on a size. Every measurement that changes with room is interpolated
+ *  along these two numbers, which the frame publishes on the card as
+ *  `--magnet-room` and `--magnet-room-h` (with the raw `--magnet-panel-w/h`),
+ *  where the stylesheet -- and any view supplied into the frame -- reads them.
+ *
+ *  Panel width, not viewport width, is what the panel's own layout answers to:
+ *  a 340 px panel dragged narrow on a 2560 px screen has exactly as little room
+ *  as a phone, and a viewport media query cannot see that. */
+export function panelRoom(width: number, height: number) {
+  const along = (v: number, from: number, to: number) =>
+    Number.isFinite(v) ? Math.max(0, Math.min(1, (v - from) / (to - from))) : 0
+  return { w: along(width, 320, 900), h: along(height, 320, 740) }
+}
+
 /** The resting puck's name sits under it, shifted so it never leaves the canvas.
  *  Centred under the puck where there is room; pushed in at either edge. */
 const REST_TITLE = 116
@@ -143,6 +163,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const counted = s.activation !== undefined ? posts.length + files.length : null
   const here = place(s)
   const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.wide, s.dimensions)
+  const room = panelRoom(geometry.width, geometry.maxHeight)
   const placeKey = placeKeyOf(s)
   const wantScroll = magnetScroll(s)
   /** The opened search result is a surface of its own inside the search place,
@@ -294,6 +315,18 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     resizing.current = null
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
+  /** The mockups' header ⤢ (adm-abc995a3f832, adm-49555c498afb): one step
+   *  between a compact panel and a larger working surface, for a reader who does
+   *  not want to drag an edge. It writes `dimensions` -- the very thing a drag
+   *  writes, remembered by the same working state -- so there is no second size
+   *  mechanism and nothing of direct resizing changes. `wide` stays the legacy
+   *  preference it already was, and is what the next step reads. */
+  const stepSize = () => {
+    const next = !s.wide
+    const want = cardGeometry(s.x, s.y, size.width, size.height, next)
+    setResizePosition(null)
+    resource.update({ wide: next, dimensions: { width: want.width, height: want.maxHeight } })
+  }
 
   return <div ref={root} className={`q2-magnet${open ? ' q2-magnet-expanded' : ''}${s.wide ? ' q2-magnet-wide' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
     data-magnet={saved.id} style={{ left: s.x, top: s.y }}
@@ -315,9 +348,16 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     </div>
     {!open && <span className="q2-magnet-rest-title" title={title} style={{ marginLeft: restTitleOffset(s.x, size.width) }}>{title}{counted !== null && <><br /><small>{counted} collected items</small></>}</span>}
     {open && <section id={cardId} role="region" aria-label={`${title} Magnet`} className="q2-magnet-card"
-      style={{ left: resizePosition?.left ?? geometry.left, top: resizePosition?.top ?? geometry.top, width: geometry.width, height: geometry.maxHeight } as CSSProperties}>
+      style={{ left: resizePosition?.left ?? geometry.left, top: resizePosition?.top ?? geometry.top, width: geometry.width, height: geometry.maxHeight,
+        // The one place the panel's own room reaches the stylesheet. Published
+        // on the card, so every view inside it inherits the same two numbers.
+        '--magnet-panel-w': `${Math.round(geometry.width)}px`, '--magnet-panel-h': `${Math.round(geometry.maxHeight)}px`,
+        '--magnet-room': room.w.toFixed(3), '--magnet-room-h': room.h.toFixed(3) } as CSSProperties}>
       {['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((edge) => <div key={edge} className={`q2-magnet-resize q2-magnet-resize-${edge}`}
         aria-hidden="true" onPointerDown={(e) => resizeDown(e, edge)} onPointerMove={resizeMove} onPointerUp={resizeEnd} onPointerCancel={resizeEnd} />)}
+      {/* The mockups' header: the Magnet's name, then one quiet cluster of
+          controls at the far edge -- nothing else on the line, and no second
+          count or status sentence under it. */}
       <header>
         <div className="q2-magnet-head-text">
           <h2 title={title} tabIndex={0}>{title}</h2>
@@ -326,6 +366,8 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
           <button type="button" className={`q2-magnet-primary${s.collecting ? ' collecting' : ''}`} title={collectWhy}
             disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
         </div>
+        <button type="button" className="q2-magnet-icon q2-magnet-step" aria-label={s.wide ? 'Use a smaller panel' : 'Use a larger panel'}
+          title={s.wide ? 'Smaller panel' : 'Larger panel'} aria-pressed={s.wide} onClick={stepSize}><span aria-hidden="true">⤢</span></button>
         <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
           onClick={() => s.overlay === 'settings' ? leaveSettings(resource) : openOverlay(resource, 'settings')}><span aria-hidden="true">⚙</span></button>
         <button type="button" className="q2-magnet-icon q2-magnet-dismiss" aria-label="Close Magnet" title="Close Magnet" onClick={closeCard}>×</button>
@@ -363,6 +405,9 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
       </div>
       {s.overlay !== 'settings' && footerComposer}
       {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
+      {/* The mockups' one footer line. It is the only thing in the panel that
+          says the edges can be dragged, and it says it once, in six words. */}
+      <p className="q2-magnet-hint" aria-hidden="true">Drag the panel edge to resize</p>
     </section>}
   </div>
 }

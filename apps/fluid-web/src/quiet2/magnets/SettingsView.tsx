@@ -59,7 +59,9 @@ export default function SettingsView({ resource, identity, collectionConfigurati
   useEffect(() => { if (takeSettingsReturn(at)) leaveSettings(resource) }, [at, resource, drafts.returned])
   const back = s.settingsReturn?.overlay === 'search' ? 'search' : s.settingsReturn?.tab ?? s.tab
   return <section className="q2-magnet-settings" aria-label="Magnet settings">
-    <div className="q2-magnet-section-title q2-magnet-settings-head">
+    {/* The overlay's own title line, in the panel's framing (round-3 mockups):
+        a titled surface inside the panel, not a form on its background. */}
+    <div className="q2-magnet-overlay-head">
       <h3 id="settings-title" tabIndex={-1}>Settings</h3>
       <button type="button" className="q2-magnet-icon" aria-label={`Close settings and return to ${back}`} title={`Close settings and return to ${back}`}
         onClick={() => leaveSettings(resource)}>×</button>
