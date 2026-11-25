@@ -32,7 +32,7 @@
  *  read the collected material. */
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { MagnetResource } from './contract'
-import { derivedPerspectiveName, perspectivesOf, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON, type PerspectiveStore } from './perspectives'
+import { derivedPerspectiveName, perspectivesOf, stampAttachedQuestion, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON, type PerspectiveStore } from './perspectives'
 import { miniComposerDraft, saveMiniComposer } from './conversation'
 import { goTab, setOpen } from './places'
 import {
@@ -54,6 +54,9 @@ export async function discussSelectedQuestion(resource: MagnetResource, store: P
   const draft = miniComposerDraft(resource)
   if (draft.text.trim() && draft.text !== context.question)
     throw new Error('The Conversation Composer already has a different draft. Open it to keep or clear those words before copying the saved question.')
+  // These words are one exact saved version: an attached chip that states no
+  // version is made to state this one. Nothing is attached or un-suppressed.
+  stampAttachedQuestion(resource, store.snapshot().selectedDetail)
   saveMiniComposer(resource, { ...draft, text: context.question })
   goTab(resource, 'Conversation')
   setOpen(resource, true)

@@ -35,11 +35,15 @@ import Summary, {
   compareCollections, compareWithPrevious, comparisonWords, exploreQuestion,
   frequentWords, itemIdentity, offeredQuestions, recordedChallenges, summaryFacts, summarySource,
 } from '../src/quiet2/magnets/Summary'
-import Perspectives, { DISCUSS_IS_ORDINARY } from '../src/quiet2/magnets/InquiryPanel'
+import Perspectives, { DISCUSS_IS_ORDINARY, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { forgetPanelDrafts, panelAt, panelDrafts, setQuestionDraft, setRenameDraft } from '../src/quiet2/magnets/panelDrafts'
-import { derivedPerspectiveName, perspectivesOf, PERSPECTIVE_BLOCK_REASON } from '../src/quiet2/magnets/perspectives'
+import type { MagnetContext, MagnetResource } from '../src/quiet2/magnets/contract'
+import {
+  derivedPerspectiveName, perspectivesOf, questionVersion, showPerspectiveContext, stampAttachedQuestion,
+  PERSPECTIVE_BLOCK_REASON, type Perspective,
+} from '../src/quiet2/magnets/perspectives'
 import { setOpen } from '../src/quiet2/magnets/places'
 import { emptyDraft } from '../src/composer/draft'
 import { page as binding } from '../src/brainBinding'
@@ -110,7 +114,7 @@ test('the written overview says what was collected, from where, when and how muc
   assert.ok(text.includes(`Conversation ${SOURCE} (2)`) && text.includes('Held file col-held / nested/calibration.txt (1)'),
     'it says which sources the material came from, with what each gave')
   assert.match(text, /The collected material was written between .+ and .+\./, 'it states the span of the material itself')
-  assert.match(text, /Its retained text runs to about \d+ words\./, 'it measures the text it holds')
+  assert.match(text, /Its collected text runs to about \d+ words\./, 'it measures the text it holds')
   assert.ok(text.includes('bench (4)') && text.includes('calibration (3)'), 'recurring words are counted and named with their counts')
   assert.ok(/counted/i.test(text), 'the counts say they are counts')
 })
@@ -332,13 +336,13 @@ test('comparing reads the earlier retained batch only, never a live source, and 
     assert.ok(!code(summarySrc()).includes('/read'), 'the live-source route is not named in this view')
     // A substituted or mismatched batch is refused rather than compared.
     answers.earlier = { magnet: 'mag-ecompare', config: config('mag-ecompare'), activation: ACTIVATION, page: pageOf('mag-ecompare', POSTS) }
-    await assert.rejects(compareWithPrevious(r), /did not return the batch that was asked for/)
+    await assert.rejects(compareWithPrevious(r), /did not return the collection that was asked for/)
     // An answer for another Magnet is refused.
     answers.history = { magnet: 'mag-other', batches: [] }
     await assert.rejects(compareWithPrevious(r), /another Magnet/)
-    // The first retained batch has nothing before it, and says so.
+    // The first collection has nothing before it, and says so.
     answers.history = { magnet: 'mag-ecompare', batches: [ACTIVATION], next: null }
-    assert.deepEqual(await compareWithPrevious(r), { bound: 'No earlier collection to compare with: this is the first retained batch.' })
+    assert.deepEqual(await compareWithPrevious(r), { bound: 'No earlier collection to compare with: this is the first one.' })
   } finally {
     if (previous) Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: previous })
   }
@@ -505,6 +509,143 @@ test('every control the Perspectives panel shows uses ordinary question language
   const panel = code(panelSrc())
   for (const kept of ["store.select(", "act('create'", "store.view(", "act('branch'", 'store.retryPending()'])
     assert.ok(panel.includes(kept), `the renamed control still does its own work (${kept})`)
+})
+
+/* --- ordinary collection language ------------------------------------------
+   THE INVARIANT (owner request ent-3191baeb33d2 §2): nothing the owner reads
+   exposes the implementation's vocabulary. "Retained" and "batch" are what the
+   record calls an immutable captured copy; what the owner has is a collection,
+   and its earlier ones are its history. "Evidence" stays only where it means
+   information supporting or contradicting a specific claim -- the owner's own
+   exception -- which here is the disabled grounded affordance and the
+   statement that no record is recorded as supporting anything. */
+
+test('nothing the owner reads in Summary says retained or batch', async () => {
+  store()
+  const { r } = resource('mag-ewords')
+  await r.read()
+  r.update({ status: 'partial', reason: 'Shortened at the first 64 KiB.',
+    batchSelection: { ref: 'adm-batch222222', digest: digest2 } })
+  const forbidden = /retained|batch/i
+  // Every sentence of both written blocks, the questions, and the standing statements.
+  for (const line of [...summaryFacts(r.saved, r.snapshot()), ...collectionOverview(r.saved, r.snapshot()),
+    ...offeredQuestions(r.snapshot(), true), NO_COMPARISON, COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL,
+    SUPPORT_UNRECORDED, GROUNDED_UNAVAILABLE])
+    assert.doesNotMatch(line, forbidden, `a line the owner reads still says it: ${line}`)
+  // And in all three states of the rendered view: populated, empty, unread.
+  const { r: emptyOne } = resource('mag-ewordsempty', empty); await emptyOne.read()
+  const { r: unread } = resource('mag-ewordsunread')
+  for (const view of [r, emptyOne, unread]) {
+    const rendered = html(createElement(Summary, { resource: view, onPost: () => {} }))
+    // What the owner reads: the text between the tags, and the labels a control
+    // is announced by. (DOM ids and artifact references are not language.)
+    assert.doesNotMatch(rendered.replace(/<[^>]*>/g, ' '), forbidden, 'rendered words')
+    for (const label of [...rendered.matchAll(/(?:aria-label|title|placeholder|alt)="([^"]*)"/g)].map((m) => m[1]))
+      assert.doesNotMatch(label, forbidden, `a control is announced as: ${label}`)
+  }
+  // The comparison and history sentences a press reveals are written here too,
+  // so the removed wording is checked where it lived rather than only where it renders.
+  for (const gone of ['retained batch', 'retained collection', 'retained posts', 'retained files',
+    'retained item', 'retained text', 'retained history', 'batch shown', 'latest batch', 'batch state',
+    'first retained', 'under All'])
+    assert.ok(!code(summarySrc()).includes(gone), `${gone} is not language this view shows`)
+  // Evidence survives exactly where it is about support for a claim.
+  assert.match(SUPPORT_UNRECORDED, /marking evidence for or against a question/)
+  assert.ok(html(createElement(Summary, { resource: r, onPost: () => {} })).includes('Synthesize from evidence'))
+})
+
+/* --- the chip stands for the version the owner read -------------------------
+   THE INVARIANT (D's correction, adm-394af815cdce §"Finding 4"): a chip
+   represents the EXACT version attached, and a changed selection refuses
+   rather than silently using a newer one. This part attaches the Perspective
+   chip, so the version has to be on it as it goes on -- not stamped later from
+   whatever is durable by then, which is how a newer wording could take the
+   place of the one the owner read. */
+
+const TOPIC = 'ent-topicA11111', OTHER_TOPIC = 'ent-topicB11111'
+const QUESTION = 'adm-question111', LATER = 'adm-question222'
+const lensRow = (perspective = TOPIC, revision = QUESTION, recorded = digest) => ({
+  magnet: 'mag-elens', perspective, selected: perspective, name: 'Does the bench drift?', retired: false,
+  question: { ref: revision, digest: recorded, size: 20, media_type: 'application/json' },
+  current_question: { text: 'Does the bench drift between collections?', revision }, events: 1,
+}) as unknown as Perspective
+const chipOf = (r: MagnetResource) => r.snapshot().context as (MagnetContext & Partial<{ version: string | null; digest: string }>) | null
+
+test('a Perspective chip is attached at the exact saved question version the card read, and is never re-stamped', async () => {
+  store()
+  const { r } = resource('mag-estamp')
+  showPerspectiveContext(r, TOPIC, 'Does the bench drift?', lensRow())
+  assert.deepEqual(chipOf(r), { ref: TOPIC, kind: 'perspective', label: 'Does the bench drift?',
+    version: QUESTION, digest }, 'the chip says which version it stands for, and nothing of the question’s text')
+  // A later wording of the same question does not take the attached one's place.
+  showPerspectiveContext(r, TOPIC, 'Does the bench drift?', lensRow(TOPIC, LATER))
+  assert.equal(chipOf(r)?.version, QUESTION, 'a revision since is a refusal at the press, never a substitution here')
+  // Choosing another Perspective stamps that one, carrying nothing over.
+  showPerspectiveContext(r, OTHER_TOPIC, 'Where do the sources disagree?', lensRow(OTHER_TOPIC, LATER))
+  assert.deepEqual(chipOf(r), { ref: OTHER_TOPIC, kind: 'perspective', label: 'Where do the sources disagree?',
+    version: LATER, digest })
+  // A row that cannot state its version exactly leaves the chip unstamped
+  // rather than stamped from something else.
+  r.update({ context: null })
+  showPerspectiveContext(r, TOPIC, 'Does the bench drift?',
+    { ...lensRow(), current_question: { text: 'x', revision: 'adm-other1111' } } as unknown as Perspective)
+  assert.deepEqual(chipOf(r), { ref: TOPIC, kind: 'perspective', label: 'Does the bench drift?' })
+  assert.equal(questionVersion(null), null)
+  assert.equal(questionVersion({ ...lensRow(), question: null } as unknown as Perspective), null, 'no saved artifact, no stamp')
+  assert.equal(questionVersion(lensRow(TOPIC, QUESTION, 'not-a-digest')), null, 'an unrecorded digest is not a stamp')
+  // And ordinary Conversation still takes the chip off.
+  showPerspectiveContext(r, null)
+  assert.equal(r.snapshot().context, null)
+})
+
+test('stamping an attached chip attaches nothing, respects a removal, and leaves another Perspective’s chip alone', () => {
+  store()
+  const { r } = resource('mag-estampquiet')
+  // An intentional removal stays removed: nothing is re-attached to stamp it.
+  r.update({ context: null, contextSuppressed: true })
+  stampAttachedQuestion(r, lensRow())
+  assert.equal(r.snapshot().context, null, 'a removed chip is not brought back')
+  assert.equal(r.snapshot().contextSuppressed, true, 'and the removal is still recorded')
+  // Another Perspective's chip is not restamped with this one's version.
+  r.update({ context: { ref: OTHER_TOPIC, kind: 'perspective', label: 'Another question' } })
+  stampAttachedQuestion(r, lensRow())
+  assert.equal(chipOf(r)?.digest, undefined)
+  // The chip it is about gains the version, and keeps its label.
+  r.update({ context: { ref: TOPIC, kind: 'perspective', label: 'Does the bench drift?' } })
+  stampAttachedQuestion(r, lensRow())
+  assert.deepEqual(chipOf(r), { ref: TOPIC, kind: 'perspective', label: 'Does the bench drift?', version: QUESTION, digest })
+  // Already stated, never restated.
+  stampAttachedQuestion(r, lensRow(TOPIC, LATER))
+  assert.equal(chipOf(r)?.version, QUESTION)
+})
+
+test('discussing the selected question says which version those words are', async () => {
+  store()
+  const { r } = resource('mag-ediscuss')
+  await r.read()
+  const inquiries = perspectivesOf(r)
+  let revision = QUESTION
+  inquiries.get = async (tail = '') => tail.startsWith('?') ? { magnet: r.saved.id, perspectives: [], selected: TOPIC, next: null }
+    : tail.includes('/history') ? { magnet: r.saved.id, perspective: TOPIC, events: [], next: null }
+    : { ...lensRow(TOPIC, revision), magnet: r.saved.id, selected: TOPIC }
+  // The chip the lens left, with no version on it yet (a chip saved before this
+  // release, or one another surface attached).
+  r.update({ context: { ref: TOPIC, kind: 'perspective', label: 'Does the bench drift?' }, contextSuppressed: false })
+  await discussSelectedQuestion(r, inquiries)
+  assert.equal(miniComposerDraft(r).text, 'Does the bench drift between collections?', 'the words are the saved question’s own')
+  assert.deepEqual(chipOf(r), { ref: TOPIC, kind: 'perspective', label: 'Does the bench drift?', version: QUESTION, digest },
+    'and the chip beside them stands for that exact version')
+  // A revision since does not replace what the chip stands for.
+  revision = LATER
+  saveMiniComposer(r, { ...emptyDraft() })
+  await discussSelectedQuestion(r, inquiries)
+  assert.equal(chipOf(r)?.version, QUESTION, 'the version the owner attached is kept, so the send refuses rather than substitutes')
+  // With the chip deliberately removed, discussing re-attaches nothing.
+  r.update({ context: null, contextSuppressed: true })
+  saveMiniComposer(r, { ...emptyDraft() })
+  await discussSelectedQuestion(r, inquiries)
+  assert.equal(r.snapshot().context, null)
+  assert.equal(r.snapshot().contextSuppressed, true)
 })
 
 test('a question typed into the Summary arrives in the Perspectives box ready to create', () => {

@@ -2,7 +2,7 @@ import { CLIENT_HEADERS } from '../../api'
 import { BRAIN_HEADER, confirmBrain, page, refusedAsOtherBrain } from '../../brainBinding'
 import { fluidFetch } from '../../fluid/http'
 import { matchesBinding } from './managementApi'
-import type { MagnetResource, SearchEntry, SearchSource } from './contract'
+import type { MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
 import { remember, setOpen } from './places'
 
 export const PERSPECTIVE_ANSWERS_ENABLED = false
@@ -18,13 +18,81 @@ export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Persp
 const stores = new WeakMap<MagnetResource, PerspectiveStore>()
 const uuid = (kind: string) => `perspective-${kind}-${crypto.randomUUID()}`
 
+/** THE EXACT SAVED QUESTION VERSION A PERSPECTIVE CHIP STANDS FOR.
+ *
+ *  `version` is the saved question's own artifact reference and `digest` is
+ *  that version's recorded digest -- the two optional `MagnetContext` fields
+ *  the composer reads (D's correction, adm-394af815cdce §"Interface published
+ *  by this correction"). They are declared here, in this part's own file,
+ *  because this part owns the view that attaches the chip and may not edit
+ *  another part's: the names, types and meaning are the contract's, so the
+ *  merged `MagnetContext` carries exactly this shape structurally.
+ *
+ *  Why a chip must carry it: an id alone says "this Perspective", not which
+ *  wording of it, so a question revised after the owner attached it would be
+ *  sent in place of the one they read. With the stamp on the chip, the send
+ *  compares it against a fresh durable read and refuses on any difference
+ *  instead of substituting. */
+export interface AttachedQuestionVersion { version: string | null; digest: string }
+const DIGEST_HEX = /^[0-9a-f]{64}$/
+
+/** The version a durable Perspective row stands for, or null when the row
+ *  cannot state one exactly. `detail()` has already required
+ *  `current_question.revision === question.ref`, so a row that disagrees, or
+ *  that carries no recorded digest, is left UNSTAMPED rather than stamped from
+ *  something else: a wrong stamp would send the wrong version, where no stamp
+ *  only means the composer must read the version itself before it sends. */
+export function questionVersion(row?: Perspective | null): AttachedQuestionVersion | null {
+  const saved = row?.question, current = row?.current_question
+  if (!saved || !current || current.revision !== saved.ref || !DIGEST_HEX.test(saved.digest ?? '')) return null
+  return { version: saved.ref, digest: saved.digest }
+}
+
+/** The version a chip already stands for, if it stands for one. A recorded
+ *  64-hex digest is what says it does. Read through the contract's own two
+ *  optional fields, which this build's `MagnetContext` may not declare yet. */
+export function attachedQuestionVersion(context?: MagnetContext | null): AttachedQuestionVersion | null {
+  const c = context as (MagnetContext & Partial<AttachedQuestionVersion>) | null | undefined
+  if (!c || c.kind !== 'perspective' || !DIGEST_HEX.test(c.digest ?? '')) return null
+  return { version: c.version ?? null, digest: c.digest! }
+}
+
+/** Say what an ALREADY ATTACHED chip stands for, from a durable read this
+ *  surface has just made and is showing. It attaches nothing, re-attaches
+ *  nothing and clears no suppression -- an intentional removal stays removed
+ *  (owner §6) -- and a chip that already states a version is left exactly as
+ *  it is, so a later revision refuses instead of being substituted. This is
+ *  the other path in this part that hands a saved question to the Composer:
+ *  `discussSelectedQuestion` copies the wording it just read, and the chip
+ *  beside those words has to stand for that same version. */
+export function stampAttachedQuestion(resource: MagnetResource, row?: Perspective | null): void {
+  const attached = resource.snapshot().context
+  if (!row || !attached || attached.kind !== 'perspective' || attached.ref !== row.perspective) return
+  if (attachedQuestionVersion(attached)) return
+  const stamp = questionVersion(row)
+  if (stamp) resource.update({ context: Object.assign({ ...attached }, stamp) })
+}
+
 /** A durable lens choice is also an explicit composer-context choice. Like
  * "Discuss this evidence", selecting one may replace an attached chip and
  * clears suppression. Choosing ordinary Conversation removes only a
- * Perspective chip; removing the chip itself never changes the active lens. */
-export function showPerspectiveContext(resource: MagnetResource, perspective: string | null, name?: string | null): void {
+ * Perspective chip; removing the chip itself never changes the active lens.
+ *
+ * The chip is attached AT THE VERSION the owner was viewing: `row` is the
+ * durable read this surface is showing, and its saved question version is
+ * stamped onto the chip as it goes on, rather than left for the composer to
+ * stamp from whatever is durable by the time it next looks. A chip that
+ * already stands for a version of the same Perspective is never re-stamped --
+ * that is what makes a later revision a refusal instead of a silent
+ * substitution. */
+export function showPerspectiveContext(resource: MagnetResource, perspective: string | null, name?: string | null,
+                                       row?: Perspective | null): void {
   if (perspective) {
-    resource.update({ context: { ref: perspective, kind: 'perspective', label: name || perspective }, contextSuppressed: false })
+    const attached = resource.snapshot().context
+    const already = attached?.ref === perspective ? attachedQuestionVersion(attached) : null
+    const stamp = already ?? questionVersion(row?.perspective === perspective ? row : null)
+    const context: MagnetContext = { ref: perspective, kind: 'perspective', label: name || perspective }
+    resource.update({ context: stamp ? Object.assign(context, stamp) : context, contextSuppressed: false })
   } else if (resource.snapshot().context?.kind === 'perspective') {
     resource.update({ context: null, contextSuppressed: false })
   }
@@ -210,7 +278,9 @@ export class PerspectiveStore {
       const target = this.state.viewed ?? this.state.selected
       if (target) await this.view(target)
       const selected = this.state.rows.find((row) => row.perspective === this.state.selected)
-      if (this.state.selected && selected) showPerspectiveContext(this.resource, this.state.selected, selected.name)
+      // With the durable read in hand, the chip is stamped with the version
+      // this card is now showing -- unless it already stands for one.
+      if (this.state.selected && selected) showPerspectiveContext(this.resource, this.state.selected, selected.name, selected)
     } catch (e) { this.update({ error: `Question action saved. Refresh failed: ${(e as Error).message}` }) }
     return v
   }
@@ -248,7 +318,7 @@ export class PerspectiveStore {
     }
     const question = await this.write(`/${topic}/question`, { text }, `${op}-question`)
     const batch = this.resource.snapshot().activation?.artifact.ref
-    if (!batch) throw new Error('Select a retained collection before asking a Perspective question.')
+    if (!batch) throw new Error('Select a collection before asking a Perspective question.')
     const selected = this.resource.snapshot().results.filter((r) => this.state.selections[r.id])
     const selections = selected.flatMap((r) => {
       const value = r.value as any, source = (r as any).capturedSourceKey
