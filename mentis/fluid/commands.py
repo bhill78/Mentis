@@ -296,9 +296,9 @@ def write_post(st, body: dict, *, written_by, _request=False) -> tuple[int, dict
                      "kind": "BadRequest", "conversation": cid}, []
     if not _request:
         from . import message_context as MC
-        if MC.association(cv, cid):
-            return 422, {"error": "send managed Magnet messages through /fluid/api/requests",
-                         "code": "managed-request-door", "refused": True}, []
+        refused = MC.door_refusal(cv, cid, body.get("author"))
+        if refused:
+            return 422, refused, []
     # A rename's version is not a conversation of its own: refused, naming
     # the one it is a version of, as every conversation door refuses it.
     refusal = cv.version_refusal(cid)

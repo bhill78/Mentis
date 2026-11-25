@@ -4053,10 +4053,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             left without either a run or a recorded reason there is none.
             """
             from mentis.fluid import message_context as MC
-            from mentis.operational.work_overview import owner_of
-            if body.get("author") == owner_of(cv) and MC.association(cv, cid):
-                return {"error": "send managed Magnet messages through /fluid/api/requests",
-                        "code": "managed-request-door", "refused": True}
+            refused = MC.door_refusal(cv, cid, body.get("author"))
+            if refused:
+                return refused
             out, later = _posting.post(
                 cv, corpus, cid, body, agents=st.agents,
                 written_by=lambda: _observed_writer(st, presented))

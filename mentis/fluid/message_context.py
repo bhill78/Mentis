@@ -173,6 +173,32 @@ def association(cv, conversation):
     return next(iter(magnets), None)
 
 
+DOOR_REFUSAL = {"error": "send managed Magnet messages through /fluid/api/requests",
+                "code": "managed-request-door", "refused": True}
+
+
+def door_refusal(cv, conversation, author):
+    """Why this authored post does not enter through the post door, or None.
+
+    ONE CONDITION FOR EVERY POST DOOR. A managed Magnet message is the OWNER's
+    message into a Magnet, and the request door admits no other author
+    (`agent_request`: "managed requests are authored by the recorded owner").
+    So only the owner's own post can be the bypass this refuses. Refusing
+    anybody else's post into a Magnet's own Conversation -- an agent's reply, a
+    second participant's, an anchored comment -- closes the only door they
+    have, since the request door would refuse them 403.
+
+    Both post doors ask this and nothing else, so neither can drift from the
+    other (`fluid.commands.write_post`, `/api/conversations/<id>/turns`).
+    """
+    from mentis.operational.work_overview import owner_of
+    if not isinstance(author, str) or not author.strip():
+        return None
+    if author != owner_of(cv):
+        return None
+    return dict(DOOR_REFUSAL) if association(cv, conversation) else None
+
+
 def route(cv, origin, destination=None):
     magnets = set()
     for kind, ref in (origin, destination or origin):

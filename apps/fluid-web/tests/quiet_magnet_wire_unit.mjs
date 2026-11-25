@@ -19,13 +19,22 @@ registerHooks({
   },
 })
 const { createMiniConversation, PARTICIPANTS_PATH, forgetMiniDrafts } = await import('../src/quiet2/magnets/conversation.ts')
+const { MANAGED_REQUEST_DOOR } = await import('../src/quiet2/magnets/contract.ts')
 const { makeMagnet } = await import('../src/quiet2/magnets/managementApi.ts')
 const { createBinding, BRAIN_PATH } = await import('../src/brainBinding.ts')
-const { postRefusal, magnetRefusal } = await import('../../../tools/quiet-magnet-additions-preview.mjs')
+const { magnetRefusal } = await import('../../../tools/quiet-magnet-additions-preview.mjs')
 const A = 'ent-aaaaaaaaaaaa', B = 'ent-bbbbbbbbbbbb', C = 'ent-cccccccccccc', owner = 'ent-111111111111'
 const fixture = { A, B, C, corpusId: 'wire-fixture', sources: [A, B, C], participants: [owner] }
 const resource = { id: 'mg99', brainKey: 'http://fixture|dev|wire-fixture', saved: { id: 'mag-fixture', name: 'Fixture', config: { id: 'mag-fixture', conversation: C, sources: [{ kind: 'conversation', conversation: B }], selection: {} } } }
-test('the mini sender produces the exact body admitted by the fixture gate', async () => {
+/* THE MANAGED DOOR, AND THE EXACT BODY IT IS GIVEN. `MANAGED_REQUEST_DOOR` is
+ * the one door a managed send uses: "there is no /posts fallback and no silent
+ * context loss" (contract.ts section 2). This vector used to assert the post door and
+ * the gated fixture proxy's `postRefusal`; the proxy forwards the post door
+ * only, so it no longer fronts this send at all, and what is worth pinning
+ * here is the body itself -- routed by `from.magnet` with the server resolving
+ * the destination, the authored words as the only part, record-only, nothing
+ * dispatched and nothing asked. */
+test('the mini sender sends the exact managed record-only request to the one door', async () => {
   forgetMiniDrafts()
   const binding = createBinding(); binding.saw('wire-fixture@one')
   let captured
@@ -35,9 +44,21 @@ test('the mini sender produces the exact body admitted by the fixture gate', asy
   })
   mini.draft('Fixture message')
   await mini.send()
-  assert.equal(captured.path, '/fluid/api/posts')
+  assert.equal(captured.path, MANAGED_REQUEST_DOOR)
   assert.equal(captured.headers['X-Mentis-Brain'], 'wire-fixture@one')
-  assert.equal(postRefusal(captured.body, fixture), null)
+  assert.deepEqual(captured.body, {
+    from: { magnet: 'mag-fixture' },
+    author: owner,
+    text: 'Fixture message',
+    parts: [{ type: 'text', text: 'Fixture message' }],
+    action: 'record-only',
+    dispatch: [],
+    op: 'wire-fixture-post',
+  })
+  // NOTHING NAMES ITS OWN ROUTE, and nothing carries the retired adapter: the
+  // door refuses a declared `conversation`, a `_magnet*` key or generated work.
+  assert.equal('conversation' in captured.body, false)
+  assert.equal(Object.keys(captured.body).some((k) => k.startsWith('_magnet')), false)
   mini.dispose(); forgetMiniDrafts()
 })
 test('Management produces the exact atomic creation body admitted by the fixture gate', async () => {
