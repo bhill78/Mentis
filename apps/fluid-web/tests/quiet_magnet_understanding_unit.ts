@@ -111,8 +111,18 @@ test('the written overview says what was collected, from where, when and how muc
   const text = lines.join('\n')
   assert.ok(lines.length >= 4, 'the overview is written sentences, not a single count line')
   assert.ok(text.includes('2 collected posts and 1 collected file'), 'it says what it holds in ordinary words')
-  assert.ok(text.includes(`Conversation ${SOURCE} (2)`) && text.includes('Held file col-held / nested/calibration.txt (1)'),
-    'it says which sources the material came from, with what each gave')
+  // WHERE IT CAME FROM, WITHOUT AN IDENTITY (owner request ent-1e82a8786c37).
+  // The written overview is what a reader sees first, so it says which KINDS of
+  // source the material came from and how many of each, and carries no
+  // Conversation entry id or collection key. What each source gave is still
+  // stated per source -- one press away, in the facts disclosure below, which
+  // is where the owner kept provenance.
+  assert.ok(text.includes('They came from 1 Conversation and 1 held file.'),
+    `it says which kinds of source the material came from, and how many: ${text}`)
+  for (const line of lines) assert.doesNotMatch(line, /(?:ent|adm|col|mag)-[0-9a-z]{4,}/,
+    `the written overview carries no recorded identifier: ${line}`)
+  assert.ok(summaryFacts(r.saved, r.snapshot()).join(' | ').includes(`Conversation ${SOURCE} (2 collected items)`),
+    'and the per-source breakdown is still stated on demand')
   assert.match(text, /The collected material was written between .+ and .+\./, 'it states the span of the material itself')
   assert.match(text, /Its collected text runs to about \d+ words\./, 'it measures the text it holds')
   assert.ok(text.includes('bench (4)') && text.includes('calibration (3)'), 'recurring words are counted and named with their counts')
@@ -195,7 +205,10 @@ test('offered questions are questions, built from what was counted, and claim no
   assert.ok(questions.length >= 3)
   assert.ok(questions.every((q) => q.trim().endsWith('?')), 'every offered line is a question')
   assert.ok(questions.some((q) => q.includes('bench')), 'a counted word becomes something to ask about')
-  assert.ok(questions.some((q) => q.includes(`Conversation ${SOURCE}`)), 'a collected source becomes something to ask about')
+  assert.ok(questions.some((q) => /collected from each source|material this source collected/.test(q)),
+    'a collected source becomes something to ask about')
+  for (const q of questions) assert.doesNotMatch(q, /(?:ent|adm|col|mag)-[0-9a-z]{4,}/,
+    `an offered question carries no recorded identifier: ${q}`)
   assert.ok(!questions.some((q) => /\b(suggests|indicates|shows|proves|because the data)\b/i.test(q)),
     'none of them asserts anything about the material')
   assert.ok(offeredQuestions(r.snapshot(), true).some((q) => /previous one/.test(q)),

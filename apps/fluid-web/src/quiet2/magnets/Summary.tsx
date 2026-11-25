@@ -194,12 +194,33 @@ export function collectionOverview(saved: SavedMagnet, s: MagnetSnapshot): strin
   const words = text.split(/\s+/).filter(Boolean).length
   const span = collectedSpan(s.results)
   const counts = capturedCounts(s)
-  const named = [...counts.entries()].map(([key, n]) => `${sourceLabel(key)} (${n})`)
   const lines: string[] = []
   const held = [posts ? `${posts} collected ${posts === 1 ? 'post' : 'posts'}` : '', files ? `${files} collected ${files === 1 ? 'file' : 'files'}` : '']
     .filter(Boolean).join(' and ') || 'nothing'
   lines.push(`This Magnet holds ${held}, collected ${when(s.activation.at)}.`)
-  if (named.length) lines.push(`They came from ${named.join(', ')}.`)
+  // WHERE IT CAME FROM, WITHOUT NAMING AN IDENTITY. The written overview is the
+  // Summary's own resting content, and it used to list every captured key here,
+  // so the first thing a reader saw was "They came from Conversation
+  // ent-a1d2c5e714ea (3), Held file col-5260ed8d10f2 / README.md (1)." -- the
+  // raw identifiers the owner asked the redesign to be rid of
+  // (ent-1e82a8786c37). It says which kinds of source, and how many of each.
+  // Nothing is lost: the Collection's own Sources view names each source by the
+  // name a reader recognises, and the per-source breakdown with what each gave
+  // is still stated, one press away, in the facts disclosure below
+  // (`summaryFacts`) -- which is where the owner kept provenance.
+  const kinds = [...counts.keys()].reduce((acc, key) => {
+    if (key.startsWith('conversation:')) acc.conversations += 1
+    else if (key.startsWith('file:')) acc.files += 1
+    else acc.other += 1
+    return acc
+  }, { conversations: 0, files: 0, other: 0 })
+  const from = [
+    kinds.conversations ? `${kinds.conversations} ${kinds.conversations === 1 ? 'Conversation' : 'Conversations'}` : '',
+    kinds.files ? `${kinds.files} held ${kinds.files === 1 ? 'file' : 'files'}` : '',
+    kinds.other ? `${kinds.other} other ${kinds.other === 1 ? 'source' : 'sources'}` : '',
+  ].filter(Boolean)
+  if (from.length) lines.push(`They came from ${from.length > 1
+    ? `${from.slice(0, -1).join(', ')} and ${from[from.length - 1]}` : from[0]}.`)
   if (span) lines.push(day(span.first) === day(span.last)
     ? `The collected material is all from ${day(span.first)}.`
     : `The collected material was written between ${day(span.first)} and ${day(span.last)}.`)
@@ -226,9 +247,14 @@ export function offeredQuestions(s: MagnetSnapshot, earlier = false): string[] {
     return out
   }
   const counts = capturedCounts(s)
-  const [first] = [...counts.keys()]
   for (const w of frequentWords(s.results, 2)) out.push(`What do the collected records say about ${w.word}?`)
-  if (first) out.push(`What is in the material collected from ${sourceLabel(first)}?`)
+  // A collected source is still something to ask about, asked without its
+  // recorded key: an offered question a reader presses is not the place for an
+  // identity (owner request ent-1e82a8786c37), and one that carried it read
+  // "What is in the material collected from Conversation ent-a1d2c5e714ea?".
+  if (counts.size) out.push(counts.size === 1
+    ? 'What is in the material this source collected?'
+    : 'What is in the material collected from each source?')
   if (earlier) out.push('What is in this collection that was not in the previous one?')
   if (counts.size > 1) out.push('Where do the collected sources disagree with each other?')
   out.push('What is missing from this collection that I would need?')
