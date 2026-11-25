@@ -96,24 +96,24 @@ export function summaryFacts(saved: SavedMagnet, s: MagnetSnapshot): string[] {
   const read = s.activation !== undefined
   const lines: string[] = []
   if (!read) lines.push('This collection has not been read yet. Opening never collects and never reads a live source.')
-  else if (!s.activation) lines.push('No retained collection yet. Press Collect now; opening never collects automatically.')
-  else lines.push(`${posts} retained posts and ${files} retained files in the batch shown.`)
+  else if (!s.activation) lines.push('Nothing collected yet. Press Collect now; opening never collects automatically.')
+  else lines.push(`${posts} collected posts and ${files} collected files in the collection shown.`)
   lines.push(`${sources.length} configured ${sources.length === 1 ? 'source' : 'sources'}: ${sources.map((source) => {
     const key = configuredKey(source)
     if (!key) return `a ${source.kind} source, which this candidate does not capture`
     const got = counts.get(key)
-    return `${sourceLabel(key)} (${got ? `${got} retained ${got === 1 ? 'item' : 'items'}` : 'no retained item in this batch'})`
+    return `${sourceLabel(key)} (${got ? `${got} collected ${got === 1 ? 'item' : 'items'}` : 'nothing collected from it here'})`
   }).join('; ') || 'none readable'}.`)
   for (const key of counts.keys()) {
     if (!sources.some((source) => configuredKey(source) === key))
-      lines.push(`This batch also holds ${counts.get(key)} items captured from ${sourceLabel(key)}, which the current configuration no longer names. The captured copy is unchanged.`)
+      lines.push(`This collection also holds ${counts.get(key)} items captured from ${sourceLabel(key)}, which the current configuration no longer names. The captured copy is unchanged.`)
   }
   const collected = when(s.activation?.at)
-  if (collected) lines.push(`Collected ${collected} · recorded batch state ${s.activation?.state ?? 'unstated'}.`)
+  if (collected) lines.push(`Collected ${collected} · recorded state ${s.activation?.state ?? 'unstated'}.`)
   if (s.status) lines.push(s.status === 'ok' ? 'Every captured source reported its whole selected scope.'
-    : `This retained batch is ${s.status}${s.reason ? `. Stated by its captured sources: ${s.reason}` : '. No reason was stated.'}`)
+    : `This collection is ${s.status}${s.reason ? `. Stated by its captured sources: ${s.reason}` : '. No reason was stated.'}`)
   if (s.error) lines.push(s.error)
-  lines.push(`Showing ${s.batchSelection ? 'the selected historical' : 'the latest'} batch.`)
+  lines.push(`Showing ${s.batchSelection ? 'an earlier collection you chose' : 'the latest collection'}.`)
   lines.push(`Selected Conversation types: ${(selection?.informationTypes?.length ? selection.informationTypes : ['post', 'file', 'image']).join(', ')}.`)
   if (selection?.dates) lines.push(`Selected dates: ${selection.dates.after || 'any start'} to ${selection.dates.before || 'any end'}.`)
   if (saved.config && ['criteria', 'phrases', 'topics', 'filters'].some((k) => !!saved.config?.selection[k as keyof typeof saved.config.selection]))
@@ -197,13 +197,13 @@ export function collectionOverview(saved: SavedMagnet, s: MagnetSnapshot): strin
   if (span) lines.push(day(span.first) === day(span.last)
     ? `The collected material is all from ${day(span.first)}.`
     : `The collected material was written between ${day(span.first)} and ${day(span.last)}.`)
-  if (words) lines.push(`Its retained text runs to about ${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}.`)
+  if (words) lines.push(`Its collected text runs to about ${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}.`)
   const frequent = frequentWords(s.results)
   if (frequent.length) lines.push(`Most used words, counted: ${frequent.map((w) => `${w.word} (${w.count})`).join(', ')}.`)
-  if (s.status && s.status !== 'ok') lines.push(`Not every source reported its whole scope, so this is what was retained, not everything that exists${s.reason ? `: ${s.reason}` : '.'}`)
+  if (s.status && s.status !== 'ok') lines.push(`Not every source reported its whole scope, so this is what was collected, not everything that exists${s.reason ? `: ${s.reason}` : '.'}`)
   const sources = saved.config?.sources ?? []
   const uncaptured = sources.filter((source) => { const key = configuredKey(source); return !key || !counts.get(key) })
-  if (uncaptured.length) lines.push(`${uncaptured.length} configured ${uncaptured.length === 1 ? 'source' : 'sources'} contributed nothing to this batch.`)
+  if (uncaptured.length) lines.push(`${uncaptured.length} configured ${uncaptured.length === 1 ? 'source' : 'sources'} contributed nothing to this collection.`)
   return lines
 }
 
@@ -304,20 +304,20 @@ export async function readEarlierBatch(resource: MagnetResource, shown: string, 
   const ask = async (path: string) => {
     const r = await fetch(path, { headers: CLIENT_HEADERS, signal, cache: 'no-store' })
     const v = await r.json().catch(() => null)
-    if (!r.ok || !v || v.error) throw new Error(v?.error ?? `This Magnet’s retained history is unavailable (${r.status}).`)
+    if (!r.ok || !v || v.error) throw new Error(v?.error ?? `This Magnet’s collection history is unavailable (${r.status}).`)
     if (v.magnet !== resource.saved.id) throw new Error('That answer was for another Magnet. Nothing was compared.')
     return v
   }
   const list = await ask(`/fluid/api/magnets/${id}/collection/history?limit=20`)
-  if (!Array.isArray(list.batches)) throw new Error('The retained history could not be read.')
+  if (!Array.isArray(list.batches)) throw new Error('The collection history could not be read.')
   const at = list.batches.findIndex((b: any) => object(b.artifact).ref === shown)
   const earlier = at < 0 ? null : list.batches[at + 1]
-  if (!earlier) return { bound: 'No earlier collection to compare with: this is the first retained batch.' }
+  if (!earlier) return { bound: 'No earlier collection to compare with: this is the first one.' }
   const ref = object(earlier.artifact).ref, digest = object(earlier.artifact).digest
-  if (typeof ref !== 'string' || typeof digest !== 'string') throw new Error('An earlier batch lacks its recorded reference.')
+  if (typeof ref !== 'string' || typeof digest !== 'string') throw new Error('An earlier collection lacks its recorded reference.')
   const body = await ask(`/fluid/api/magnets/${id}/collection?${new URLSearchParams({ batch: ref, digest })}`)
   if (object(object(body.activation).artifact).ref !== ref || object(object(body.activation).artifact).digest !== digest)
-    throw new Error('The earlier batch read did not return the batch that was asked for. Nothing was substituted.')
+    throw new Error('That read did not return the collection that was asked for. Nothing was substituted.')
   return { at: object(body.activation).at, results: collectionRows(body.page).results }
 }
 
@@ -500,7 +500,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                 <button type="button" className="q2-magnet-link" onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>{e.title}</button>
                 <p className="q2-magnet-quote">“{e.text}”</p>
               </li>)}</ul>}
-              <p className="q2-magnet-muted">Compared against the retained batch collected {when(comparison.at) ?? 'earlier'}. Both batches are captured copies; neither source was read again.</p></>
+              <p className="q2-magnet-muted">Compared against the collection from {when(comparison.at) ?? 'earlier'}. Both are captured copies; neither source was read again.</p></>
             : <><p className="q2-magnet-muted">{NO_COMPARISON}</p>
               <button type="button" className="q2-magnet-link" disabled={comparing || !batch} onClick={compare}>
                 {comparing ? 'Reading the previous collection…' : 'Compare with the previous collection'}</button></>}
@@ -531,7 +531,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
               onClick={() => inspect(resource, batch, `support-${batch}`)}>View collection record ↗</button>}
             {supports.map((r) => <button type="button" key={`${r.kind}:${r.id}`} className="q2-magnet-link" id={`support-${r.id}`} aria-expanded={here.inspected === r.id}
               onClick={() => inspect(resource, r.id, `support-${r.id}`)}>View {resultTitle(r)} ↗</button>)}
-            {items.length > supports.length && <span className="q2-magnet-muted">{items.length - supports.length} more collected records are listed under All.</span>}
+            {items.length > supports.length && <span className="q2-magnet-muted">{items.length - supports.length} more collected records are in the collection.</span>}
           </div>}
         </details>
       </>}

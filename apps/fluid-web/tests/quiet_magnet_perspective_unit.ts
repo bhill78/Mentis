@@ -110,7 +110,10 @@ test('uncertain selection retries the original selection and key after remount',
   second.store.write = async (...args) => { sent.push(args); return {} }
   await second.store.retryPending()
   assert.deepEqual(sent, [['/selected', { perspective: A }, 'selection-key'], ['/selected', { perspective: A }, 'selection-key']])
-  assert.deepEqual(f.r.snapshot().context, { ref: A, kind: 'perspective', label: A })
+  // The chip the retry leaves says which saved question version it stands for,
+  // taken from the durable read the card then shows (adm-394af815cdce §4).
+  assert.deepEqual(f.r.snapshot().context, { ref: A, kind: 'perspective', label: A,
+    version: 'adm-current111', digest: 'a'.repeat(64) })
   assert.equal(f.r.snapshot().contextSuppressed, false)
 })
 
