@@ -15,17 +15,40 @@
  *
  *  Nothing here reads a live source: the rows are `resource.snapshot().results`,
  *  the batch `state.ts` read and `collectionRows` verified. */
-import { useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
 import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
 import { inspect, place } from './places'
 import { SUPPORTING_WHY } from './perspectives'
+import CollectionConfiguration from './CollectionConfiguration'
+import { magnetName } from './configuration'
 import './summary.css'
 import './perspectives.css'
+import './configuration.css'
 
 const words = (v: unknown) => typeof v === 'string' ? v : ''
 const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {}
+const isHeldSource = (r: RouteResult) => (r as RouteResult & { via?: string }).via === 'held-source'
+/** A moment the way a clean row says it: "today, 3:12 PM" or "Nov 18" --
+ *  never the raw recorded number. */
+function rowWhen(at?: number | null): string | null {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return null
+  const d = new Date(at * 1000), now = new Date()
+  return d.toDateString() === now.toDateString()
+    ? `today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+/** THE CLEAN ROW'S BYLINE (approved mockup round 3, 04-browse.png): who or
+ *  what it was captured from, and when -- never a raw Conversation id, source
+ *  key or recorded digest, which `evidenceOrigin` (Inspection.tsx) carries for
+ *  the inspection's own provenance disclosure, not for a list row. */
+export function rowByline(r: RouteResult): string {
+  const when = rowWhen(r.at)
+  if (isHeldSource(r)) return ['Held file', when].filter(Boolean).join(' · ')
+  if (r.kind === 'post') return [r.author, when].filter(Boolean).join(' · ') || 'Collected post'
+  return [r.post ? 'From the collected post' : 'Collected file', when].filter(Boolean).join(' · ')
+}
 
 export function resultTitle(r: RouteResult): string {
   const v = object(r.value)
@@ -86,9 +109,9 @@ export function SupportingItems({ resource, question, onOpen }: {
     <h4>Supporting items</h4>
     {question && <p className="q2-magnet-muted">For “{question}”</p>}
     {items.length ? <ul className="q2-magnet-items">{items.map((r) => <li key={`${r.kind}:${r.id}`}>
-      <p className="q2-magnet-supporting-head"><strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {evidenceOrigin(r)}</small></p>
+      <p className="q2-magnet-supporting-head"><strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {rowByline(r)}</small></p>
       {resultPreview(r) && <p className="q2-magnet-quote">“{resultPreview(r)}”</p>}
-      <button type="button" className="q2-magnet-link" onClick={() => onOpen(r.id)}>Open item ↗</button>
+      <button type="button" className="q2-magnet-link" onClick={() => onOpen(r.id)}>Open this item</button>
     </li>)}</ul>
       : <p className="q2-magnet-muted">{s.activation ? 'Nothing is collected here to explore this question against yet.'
         : 'This Magnet has collected nothing yet. Choose sources in Settings, then collect.'}</p>}
@@ -116,17 +139,19 @@ export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsP
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
   const read = s.activation !== undefined
   const items = lens === 'Posts' ? posts : lens === 'Files' ? files : [...posts, ...files]
-  /** One row, with its inspection inline directly beneath it. */
+  /** One row, with its inspection inline directly beneath it. Clean (approved
+   *  mockup round 3, 04-browse.png): a title a reader recognises, its captured
+   *  excerpt, and who or when it was captured, never a raw id, a recorded
+   *  digest or a type glyph. */
   const rows = () => <ul className="q2-magnet-items">
     {items.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
       <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
         onClick={() => inspect(resource, r.id, `item-${r.id}`)}>
-        <span className="q2-magnet-type-icon" aria-hidden="true">{r.kind === 'post' ? '¶' : '▤'}</span>
         <span className="q2-magnet-row-text">
-          <strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {evidenceOrigin(r)}</small>
+          <strong>{resultTitle(r)}</strong>
           {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
+          <small className="q2-magnet-muted">{rowByline(r)}</small>
         </span>
-        <span aria-hidden="true">↗</span>
       </button>
       {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
       {r.kind !== 'post' && (r.post || words(object(r.value).post)) && here.inspected !== r.id &&
@@ -140,12 +165,46 @@ export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsP
   /** An inspection reached from elsewhere (a search result, the host) for an
    *  item this list does not hold still has to be readable. */
   const elsewhere = here.inspected && !items.some((r) => r.id === here.inspected)
+  // SOURCE MANAGEMENT, INTEGRATED INTO COLLECTION (approved mockup round 3,
+  // 03-sources.png / 04-browse.png): the unified `All` place toggles between
+  // the collected items above and its own Sources, reusing B's panel exactly
+  // as Settings does -- the staged draft lives in `panelDrafts`, keyed by
+  // Brain and Magnet rather than by which copy of the panel is on screen, so
+  // editing here and editing in Settings is the same unsaved edit. This needs
+  // no seam into Host or the frame: `resource` already carries what it saves
+  // through (`saved.config`, `saved.id`).
+  //
+  // GAP, left for the integrator: `canWrite` below is permissive rather than
+  // Host's own `useMagnetWrites`-derived gate. That hook reaches
+  // `quiet2/live.ts`'s `import.meta.env`, which only Vite (or a test's own
+  // loader stub) supplies; pulling it into this widely-imported view would
+  // require updating the loader stub of every test that reaches
+  // `EvidenceViews` transitively, for a client-side affordance the server's
+  // own save route still authorizes independently -- a save a reader may not
+  // make is still refused there, exactly as Settings' copy would be; only the
+  // disabled-button hint in a scoped fixture is not yet identical. Wiring
+  // Host's real `writes.arrangement` through here is a one-line, additive
+  // change there (an optional prop here), not a behaviour change.
+  const config = resource.saved.config
+  const [showSources, setShowSources] = useState(false)
+  const integrated = lens === 'All' && !!config
   return <section>
-    <p id="view-title" className="q2-magnet-view-meta" tabIndex={-1}>
-      {read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'Not read yet'}
-      {partial && read && !!s.activation && ' · this collection is partial.'}
-    </p>
-    {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
-    {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
+    {integrated && <p className="q2-magnet-collection-toggle">
+      {showSources
+        ? <button type="button" className="q2-magnet-link" onClick={() => setShowSources(false)}>Collected items{read ? ` · ${items.length}` : ''} →</button>
+        : <button type="button" className="q2-magnet-link" onClick={() => setShowSources(true)}>Sources{config!.sources.length ? ` · ${config!.sources.length}` : ''}</button>}
+    </p>}
+    {integrated && showSources ? <CollectionConfiguration magnet={resource.saved.id} config={config!} brainKey={resource.brainKey} inCollection
+        canWrite={() => true} onSaved={(next) => {
+          resource.saved.config = next; resource.saved.name = magnetName(next, resource.saved.name); resource.saved.reason = undefined
+          resource.update({ title: resource.saved.name }); void resource.read()
+        }} /> : <>
+      <p id="view-title" className="q2-magnet-view-meta" tabIndex={-1}>
+        {read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'Not read yet'}
+        {partial && read && !!s.activation && ' · this collection is partial.'}
+      </p>
+      {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
+      {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
+    </>}
   </section>
 }

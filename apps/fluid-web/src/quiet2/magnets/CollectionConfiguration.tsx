@@ -37,7 +37,15 @@ export const committedSettings = (config: MagnetConfig): StagedSettings => ({
   after: config.selection.dates?.after ?? '', before: config.selection.dates?.before ?? '', manual: false,
 })
 
-export default function CollectionConfiguration(p: { magnet: string; config: MagnetConfig; brainKey: string; canWrite(key: string): boolean; onSaved(config: MagnetConfig): void }) {
+export default function CollectionConfiguration(p: { magnet: string; config: MagnetConfig; brainKey: string; canWrite(key: string): boolean; onSaved(config: MagnetConfig): void
+  /** Embedded directly in the Collection place (approved mockup round 3,
+   *  03-sources.png), beside `EvidenceViews`'s own toggle, rather than in the
+   *  Settings overlay this panel was built for. The identity (name) facet stays
+   *  Settings' own -- the Collection place is sources and collection behaviour
+   *  only, never a second place to rename the Magnet -- and a save here commits
+   *  and clears the staged copy without asking an overlay to return, because
+   *  there is no overlay to return from. */
+  inCollection?: boolean }) {
   const at = useMemo(() => ({ brainKey: p.brainKey, magnet: p.magnet }), [p.brainKey, p.magnet])
   const drafts = useSyncExternalStore((fn) => subscribePanelDrafts(at, fn), () => panelDrafts(at), () => panelDrafts(at))
   const staged = drafts.settings ?? committedSettings(p.config)
@@ -118,15 +126,20 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     }).catch((e) => { if (!ctl.signal.aborted) setReading(e.message) })
     return () => ctl.abort()
   }, [collection, fileQuery, fileOffset, p.brainKey])
-  const sourceWords = (s: MagnetSource) => s.kind === 'conversation' ? conversations.find((c) => c.id === s.conversation)?.name || 'Saved Conversation'
-    : s.kind === 'file' ? `${collections.find((c) => c.id === s.collection)?.name ?? 'Held collection'} / ${s.path || 'Choose one exact file'}` : `${s.kind} (unavailable)`
+  // THE CLEAN ROW (approved mockup round 3, 03-sources.png): a title a reader
+  // recognises, and what kind it is underneath -- never the source's raw
+  // identity (a Conversation entry id, a collection key) on the row itself.
+  const sourceTitle = (s: MagnetSource) => s.kind === 'conversation' ? conversations.find((c) => c.id === s.conversation)?.name || 'Saved Conversation'
+    : s.kind === 'file' ? s.path || 'Choose one exact file' : `${s.kind} (unavailable)`
+  const sourceSubtitle = (s: MagnetSource) => s.kind === 'conversation' ? 'Conversation · posts and attachments'
+    : s.kind === 'file' ? `Held file · ${collections.find((c) => c.id === s.collection)?.name ?? 'Held collection'}` : 'Unavailable in this build'
   const add = (s: MagnetSource) => {
     if (locked) return
     setAlert('')
     if (sources.length >= 20) { setMessage('The Magnet supports at most 20 sources. Remove one before adding another.'); return }
     if (!sources.some((v) => sourceIdentity(v) === sourceIdentity(s))) edit({ sources: [...sources, s] })
   }
-  const renaming = name.trim() !== committedName
+  const renaming = !p.inCollection && name.trim() !== committedName
   const save = async () => {
     if (saving || !arrangement || !p.canWrite(arrangement) || !sendable) return
     const brainKey = p.brainKey, magnet = p.magnet
@@ -150,9 +163,11 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       attempt.current = null
       p.onSaved(config)
       setMessage('Saved. The collection history and the Magnet Conversation are kept. Press Collect now to capture the new selection.')
-      // Committed: the staged copy is no longer unsaved, and the overlay returns
-      // to wherever the gear was pressed from.
-      requestSettingsReturn(at)
+      // Committed: the staged copy is no longer unsaved. Settings' own copy
+      // asks its overlay to return to wherever the gear was pressed from;
+      // embedded in Collection there is no overlay to return to, so the
+      // staged copy is simply cleared.
+      if (p.inCollection) discardStagedSettings(at); else requestSettingsReturn(at)
     } catch (e) {
       if (current.current.brainKey !== brainKey || current.current.magnet !== magnet) return
       if ((e as Error & { refused?: boolean }).refused) attempt.current = null
@@ -162,11 +177,11 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   return <section className="q2-magnet-config" aria-label="Magnet configuration">
     {alert && <p className="q2-magnet-alert" role="alert" tabIndex={-1} ref={alerted}>{alert}</p>}
 
-    <label className="q2-magnet-config-name">Name
+    {!p.inCollection && <label className="q2-magnet-config-name">Name
       <input value={name} maxLength={MAGNET_NAME_MOST} disabled={locked} aria-describedby="q2-magnet-name-note"
         onChange={(e) => { setAlert(''); setName(e.target.value) }} />
-    </label>
-    <p id="q2-magnet-name-note" className="q2-magnet-muted">This name is the Magnet’s own and does not change where it is shown.{committedName ? '' : ' It has none of its own yet, so it is currently named after where it is shown.'}</p>
+    </label>}
+    {!p.inCollection && <p id="q2-magnet-name-note" className="q2-magnet-muted">This name is the Magnet’s own and does not change where it is shown.{committedName ? '' : ' It has none of its own yet, so it is currently named after where it is shown.'}</p>}
 
     {/* SOURCES ARE WHAT THIS PANEL IS FOR, so the configured ones are a plain
         list with their own Remove, and adding one is PROGRESSIVE (owner request
@@ -175,7 +190,10 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
         Conversation search, no file collection chooser and no file list --
         which is what "not all controls for all kinds at once" means here. */}
     <h4>Sources</h4>
-    <ul className="q2-magnet-items q2-magnet-source-rows">{sources.map((s, i) => <li key={sourceIdentity(s)}><span>{sourceWords(s)}</span><button type="button" className="q2-magnet-link" disabled={locked} onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button></li>)}</ul>
+    <ul className="q2-magnet-items q2-magnet-source-rows">{sources.map((s, i) => <li key={sourceIdentity(s)}>
+      <span><strong>{sourceTitle(s)}</strong><small className="q2-magnet-muted">{sourceSubtitle(s)}</small></span>
+      <button type="button" className="q2-magnet-link" disabled={locked} onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button>
+    </li>)}</ul>
     <p role="status" aria-live="polite">{sources.length ? `${sources.length} of 20 sources chosen. Choose Conversations, files, or both.` : NO_SOURCE_TO_COLLECT}</p>
     <div className="q2-magnet-add-source" role="group" aria-label="Add a source">
       <span className="q2-magnet-add-label">Add a source</span>

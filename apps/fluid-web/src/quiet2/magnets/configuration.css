@@ -16,7 +16,8 @@
    progressive add beneath it: the kinds first, one kind's controls after. */
 .q2-magnet-source-rows { list-style: none; margin: 4px 0; padding: 0; }
 .q2-magnet-source-rows li { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
-.q2-magnet-source-rows li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q2-magnet-source-rows li > span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q2-magnet-source-rows li > span small { font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
 .q2-magnet-source-rows .q2-magnet-link { flex: none; }
 .q2-magnet-add-source { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
 .q2-magnet-add-label { font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
@@ -46,3 +47,8 @@
 .q2-magnet-config .q2-magnet-alert { display: block; margin: 8px 0 12px; padding: 9px 11px; border-left: 3px solid var(--attention, currentColor); border-radius: 4px; background: color-mix(in srgb, var(--attention, currentColor) 8%, transparent); color: inherit; font: inherit; }
 .q2-magnet-lens label { display: block; font: var(--type-meta); }
 .q2-magnet-lens select { display: block; max-width: 100%; width: 100%; min-height: 32px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
+/* Source management, integrated into Collection (approved mockup round 3,
+   03-sources.png / 04-browse.png): the one toggle link between the collected
+   items and their sources, at the top of the unified Collection place. */
+.q2-magnet-collection-toggle { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+.q2-magnet-collection-toggle .q2-magnet-link { font: var(--type-meta); font-weight: 600; }

@@ -47,7 +47,7 @@ const config = (id: `mag-${string}`): MagnetConfig => ({ id,
   conversation: 'ent-own111111', collection: { mode: 'one-time' }, synthesis: { mode: 'manual' },
   notifications: { newItems: false, changes: false, failures: false }, presentation: { renderer: 'disc' } })
 
-const POST = { kind: 'post', id: 'ent-post111111', number: 12, version: 'ent-version111111', conversation: SOURCE, via: 'home', at: 1764000300,
+const POST = { kind: 'post', id: 'ent-post111111', number: 12, version: 'ent-version111111', conversation: SOURCE, author: 'Alex', via: 'home', at: 1764000300,
   value: { parts: [{ type: 'text', text: 'Calibration delta of 37 recorded against the bench reference.' }] } }
 const HELD = { kind: 'file', id: 'adm-file111111', version: 'adm-file111111', conversation: null, author: null, at: 1764000400, via: 'held-source',
   value: { ref: 'adm-file111111', digest, collection: 'col-held', path: 'nested/calibration.txt', text: 'é🙂', offset: 0, end: 6, size: 65540,
@@ -148,8 +148,15 @@ test('All, Posts and Files show every retained item of their kind, with real cou
   assert.ok(all.includes('2 collected items') && posts.includes('1 collected item') && files.includes('1 collected item'))
   assert.ok(posts.includes('Post #12') && !posts.includes('nested/calibration.txt'), 'Posts shows only post evidence')
   assert.ok(files.includes('nested/calibration.txt') && !files.includes('Post #12'), 'Files shows only file evidence')
-  assert.ok(all.includes('¶') && all.includes('▤'), 'each row carries its type glyph')
-  assert.ok(all.includes(`Conversation ${SOURCE}`) && all.includes('Held file col-held'), 'each row names its captured source')
+  // Clean rows (owner request ent-1e82a8786c37): no raw ids, no recorded
+  // digests and no type glyph -- a title, its excerpt, and who or when.
+  assert.ok(!all.includes('¶') && !all.includes('▤'), 'a row carries no type glyph')
+  // `id="item-<id>"` is an internal DOM anchor (scroll/aria target), not shown
+  // to a reader; what must never appear is the raw id AS VISIBLE ROW TEXT.
+  const rowText = all.replace(/<[^>]*>/g, ' ')
+  assert.ok(!rowText.includes(POST.id) && !rowText.includes(HELD.id), 'a row shows no raw record id as visible text')
+  assert.ok(!rowText.includes(`Conversation ${SOURCE}`), 'a row never names its source by a raw Conversation id')
+  assert.ok(all.includes('Alex') && all.includes('Held file'), 'a row says who or what it was captured from')
   assert.ok(all.includes('Calibration delta of 37'), 'each row shows its captured excerpt')
 })
 
