@@ -59,13 +59,13 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { MagnetResource } from './contract'
 import {
   answerHistory, derivedPerspectiveName, pastQuestions, perspectivesOf, questionSubtitle,
-  recordedUnderstanding, stampAttachedQuestion, ANSWER_STANDS_NOW, CHECKED_NEW, CHECKED_SAME,
-  COLLECTION_MOVED, EARLIER_ANSWERS_KEPT, EVENT_WORDS, FUTURE_CONCEPT, GROUNDED_NOT_YET,
-  NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON, QUESTION_IS_KEPT,
+  recordedUnderstanding, stampAttachedQuestion, CHECKED_NEW, CHECKED_SAME,
+  COLLECTION_MOVED, EVENT_WORDS, FUTURE_CONCEPT, GROUNDED_NOT_YET,
+  NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON,
   SUPPORTING_WHY, type InquiryEvent, type PerspectiveStore,
 } from './perspectives'
 import { retainedItems, resultPreview, resultTitle, rowByline, usePeople } from './EvidenceViews'
-import { miniComposerDraft, saveMiniComposer } from './conversation'
+import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { goTab, setOpen } from './places'
 import {
   clearRenameDraft, clearRevisionDraft, clearQuestionDraft, panelAt, panelDrafts,
@@ -122,6 +122,7 @@ export async function discussSelectedQuestion(resource: MagnetResource, store: P
   // version is made to state this one. Nothing is attached or un-suppressed.
   stampAttachedQuestion(resource, store.snapshot().selectedDetail)
   saveMiniComposer(resource, { ...draft, text: context.question })
+  focusMiniComposer()
   goTab(resource, 'Conversation')
   setOpen(resource, true)
   return context
@@ -427,24 +428,17 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
         {asked ? <>
           {/* 05 / 10: the way back, then one state line saying what this is. */}
           <div className="mgd-row mgd-spread">
-            <span className="mgd-eyebrow">Perspectives</span>
+            <span />
             {openPast}
           </div>
-          <div className="mgd-row q2p-state">
-            <span className="mgd-today">{CURRENT_MODE}</span>
-            <span className="mgd-subtle">{ORDINARY_DISCUSSION}</span>
-          </div>
           <div className="mgd-chatbubble">
-            <span className="mgd-subtle">You asked</span>
             <b className="q2p-asked">{asked}</b>
           </div>
           {/* WHAT IS UNDERSTOOD OF A QUESTION THAT STAYS. One answer stands
               now; the ones it follows are kept under it, never replaced. */}
           <div className="mgd-answer">
-            <b>Current understanding</b>
             {answers.current || told.challenges.length ? <>
               {answers.current && <>
-                <span className="mgd-subtle q2p-answer-mark">{ANSWER_STANDS_NOW}</span>
                 <p>{wordingOf(answers.current) ?? 'An answer is recorded against this question.'}
                   {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
               </>}
@@ -452,7 +446,6 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             </> : <p>{NOTHING_RECORDED_YET}</p>}
             {answers.superseded.length > 0 && <details className="q2p-answer-history">
               <summary>{EARLIER_ANSWERS} ({answers.superseded.length})</summary>
-              <p className="mgd-small mgd-muted">{EARLIER_ANSWERS_KEPT}</p>
               <ol className="q2p-answers">{answers.superseded.map((e, i) => <li key={`s:${e.post}`}>
                 <span className="mgd-subtle">{EARLIER_ANSWERS} {answers.superseded.length - i}</span>
                 <p>{wordingOf(e) ?? 'An answer is recorded against this question.'}</p>
@@ -466,7 +459,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             </div>
             {readAgain && <p className="mgd-small mgd-muted" role="status">{readAgain}</p>}
           </div>
-          <p className="mgd-small mgd-muted q2p-kept">{QUESTION_IS_KEPT}</p>
+          <button type="button" className="mgd-link mgd-small" disabled={busy || !mayWrite} onClick={() => void run(() => discussSelectedQuestion(resource, store))}>Discuss this question</button>
           <div className="mgd-space" />
           {compose}
           <p className="mgd-hint">{GROUNDED_NOT_YET}</p>

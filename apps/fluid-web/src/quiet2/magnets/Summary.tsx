@@ -30,7 +30,7 @@ import { goTab, inspect, openOverlay, place } from './places'
 import { resultTitle } from './EvidenceViews'
 import { collectionRows } from './collectionRows'
 import { supportsManualCollection } from './configuration'
-import { miniComposerDraft, saveMiniComposer } from './conversation'
+import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { setQuestionDraft, panelAt } from './panelDrafts'
 import { perspectivesOf, PERSPECTIVE_BLOCK_REASON, type InquiryEvent, type Perspective } from './perspectives'
 import './summary.css'
@@ -455,6 +455,7 @@ export function askOrdinaryQuestion(resource: MagnetResource, question: string):
   const draft = miniComposerDraft(resource)
   if (draft.text.trim()) return 'The Composer already holds words of yours. Keep or clear them first.'
   saveMiniComposer(resource, { ...draft, text: question })
+  focusMiniComposer()
   goTab(resource, 'Conversation')
   return ''
 }
@@ -608,10 +609,11 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
               then collect.") is the button and its own note: the owner asked
               for useful actions presented prominently rather than explained
               (ent-a24ec84c8176). */}
-          <p className="mgd-p">No collected information yet. Conversation is still available.</p>
+          <p className="mgd-p">No collected information yet.</p>
           <div className="mgd-row mgd-spread q2-magnet-lead-action">
             <span className="mgd-subtle mgd-grow">{starting.note}</span>
             <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
+            <button type="button" className="mgd-button mgd-secondary" disabled={!resource.collect || !resource.saved.config || !supportsManualCollection(resource.saved.config) || s.collecting} onClick={() => void resource.collect?.()}>Collect now</button>
           </div>
           <div className="mgd-divider" />
           <div className="mgd-eyebrow">Start a conversation</div>
@@ -652,7 +654,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         <div className="mgd-space" />
         <section aria-label="Questions to explore">
           <div className="mgd-eyebrow">Questions to explore</div>
-          {questions.map((q) => <QuestionRow key={q} question={q} onTake={() => exploreQuestion(resource, q)} />)}
+          {questions.map((q) => <QuestionRow key={q} question={q} onTake={() => askOrdinary(q)} />)}
         </section>
 
         <div className="mgd-divider" />

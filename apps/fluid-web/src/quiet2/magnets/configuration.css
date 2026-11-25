@@ -56,7 +56,7 @@
 .q2-magnet-source-rows li > span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .q2-magnet-source-rows li > span small { font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
 /* One kind's controls, after that kind is picked and never before. */
-.q2-magnet-kind-panel { margin: 4px 0 12px; padding: 2px 0 2px 11px; border-left: 2px solid color-mix(in srgb, currentColor 28%, transparent); }
+.q2-magnet-kind-panel { margin: 4px 0 12px; padding: 2px 0; }
 .q2-magnet-config-choices { display: flex; flex-direction: column; max-height: 180px; overflow: auto; gap: 5px; }
 .q2-magnet-config-choices button { text-align: left; overflow-wrap: anywhere; padding: 5px; }
 .q2-magnet-config-choices small { display: block; color: color-mix(in srgb, currentColor 78%, transparent); }
@@ -70,7 +70,7 @@
 .q2-magnet-config .q2-magnet-dates input[type=date] { width: auto; min-width: 11ch; }
 /* What this build can and cannot collect: reference material, one step further
    in than the limits anyone actually reaches for. */
-.q2-magnet-bounds { margin: 8px 0 0; padding-left: 11px; border-left: 2px solid color-mix(in srgb, currentColor 20%, transparent); }
+.q2-magnet-bounds { margin: 8px 0 0; padding-left: 0; }
 .q2-magnet-bounds p { margin: 4px 0; }
 
 .q2-magnet-config textarea { box-sizing: border-box; width: 100%; min-height: 70px; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; }

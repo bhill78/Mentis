@@ -415,7 +415,7 @@ test('an empty Summary offers a useful start and ordinary help, and keeps the ow
   const { r } = resource('mag-eempty', empty)
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(rendered.includes('No collected information yet. Conversation is still available.'))
+  assert.ok(rendered.includes('No collected information yet.'))
   // THE USEFUL ACTION IS A BUTTON, NOT A SENTENCE (owner ent-a24ec84c8176:
   // "Present current information and useful actions prominently"). What the
   // sentence "Choose sources in Settings, then collect." described is the press
@@ -528,11 +528,11 @@ test('a saved question renders as the question and what is understood of it', ()
   perspectivesOf(r).update({ rows: [perspective], selected: topic, viewed: topic,
     viewedDetail: perspective, selectedDetail: perspective })
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
-  assert.ok(rendered.includes('mgd-chatbubble') && rendered.includes('You asked'), 'the question is in a chat bubble')
+  assert.ok(rendered.includes('mgd-chatbubble'), 'the question is in a chat bubble')
   assert.ok(rendered.includes('Does the bench drift between batches?'), 'in its own saved words')
   assert.ok(!rendered.includes('Your question'), 'no standing administrative label over it')
-  assert.ok(rendered.includes('mgd-answer') && rendered.includes('Current understanding'),
-    'what is understood of it is the answer block, with its bold lead')
+  assert.ok(rendered.includes('mgd-answer'),
+    'what is understood of it is the answer block')
   assert.ok(rendered.includes(NOTHING_RECORDED_YET), 'with nothing recorded it says so in one sentence')
   assert.equal(rendered.split('Explore supporting items ↗').length - 1, 1, 'and carries exactly one link out of it')
   assert.ok(!rendered.includes('Earlier wordings and recorded answers have no automatic knowledge standing.'),

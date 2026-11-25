@@ -218,6 +218,13 @@ export function miniComposerDraft(resource: MagnetResource): Draft {
   return composer
 }
 
+/** Focus the composer after navigation has mounted its footer. */
+export function focusMiniComposer(): void {
+  if (typeof document === 'undefined') return
+  const card = document.activeElement?.closest('.q2-magnet-card')
+  setTimeout(() => card?.querySelector<HTMLTextAreaElement>('.q2-magnet-composer textarea')?.focus(), 0)
+}
+
 export function saveMiniComposer(resource: MagnetResource, composer: Draft): void {
   const key = miniDraftKey(resource), h = holdOf(key)
   if (JSON.stringify(h.composer) === JSON.stringify(composer)) return

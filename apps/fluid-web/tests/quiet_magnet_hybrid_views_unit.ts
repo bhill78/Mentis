@@ -261,7 +261,7 @@ test('an empty collection says Conversation is still available, on Summary and i
   const { r } = resource('mag-h3empty', empty)
   await r.read()
   const summary = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(summary.includes('No collected information yet. Conversation is still available.'))
+  assert.ok(summary.includes('No collected information yet.'))
   // Where to go next is offered AS A BUTTON rather than described in a sentence
   // (owner ent-a24ec84c8176: present useful actions prominently). The sentence
   // "Choose sources in Settings, then collect." is that button and its note.
