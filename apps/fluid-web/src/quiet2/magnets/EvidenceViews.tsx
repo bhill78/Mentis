@@ -20,7 +20,9 @@ import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
 import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
 import { inspect, place } from './places'
+import { SUPPORTING_WHY } from './perspectives'
 import './summary.css'
+import './perspectives.css'
 
 const words = (v: unknown) => typeof v === 'string' ? v : ''
 const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {}
@@ -58,6 +60,43 @@ export function evidenceSource(resource: MagnetResource): SearchSource {
       }))
     },
   }
+}
+
+/** SUPPORTING ITEMS, OPENED ON REQUEST (approved mockup round 3, 06-future-support).
+ *
+ *  Perspectives asks for this when the reader presses "Explore supporting
+ *  items". It is the same collected material the lists above hold, shown
+ *  against a question instead of against a filter, and it occupies the working
+ *  area only while it is open.
+ *
+ *  It is not an answer's chosen support, and never pretends to be: nothing read
+ *  these items to answer anything, which is what `SUPPORTING_WHY` says beneath
+ *  them. Opening one goes through the caller's own evidence opening, so the
+ *  item is read in the card's one inspection with its one way back. */
+export function SupportingItems({ resource, question, onOpen }: {
+  resource: MagnetResource
+  /** The question these are offered against, in its own saved words. */
+  question: string
+  onOpen(ref: string): void
+}) {
+  const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
+  const { posts, files } = retainedItems(resource)
+  const items = [...posts, ...files]
+  return <section className="q2-magnet-supporting" aria-label="Supporting items">
+    <h4>Supporting items</h4>
+    {question && <p className="q2-magnet-muted">For “{question}”</p>}
+    {items.length ? <ul className="q2-magnet-items">{items.map((r) => <li key={`${r.kind}:${r.id}`}>
+      <p className="q2-magnet-supporting-head"><strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {evidenceOrigin(r)}</small></p>
+      {resultPreview(r) && <p className="q2-magnet-quote">“{resultPreview(r)}”</p>}
+      <button type="button" className="q2-magnet-link" onClick={() => onOpen(r.id)}>Open item ↗</button>
+    </li>)}</ul>
+      : <p className="q2-magnet-muted">{s.activation ? 'Nothing is collected here to explore this question against yet.'
+        : 'This Magnet has collected nothing yet. Choose sources in Settings, then collect.'}</p>}
+    <div className="q2-magnet-why">
+      <h5>Why these?</h5>
+      <p className="q2-magnet-muted">{SUPPORTING_WHY}</p>
+    </div>
+  </section>
 }
 
 export interface EvidenceViewsProps {

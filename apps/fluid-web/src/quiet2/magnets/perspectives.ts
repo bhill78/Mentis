@@ -8,6 +8,54 @@ import { remember, setOpen } from './places'
 export const PERSPECTIVE_ANSWERS_ENABLED = false
 export const PERSPECTIVE_BLOCK_REASON = 'Grounded Perspective answers are blocked: existing execution controls do not enforce use of only the Magnet’s configured and selected evidence.'
 export const PERSPECTIVE_DISCLOSURE = 'Selected collection evidence is recorded separately from agent access. Accessible unrelated Brain records and acquired files are outside this Magnet’s collection scope.'
+
+/** MARKING WHAT DOES NOT WORK YET (approved mockup round 3, ent-1c71c6d681ea).
+ *
+ *  The mockups show a future state in which a question is answered from what
+ *  the Magnet collected, and they mark every such picture "future concept".
+ *  Answering that way is refused server-side and stays refused
+ *  (`PERSPECTIVE_ANSWERS_ENABLED`), so where this panel shows the shape of that
+ *  future it carries the same mark and says plainly that it does not work
+ *  today. Nothing here is an illustrative answer: the panel shows only what the
+ *  record actually holds, and the mark is on the absence. */
+export const FUTURE_CONCEPT = 'Future concept'
+export const GROUNDED_NOT_YET = 'Answering a question from what this Magnet collected is not available yet.'
+/** Said where the collected items a question could be explored against are
+ *  listed, so the list is never read as an answer's chosen support. */
+export const SUPPORTING_WHY = 'These are the items this Magnet has collected. Nothing read them to answer your question: choosing and citing the items that support an answer is part of grounded answering, which is not available yet.'
+export const NOTHING_RECORDED_YET = 'Nothing is recorded against this question yet. Discussing it keeps what is said with the question.'
+
+/** WHAT THE RECORD HOLDS AS THE CURRENT UNDERSTANDING OF A QUESTION.
+ *
+ *  Answers somebody recorded against it, and challenges recorded to it, newest
+ *  first. It derives nothing, concludes nothing and reads nothing live: these
+ *  are the durable events the history already returned. */
+export interface RecordedUnderstanding { answers: InquiryEvent[]; challenges: InquiryEvent[] }
+export function recordedUnderstanding(events: InquiryEvent[]): RecordedUnderstanding {
+  const newest = [...events].reverse()
+  return {
+    answers: newest.filter((e) => e.event === 'answer' || e.event === 'answered' || typeof e.data?.answer?.ref === 'string'),
+    challenges: newest.filter((e) => e.event === 'challenge' || e.event === 'challenged'),
+  }
+}
+
+/** The past questions, narrowed by what was typed in the find box. Both the
+ *  name and the saved wording are searched, because the name is derived from
+ *  the wording and a later revision may have moved them apart. */
+export function pastQuestions(rows: Perspective[], query: string): Perspective[] {
+  const want = query.trim().toLowerCase()
+  if (!want) return rows
+  return rows.filter((p) => `${p.name} ${p.current_question?.text ?? ''}`.toLowerCase().includes(want))
+}
+
+/** What to say under a past question's name: counted from the row, never guessed. */
+export function questionSubtitle(p: Perspective, selected: string | null): string {
+  return [
+    p.perspective === selected ? 'Current discussion' : null,
+    p.retired ? 'Retired' : null,
+    `${p.events} recorded ${p.events === 1 ? 'change' : 'changes'}`,
+  ].filter(Boolean).join(' · ')
+}
 export interface Perspective { perspective: string; name: string; retired: boolean; question: Artifact | null; current_question?: { text: string; revision: string } | null; events: number }
 export interface Artifact { ref: string; digest: string; size: number; media_type: string }
 export interface InquiryEvent { seq: number; post: string; event: string; perspective: string | null; snapshot: Artifact; data: Record<string, any> }
@@ -367,9 +415,14 @@ export function openPerspective(resource: MagnetResource, perspective: string, i
 /** The wording an inquiry event carries, if it carries one. */
 const wordingOf = (e: InquiryEvent): string | null =>
   typeof e.data?.text === 'string' ? e.data.text : typeof e.data?.name === 'string' ? e.data.name : null
-const EVENT_WORDS: Record<string, string> = {
+/** Ordinary words for what a durable event is (owner ent-3191baeb33d2 §2, and
+ *  ent-068c167fa7e6 §4: no implementation terminology where the owner reads).
+ *  The panel's wording history shows these; an event this does not name falls
+ *  back to its own word rather than being hidden. */
+export const EVENT_WORDS: Record<string, string> = {
   question: 'Earlier wording', created: 'Original wording', branch: 'Branched wording',
-  challenge: 'Recorded challenge', rename: 'Earlier name',
+  challenge: 'Recorded challenge', challenged: 'Recorded challenge',
+  rename: 'Earlier name', retire: 'Retired', resume: 'Resumed', selected: 'Made the active question',
 }
 
 /** H5's contribution to the universal index (§4). `entries()` is what the panel

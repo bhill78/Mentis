@@ -1,0 +1,68 @@
+/* The Perspectives working surface, and the supporting items it opens.
+   Takes the host's ink: the Magnet card is a fixed dark surface and this view
+   inherits its colour rather than naming one of its own, the way summary.css
+   does. The one named colour is the card's own gold, read from the variable the
+   card sets, with the card's value as the fallback for a mounted-alone view. */
+
+/* The panel is its own container, so the layout answers the SIZE OF THE PANEL
+   and not the size of the window: the Magnet is resized by its edges and may be
+   wide on a narrow screen or narrow on a wide one (owner ent-068c167fa7e6 §1,
+   "adapt the layout continuously to the available panel space"). */
+.q2-magnet-perspectives { container-type: inline-size; container-name: perspectives; }
+
+.q2-magnet-work { display: grid; gap: 18px; align-items: start; }
+.q2-magnet-work-main { min-width: 0; }
+/* Wide enough for two readable columns: the work keeps the room, past questions
+   sit beside it. Below that they stack, and past questions come after the work. */
+@container perspectives (min-width: 520px) {
+  .q2-magnet-work { grid-template-columns: minmax(0, 1fr) minmax(170px, 15rem); gap: 26px; }
+}
+
+/* The question being explored. Quiet panel, the words themselves at reading size. */
+.q2-magnet-asked { margin: 2px 0 12px; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); }
+.q2-magnet-asked .q2-magnet-eyebrow { margin: 0 0 3px; }
+.q2-magnet-asked-text { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+
+/* What is understood of it so far: the record's own entries, against a rule
+   that marks the block as the answer side of the question above it. */
+.q2-magnet-current { margin: 0 0 14px; padding-left: 11px; border-left: 2px solid color-mix(in srgb, var(--magnet-gold, #edbf50) 65%, transparent); }
+.q2-magnet-current h4 { margin: 0 0 5px; font-size: 14px; text-transform: none; letter-spacing: 0; opacity: 1; }
+.q2-magnet-current > .q2-magnet-items { margin-top: 6px; }
+.q2-magnet-current .q2-magnet-link { display: inline-block; margin-top: 4px; }
+
+/* The empty state: one invitation, no help cards and no explanation of the
+   machinery behind it (owner §4). */
+.q2-magnet-start { margin: 2px 0 14px; }
+.q2-magnet-start h4 { margin: 0 0 4px; font-size: 16px; text-transform: none; letter-spacing: 0; opacity: 1; }
+
+.q2-magnet-ask-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.q2-magnet-ask-actions button:not(.q2-magnet-primary) { min-height: 32px; padding: 5px 12px; border: 1px solid color-mix(in srgb, currentColor 32%, transparent); border-radius: 8px; background: none; color: inherit; font: inherit; }
+
+/* WHAT IS NOT AVAILABLE, MARKED AS SUCH (approved mockups, "future concept").
+   It is a label on an absence, never a caption under something pretending to
+   work: the badge and the sentence beside it always travel together. */
+.q2-magnet-future { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 6px; }
+.q2-magnet-future .q2-magnet-muted { margin: 0; }
+.q2-magnet-future-badge { flex: none; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--magnet-gold, #edbf50) 24%, transparent); color: inherit; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+
+/* Past questions: a list to return through, not a table to administer. */
+.q2-magnet-past { min-width: 0; padding-top: 2px; }
+.q2-magnet-past h4 { margin: 0 0 4px; }
+.q2-magnet-past-list { list-style: none; margin: 6px 0; padding: 0; }
+.q2-magnet-past-list li + li { border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+.q2-magnet-past-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; padding: 8px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.q2-magnet-past-row:hover, .q2-magnet-past-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
+.q2-magnet-past-row[aria-current='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
+.q2-magnet-past-row .q2-magnet-row-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q2-magnet-past-row small { display: block; margin-top: 2px; }
+/* The durable lens is the quiet one here: the list above is how a question is
+   returned to, and this is the choice the Conversation follows. */
+.q2-magnet-past .q2-magnet-lens { margin-top: 12px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent); }
+
+/* Supporting items, opened on request and given back again. */
+.q2-magnet-supporting h4 { margin: 0 0 3px; font-size: 16px; text-transform: none; letter-spacing: 0; opacity: 1; }
+.q2-magnet-supporting-head { margin: 0; overflow-wrap: anywhere; }
+.q2-magnet-supporting .q2-magnet-quote { margin: 3px 0 4px; }
+.q2-magnet-why { margin: 16px 0 4px; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); }
+.q2-magnet-why h5 { margin: 0 0 3px; font-size: 13px; font-weight: 600; }
+.q2-magnet-why .q2-magnet-muted { margin: 0; }
