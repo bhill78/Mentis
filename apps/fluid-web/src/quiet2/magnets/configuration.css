@@ -4,39 +4,78 @@
 .q2-magnet-config label { display: block; margin: 8px 0; }
 .q2-magnet-config input:not([type=checkbox]), .q2-magnet-config select { box-sizing: border-box; display: block; max-width: 100%; width: 100%; min-height: 32px; padding: 4px 7px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; font: inherit; }
 .q2-magnet-config details { margin: 10px 0; }
-/* The panel opens on what is being configured: the name, then the sources, then
-   what to collect. Each heading is a quiet rule, not a banner, so the controls
-   keep the room at compact dimensions (request §4). */
-.q2-magnet-config h4 { margin: 14px 0 4px; font: var(--type-meta); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; opacity: .72; }
+.q2-magnet-config h3 { margin: 14px 0 4px; }
 .q2-magnet-config h5 { margin: 10px 0 3px; font: var(--type-meta); font-weight: 600; }
 .q2-magnet-config-name { margin-top: 0 !important; font-weight: 600; }
 .q2-magnet-config-name input { font-weight: 400; }
-.q2-magnet-config .q2-magnet-muted { margin: 3px 0 8px; color: color-mix(in srgb, currentColor 72%, transparent); }
-/* The configured sources, as a list the reader can scan and act on, and the
-   progressive add beneath it: the kinds first, one kind's controls after. */
+
+/* THE DESIGN'S OWN CONTROLS, WHERE THE DESIGN'S STYLESHEET DOES NOT REACH.
+ *
+ * The panel is one body now, drawn in the Magnet card (Collection and
+ * Settings) and in Magnet Management. `design.css` is the approved round-3
+ * design and every rule in it is scoped `.q2-magnet-card …`, so in Management
+ * -- which is a page, not a card -- the `mgd-` controls would have no styling
+ * at all.
+ *
+ * So these are base rules for exactly the primitives this panel composes from,
+ * written with ONE class each (specificity 0,1,0). Every rule in `design.css`
+ * carries two or three (`.q2-magnet-card .mgd-button`, `.q2 .q2-magnet-card
+ * .mgd-button`), so inside the card the approved design wins on specificity
+ * regardless of which stylesheet loaded last, and nothing here can alter it.
+ * Outside the card these take effect and are deliberately neutral: they take
+ * the host's ink through `currentColor` instead of restating the card's palette,
+ * which is the design's and not Management's. */
+.mgd-row { display: flex; align-items: center; gap: 12px; }
+.mgd-spread { justify-content: space-between; }
+.mgd-grow { flex: 1; min-width: 0; }
+.mgd-space { height: 18px; }
+.mgd-divider { border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); margin: 16px 0; }
+.mgd-source { border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent); padding: 11px 0; }
+.mgd-eyebrow { font-size: 11px; letter-spacing: .13em; text-transform: uppercase; font-weight: 700; opacity: .72; }
+.mgd-h2 { font-size: 21px; line-height: 1.2; margin: 6px 0 8px; font-weight: 600; }
+.mgd-h3 { font-size: 16px; margin: 0 0 8px; font-weight: 700; }
+.mgd-p { line-height: 1.5; margin: 8px 0 14px; }
+.mgd-muted { color: color-mix(in srgb, currentColor 72%, transparent); }
+.mgd-subtle { color: color-mix(in srgb, currentColor 72%, transparent); font-size: 13px; }
+.mgd-small { font-size: 13px; }
+.mgd-button { display: inline-block; min-height: 32px; padding: 7px 13px; border: 1px solid transparent; border-radius: 7px; background: var(--accent, color-mix(in srgb, currentColor 22%, transparent)); color: var(--on-accent, inherit); font: inherit; font-weight: 600; line-height: 1.2; cursor: pointer; white-space: nowrap; }
+.mgd-button:disabled { opacity: .55; cursor: default; }
+.mgd-button.mgd-secondary { background: none; border-color: color-mix(in srgb, currentColor 32%, transparent); color: inherit; }
+.mgd-link { background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; text-decoration: underline; }
+.mgd-link:disabled { opacity: .5; cursor: default; text-decoration: none; }
+.mgd-link.mgd-small { font-size: 13px; }
+.mgd-pill { min-height: 28px; padding: 5px 11px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 20px; background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.mgd-pill.mgd-active { border-color: var(--accent, currentColor); background: color-mix(in srgb, currentColor 14%, transparent); font-weight: 600; }
+.mgd-pill:disabled { opacity: .45; cursor: default; }
+
+/* The configured sources, as a list the reader can scan and act on. The rows
+   themselves are `mgd-source` now, in every placement; this styles the plain
+   list Magnet Management draws from the same configuration. */
 .q2-magnet-source-rows { list-style: none; margin: 4px 0; padding: 0; }
 .q2-magnet-source-rows li { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
 .q2-magnet-source-rows li > span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .q2-magnet-source-rows li > span small { font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
-.q2-magnet-source-rows .q2-magnet-link { flex: none; }
-.q2-magnet-add-source { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
-.q2-magnet-add-label { font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
-.q2-magnet-kind { min-height: 30px; padding: 4px 11px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 999px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.q2-magnet-kind:hover:not(:disabled), .q2-magnet-kind:focus-visible { background: color-mix(in srgb, currentColor 12%, transparent); }
-.q2-magnet-kind[aria-expanded='true'] { border-color: var(--accent, currentColor); background: color-mix(in srgb, currentColor 14%, transparent); font-weight: 600; }
-.q2-magnet-kind:disabled { opacity: .45; cursor: default; }
+/* One kind's controls, after that kind is picked and never before. */
 .q2-magnet-kind-panel { margin: 4px 0 12px; padding: 2px 0 2px 11px; border-left: 2px solid color-mix(in srgb, currentColor 28%, transparent); }
 .q2-magnet-config-choices { display: flex; flex-direction: column; max-height: 180px; overflow: auto; gap: 5px; }
 .q2-magnet-config-choices button { text-align: left; overflow-wrap: anywhere; padding: 5px; }
 .q2-magnet-config-choices small { display: block; color: color-mix(in srgb, currentColor 78%, transparent); }
 .q2-magnet-config-types { display: flex; flex-wrap: wrap; gap: 8px; }
 .q2-magnet-config-types label { display: flex; align-items: center; gap: 4px; }
+
+/* THE DATE LIMITS, AS PICKERS. They are days, so they are sized to a day and
+   sit side by side instead of each taking a line of full-width text field. */
+.q2-magnet-dates { flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.q2-magnet-dates label { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 0; }
+.q2-magnet-config .q2-magnet-dates input[type=date] { width: auto; min-width: 11ch; }
+/* What this build can and cannot collect: reference material, one step further
+   in than the limits anyone actually reaches for. */
+.q2-magnet-bounds { margin: 8px 0 0; padding-left: 11px; border-left: 2px solid color-mix(in srgb, currentColor 20%, transparent); }
+.q2-magnet-bounds p { margin: 4px 0; }
+
 .q2-magnet-config textarea { box-sizing: border-box; width: 100%; min-height: 70px; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; }
 .q2-magnet-config fieldset { min-width: 0; border: 0; padding: 0; }
 .q2-magnet-config fieldset > button { margin: 4px; }
-/* Save and Cancel sit together; the one that discards is never the primary. */
-.q2-magnet-settings-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
-.q2-magnet-settings-actions button:not(.q2-magnet-primary) { min-height: 32px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: inherit; font: inherit; }
 /* Removal from the workspace is kept apart from the source settings, and reads
    as what it is rather than as another close button. */
 .q2-magnet-danger { border-top: 1px solid color-mix(in srgb, var(--attention, currentColor) 45%, transparent); }
@@ -49,5 +88,7 @@
 .q2-magnet-lens select { display: block; max-width: 100%; width: 100%; min-height: 32px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
 /* The floating toggle row this file used to style is gone: in the approved
    round-3 design each place's counterpart link is on its own heading row
-   (`collection.css`, `q2-magnet-place-link`), said once. What remains here
-   styles Settings' own copy of the panel, which no mockup covers. */
+   (`collection.css`, `q2-magnet-place-link`), said once. The second set of
+   controls it also styled -- `q2-magnet-add-source`, `q2-magnet-kind`,
+   `q2-magnet-settings-actions` -- is gone with the duplicated Settings form
+   those classes belonged to; the panel composes from the design's controls now. */

@@ -17,7 +17,7 @@ import CollectionConfiguration from '../src/quiet2/magnets/CollectionConfigurati
 import Perspectives from '../src/quiet2/magnets/InquiryPanel'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { goTab, leaveSettings, openOverlay, place, setOpen } from '../src/quiet2/magnets/places'
-import { collectionIssue, configurationFacts, PROPOSED_SOURCES, settingsSource, SUPPORTED_SOURCES } from '../src/quiet2/magnets/configuration'
+import { collectionIssue, configurationFacts, PROPOSED_SOURCES, settingsSource, SUPPORTED_REASON, SUPPORTED_SOURCES, UNSUPPORTED_REASON } from '../src/quiet2/magnets/configuration'
 import {
   discardStagedSettings, forgetPanelDrafts, panelAt, panelDrafts, requestSettingsReturn,
   setQuestionDraft, setRenameDraft, setRevisionDraft, stageSettings, takeSettingsReturn, type StagedSettings,
@@ -160,32 +160,65 @@ test('the three validation rules refuse in order, in their approved wording, and
   assert.equal(collectionIssue(staged()), null)
 })
 
-test('a refused rule takes focus in an alert, and the panel keeps its live source count', () => {
+/** The panel is one consolidated body now (owner request: "Consolidate
+ *  duplicated settings"), so what follows the staged selection is the source
+ *  ROWS and the what-to-collect sentence, not a count out of twenty standing
+ *  over them; and the commit is "Save"/"Discard" where something is actually
+ *  unsaved, not a standing "Save collection configuration" / "Cancel
+ *  configuration edits" pair. The save itself is unchanged -- same staged copy,
+ *  same `collectionChange`, same gate -- and keeps its accessible name. */
+test('a refused rule takes focus in an alert, and the panel follows the staged selection', () => {
   store()
   const r = resource('mag-h5alert')
   const at = panelAt(r)
   stageSettings(at, staged({ sources: [{ kind: 'conversation', conversation: SOURCE }, { kind: 'file', collection: 'col-held', path: 'a.txt' }] }))
   const html = settings(r)
-  assert.ok(html.includes('2 of 20 sources chosen'), 'the source count follows the staged selection')
-  assert.ok(html.includes('role="status"'), 'the count is announced without rebuilding the choices')
+  assert.equal((html.match(/mgd-source/g) ?? []).length, 3, 'one ruled row per staged source, and one for Add source')
+  assert.ok(html.includes('a.txt'), 'the staged source is on the surface')
+  assert.ok(html.includes('role="status"'), 'what is collected is announced without rebuilding the choices')
+  assert.ok(!html.includes('of 20 sources chosen'), 'the rows are the count')
   // The alert element is rendered only when a rule has failed, and it is focusable.
   assert.ok(!html.includes('role="alert"'))
-  const source = renderToStaticMarkup(createElement(CollectionConfiguration, { magnet: r.saved.id, config: r.saved.config!, brainKey, canWrite: () => true, onSaved: () => {} }))
-  assert.ok(source.includes('Save collection configuration'))
-  assert.ok(source.includes('Cancel configuration edits'))
+  // An edit is staged, so the commit is offered -- once, with its accessible name.
+  assert.ok(html.includes('Unsaved changes'))
+  assert.equal((html.match(/aria-label="Save collection configuration"/g) ?? []).length, 1)
+  assert.ok(html.includes('>Discard<'))
+  assert.ok(!html.includes('Cancel configuration edits'), 'the duplicated Settings commit is gone, not restyled')
 })
 
+/** THE SOURCE MODEL IS STILL PRESENTED HONESTLY -- one step further in.
+ *
+ *  The owner asked to "reduce explanatory clutter, and progressively disclose
+ *  advanced options". The supported/proposed recital is reference material
+ *  rather than a setting, so it is behind `Collection limits ▾`, itself inside
+ *  `Limits and dates ▾`: nothing of it is in the resting markup, in Settings or
+ *  on the approved Collection surface. That is a change of where it is said,
+ *  not of whether: the wording is unchanged, `settingsSource` indexes every
+ *  word of it so search still finds it, and no proposed kind is offered as a
+ *  choice in any state. The three near-identical paragraphs that used to stand
+ *  under the date fields are one sentence, and the "Collection limits" heading
+ *  that labelled nothing now labels this. */
 test('the source model is presented honestly: supported and actionable, proposed and not offered', () => {
   store()
   const r = resource('mag-h5sources')
   const html = settings(r)
-  for (const s of SUPPORTED_SOURCES) assert.ok(html.includes(s.words.slice(0, 40)), `supported: ${s.kind}`)
-  for (const s of PROPOSED_SOURCES) assert.ok(html.includes(s.words), `proposed: ${s.words}`)
-  assert.ok(html.includes('Proposed only, and not interactive here'))
-  assert.ok(html.includes('An existing connector does not enable a Magnet adapter.'))
-  assert.ok(html.includes('Collection limits'), 'unsupported filters and source kinds remain available as contextual help')
-  // Only the two supported kinds are offered as choices.
-  assert.ok(html.includes('Add Conversations') && html.includes('Add files'))
+  // Reference material is disclosed, not stacked in front of the settings.
+  assert.ok(html.includes('Limits and dates ▾'), 'one way in to the advanced options')
+  for (const s of PROPOSED_SOURCES) assert.ok(!html.includes(s.words), `proposed kinds do not stand on the panel: ${s.words}`)
+  assert.ok(!html.includes('Proposed only, and not interactive here'))
+  // It remains available in full, in its own words, through the index the
+  // settings search reads -- so none of it became unfindable.
+  const indexed = settingsSource(r).entries().map((e) => `${e.title} ${e.text}`).join('\n')
+  for (const s of SUPPORTED_SOURCES) assert.ok(indexed.includes(s.words), `supported, and still findable: ${s.kind}`)
+  for (const s of PROPOSED_SOURCES) assert.ok(indexed.includes(s.words), `proposed, and still findable: ${s.words}`)
+  assert.ok(indexed.includes('An existing connector does not enable a Magnet adapter.'))
+  assert.ok(indexed.includes(SUPPORTED_REASON))
+  // Nothing was dropped when the three paragraphs became one.
+  for (const words of ['Individual post selection', 'schedules', 'automatic collection', 'semantic filters',
+    'saved collection and processing modes are kept unless you choose manual collection']) {
+    assert.ok(UNSUPPORTED_REASON.includes(words), `still said: ${words}`)
+  }
+  // Only the two supported kinds are ever offered as choices.
   for (const s of PROPOSED_SOURCES) assert.ok(!html.includes(`Add ${s.words}`), `${s.words} is not offered as a choice`)
 })
 

@@ -234,6 +234,32 @@ export const PROPOSED_SOURCES = [
 ] as const
 export const PROPOSED_REASON = 'Proposed only, and not interactive here: the Magnet schema names these kinds, but this build has no adapter for them and the server refuses collection from them. An existing connector does not enable a Magnet adapter.'
 export const SUPPORTED_REASON = 'Collect from Conversations and from plain text files Mentis already holds. Opening or saving never collects. No folder is scanned or refreshed.'
+/** The three near-identical paragraphs the panel used to stack under its date
+ *  fields, said once. Nothing was dropped: individual post selection, schedules,
+ *  automatic collection and the relevance and semantic filters are each still
+ *  named, and so is what happens to the saved modes. */
+export const UNSUPPORTED_REASON = 'Individual post selection, schedules, automatic collection, and relevance and semantic filters are unsupported. The saved collection and processing modes are kept unless you choose manual collection.'
+/** The manual-collection switch, as a label and the sentence under it, instead
+ *  of one forty-word label. Both halves say exactly what the one label said. */
+export const MANUAL_COLLECTION = 'Collect only when I press Collect now'
+export const MANUAL_COLLECTION_MEANS = 'One extraction at each press, manual synthesis, no automatic notifications and no agent processing. This replaces the saved collection and processing modes.'
+
+/** THE DAY A DATE LIMIT FALLS ON, for a date input to show.
+ *
+ *  `collectionChange` accepts a plain `YYYY-MM-DD` or a full ISO timestamp, and
+ *  the panel's fields used to be free text because of the second form. A date
+ *  input shows days, so this is the day a stored limit falls on, and '' for a
+ *  limit that is unset (or, defensively, for one no day can be read from --
+ *  the picker then shows empty rather than a misread date). */
+export const dayOf = (v: string): string => /^(\d{4}-\d{2}-\d{2})/.exec(v ?? '')?.[1] ?? ''
+/** The stored limit after a date input is set to `day`.
+ *
+ *  A stored limit may carry a time of day that no date input can show. So while
+ *  its day is unchanged the stored value is kept EXACTLY as it is, times and
+ *  all; only a genuine change of day replaces it, and then with the plain day
+ *  the person picked. Clearing the input clears the limit. */
+export const withDay = (previous: string, day: string): string =>
+  !day ? '' : dayOf(previous) === day ? previous : day
 
 /** Item 3: the first failing rule wins, in the approved wording, and nothing is
  *  committed. Deeper rules (identity, duplication, the 20-source bound, date

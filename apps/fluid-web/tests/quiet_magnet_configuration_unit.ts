@@ -14,9 +14,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import CollectionConfiguration from '../src/quiet2/magnets/CollectionConfiguration'
 import {
   canonicalDefinition, collectionChange, collectionIssue, configurationDigest, configurationFacts,
-  durableDefinition, findConfigurationLocation, findHoldingArrangement, identityChange, magnetName,
+  dayOf, durableDefinition, findConfigurationLocation, findHoldingArrangement, identityChange, magnetName,
   MAGNET_NAME_MOST, nameIssue, NO_SAVED_PLACE, NO_SOURCE_TO_COLLECT, savedPlace, saveCollection,
-  sourceIdentity,
+  sourceIdentity, withDay,
 } from '../src/quiet2/magnets/configuration'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
@@ -200,6 +200,18 @@ test('the saved location a configuration is sent through is found, not asked for
   assert.equal(await findHoldingArrangement('mag-partb', ['home']), null, 'a Magnet no saved location holds is said, not guessed')
 })
 
+/** THE PANEL IS ONE BODY NOW, NOT TWO (owner request: "Simplify collection
+ *  configuration substantially. Consolidate duplicated settings").
+ *
+ *  Settings used to draw a second, older form for the same settings, with its
+ *  own source list, its own add-a-source controls, its own standing Save and
+ *  Cancel and its own count out of twenty. It now draws the approved round-3
+ *  body (`quiet_magnet_collection_design_unit.ts` is that surface's test) plus
+ *  the two things only Settings has. So the strings this test used to pin --
+ *  'Add Conversations', 'Add files', '1 of 20 sources chosen', a Save standing
+ *  on an unedited panel -- are the duplication that was asked to go, and what
+ *  is pinned here instead is what Settings is FOR: the name first, the sources,
+ *  what no source means, and the saved location disclosed rather than demanded. */
 test('the panel opens on the name and the sources, and says what no source means', () => {
   store()
   const html = renderToStaticMarkup(createElement(CollectionConfiguration, {
@@ -208,15 +220,72 @@ test('the panel opens on the name and the sources, and says what no source means
   assert.ok(html.indexOf('>Name') < html.indexOf('>Sources<'), 'the name comes first')
   assert.ok(html.includes('does not change where it is shown'))
   assert.ok(html.includes(NO_SOURCE_TO_COLLECT), 'the empty state says what it means for Collect')
-  assert.ok(html.includes('Add Conversations') && html.includes('Add files'))
-  assert.ok(html.includes('Save collection configuration'))
+  // Adding a source is the approved one-way editor, in Settings as in Collection.
+  assert.ok(html.includes('＋ Add source'), 'one way to add a source, shared with the approved surface')
+  assert.ok(!html.includes('Add Conversations') && !html.includes('Add files'),
+    'the second set of add-a-source controls is gone, not restyled')
+  // At rest nothing is unsaved, so there is no commit and no form standing on
+  // the panel -- the same rule the approved surface follows.
+  assert.ok(!html.includes('Unsaved changes'), 'opening Settings announces nothing')
+  assert.ok(!html.includes('aria-label="Save collection configuration"'), 'the commit follows an edit, not the slot')
+  assert.ok(!html.includes('of 20 sources chosen'), 'the rows are the count; the bound is stated where it bites')
   // Which saved location the save goes through is disclosed, not demanded.
   assert.ok(html.includes('Where this configuration is saved through'))
   assert.ok(!html.includes('Location containing this Magnet'))
   const withSources = renderToStaticMarkup(createElement(CollectionConfiguration, {
     magnet: 'mag-partb', config: config({ sources: [HELD], identity: { name: 'Tide study' } }), brainKey, canWrite: () => true, onSaved: () => {},
   }))
-  assert.ok(withSources.includes('1 of 20 sources chosen'))
+  assert.ok(withSources.includes('notes/a.txt'), 'the configured source is a row of its own')
+  assert.ok(withSources.includes('>Remove<'), 'each configured source carries its own Remove')
   assert.ok(withSources.includes('value="Tide study"'))
   assert.ok(!withSources.includes(NO_SOURCE_TO_COLLECT))
+})
+
+/** THE DATE LIMITS ARE PICKED, NOT TYPED (owner request: "use appropriate
+ *  controls such as date pickers"). The schema still accepts a full ISO
+ *  timestamp, so a stored limit that carries a time of day must survive a visit
+ *  to a control that can only show days. */
+test('a date limit is a day a picker can show, and a stored time of day survives it', () => {
+  assert.equal(dayOf('2026-01-01'), '2026-01-01')
+  assert.equal(dayOf('2026-01-01T12:00:00Z'), '2026-01-01', 'the picker shows the day a timestamp falls on')
+  assert.equal(dayOf(''), '')
+  assert.equal(dayOf('whenever'), '', 'a limit no day can be read from shows empty, never a misread date')
+  // Unchanged day: the stored limit is kept exactly, time and all.
+  assert.equal(withDay('2026-01-01T12:00:00Z', '2026-01-01'), '2026-01-01T12:00:00Z')
+  // A genuine change of day replaces it with the day that was picked.
+  assert.equal(withDay('2026-01-01T12:00:00Z', '2026-01-02'), '2026-01-02')
+  assert.equal(withDay('', '2026-01-02'), '2026-01-02')
+  // Clearing the picker clears the limit.
+  assert.equal(withDay('2026-01-01T12:00:00Z', ''), '')
+  // Whatever the picker produces is a limit `collectionChange` accepts.
+  const before = config()
+  for (const day of ['2026-01-01', '2026-12-31']) {
+    assert.deepEqual(collectionChange(before, [], [], day, '', false).selection.dates, { after: day })
+  }
+  assert.throws(() => collectionChange(before, [], [], '2026-03-02', '2026-03-01', false), /end date is before the start date/)
+})
+
+/** The panel draws the design's own controls, so it must be styled where the
+ *  design's stylesheet does not reach: every `mgd-` rule in `design.css` is
+ *  scoped `.q2-magnet-card …`, and Magnet Management draws this panel on a page
+ *  instead. `configuration.css` carries one-class base rules for exactly those
+ *  primitives; being one class each, they can never outrank the approved design
+ *  inside the card. */
+test('the design primitives the panel composes from are styled outside the card too', () => {
+  const css = readFileSync(new URL('../src/quiet2/magnets/configuration.css', import.meta.url), 'utf8')
+  const design = readFileSync(new URL('../src/quiet2/magnets/design.css', import.meta.url), 'utf8')
+  for (const c of ['mgd-row', 'mgd-spread', 'mgd-grow', 'mgd-divider', 'mgd-source', 'mgd-subtle', 'mgd-small',
+    'mgd-muted', 'mgd-h3', 'mgd-button', 'mgd-link', 'mgd-pill', 'mgd-space']) {
+    assert.ok(new RegExp(`^\\.${c}[\\s,.:{]`, 'm').test(css), `${c} has a base rule of one class`)
+    assert.ok(!new RegExp(`^\\.q2-magnet-card .*\\.${c}\\b`, 'm').test(css), `${c} is not restated at the card's reach`)
+  }
+  // Every mgd- rule in the approved design carries at least two classes, so it
+  // wins inside the card whichever stylesheet loaded last.
+  for (const line of design.split('\n')) {
+    if (!line.startsWith('.')) continue
+    for (const selector of line.slice(0, line.indexOf('{') < 0 ? undefined : line.indexOf('{')).split(',')) {
+      if (!selector.includes('.mgd-')) continue
+      assert.ok((selector.match(/\./g) ?? []).length >= 2, `the design's "${selector.trim()}" outranks a one-class base rule`)
+    }
+  }
 })
