@@ -4052,10 +4052,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             thread and records its own failures, so what is owed is never
             left without either a run or a recorded reason there is none.
             """
-            from mentis.fluid import message_context as MC
-            refused = MC.door_refusal(cv, cid, body.get("author"))
-            if refused:
-                return refused
             out, later = _posting.post(
                 cv, corpus, cid, body, agents=st.agents,
                 written_by=lambda: _observed_writer(st, presented))

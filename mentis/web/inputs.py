@@ -205,10 +205,13 @@ def resumed_words(cv, given) -> list[str]:
     return handover_words({"words": words, "proposals": proposals})
 
 
-def send_back(st, sid, *, by, written_by=None, op=None) -> tuple[dict, list]:
+def send_back(st, sid, *, by, written_by=None, op=None, brain=None,
+              intent=None) -> tuple[dict, list]:
     """Send back: hand the set's answers as they stand to the agent that
     wrote the block's post, asking it to continue. Returns (answer,
-    dispatches to start); raises `Refused`."""
+    dispatches to start); raises `Refused`. In a Magnet this uses the managed
+    request door (including its owner, Brain, operation key and retained gate),
+    with only authored own words in the Turn and the handover in context."""
     cv, corpus = st.cv, st.corpus
     now = responses.state(cv, sid)
     root = now["post"]
@@ -238,17 +241,7 @@ def send_back(st, sid, *, by, written_by=None, op=None) -> tuple[dict, list]:
         + (handed_words(now) or ["- no field answered"])
         + handover_words(given))
     cid = cv.conversation_of(root)
-    body = {"author": by, "text": words, "replies_to": root,
-            "action": posting.ASK_PARTICIPANT,
-            "dispatch": [{"participant": author, "work": words}],
-            "because": "the owner sent the answers back to the agent that "
-                       "asked for them",
-            **({"op": op} if op else {})}
-    with corpus.atomic():
-        out, later = posting.post(cv, corpus, cid, body, agents=st.agents,
-                                  written_by=lambda: written_by)
-        if "error" in out:
-            raise Refused(out)
+    def record_handover(out):
         if not out.get("replayed"):
             exps = list(out.get("expectations") or ())
             out["sent_back"] = cv.record_act(
@@ -263,5 +256,49 @@ def send_back(st, sid, *, by, written_by=None, op=None) -> tuple[dict, list]:
                         "conflicts": now["conflicts"],
                         **handed(given),
                         "expectation": exps[0] if exps else None})
+
+    from mentis.fluid import commands, message_context as MC
+    mid = MC.association(cv, cid)
+    if mid:
+        # A Send back is an authored action, not authored execution prose.
+        # The selected response set and exact answers travel in the frozen
+        # managed context. Only the sender's actual own words enter their Turn.
+        MC.gate(intent or {})
+        parts = [{"type": "turn", "ref": root}] + [
+            {"type": "text", "text": w["text"]}
+            for w in given["words"] if w["by"] == by]
+        from mentis.conversation.versions import flow_text
+        request = {"from": {"conversation": cid}, "author": by,
+                   "parts": parts, "text": flow_text(parts), "replies_to": root,
+                   "action": posting.ASK_PARTICIPANT,
+                   "dispatch": [{"participant": author}], "op": op,
+                   "magnet_context": {
+                       "version": MC.VERSION, "mode": "ordinary",
+                       "configuration_digest": MC.digest(MC.definition_body(
+                           commands._magnet_config(st, mid))),
+                       "perspective": None, "references": [{"kind": "post", "ref": root,
+                           "version": now["version"], "digest": MC.digest(
+                               corpus.read([now["version"]])[0]["body"].get("parts") or [])}]}}
+        status, answer, later = commands.agent_request(st, request,
+            written_by=lambda: written_by, brain=brain,
+            _input_handover={"set": sid, "post": root, "answers": answers,
+                             **handed(given), "handover": words},
+            _defer_dispatch=True, _after_post=record_handover)
+        if status != 200:
+            raise Refused({**answer, "status": status})
+        out = answer["operation"]
+    else:
+        body = {"author": by, "text": words, "replies_to": root,
+                "action": posting.ASK_PARTICIPANT,
+                "dispatch": [{"participant": author, "work": words}],
+                "because": "the owner sent the answers back to the agent that "
+                           "asked for them",
+                **({"op": op} if op else {})}
+        with corpus.atomic():
+            out, later = posting.post(cv, corpus, cid, body, agents=st.agents,
+                                      written_by=lambda: written_by)
+            if "error" in out:
+                raise Refused(out)
+            record_handover(out)
     return {**out, "set": sid, "to": author, "answers": answers,
             **handed(given)}, later

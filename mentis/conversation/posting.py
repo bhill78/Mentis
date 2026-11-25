@@ -48,7 +48,8 @@ INTAKE_REQUIRES = ("call_mentis_tools",)
 
 # -- the post -----------------------------------------------------------------
 
-def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]:
+def post(cv, corpus, cid, body, *, agents=None, written_by, _managed=False,
+         _record_only=False) -> tuple[dict, list]:
     """Record the Turn, then do only what the AUTHOR asked for.
 
     THE ONE THING DECIDED MECHANICALLY is which of three authored
@@ -74,6 +75,13 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
     from mentis import artifacts as _artifacts
     from mentis.conversation import anchors as _anchors
     from mentis.conversation.versions import Refused as _AnchorRefused
+    from mentis.fluid import message_context as MC
+    try:
+        refusal = MC.post_refusal(cv, cid, body, managed=_managed, record_only=_record_only)
+    except _AnchorRefused as exc:
+        return exc.refusal, []
+    if refusal:
+        return refusal, []
     # A RETRY OF THE SAME TURN IS THE SAME TURN. `op` is the author's
     # operation key: the same key and request returns the response the
     # first request gave and writes and dispatches nothing again; the
@@ -429,6 +437,9 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                                                keyed_request)
                 if prior is not None:
                     return prior, []
+            refusal = MC.post_refusal(cv, cid, body, managed=_managed, record_only=_record_only)
+            if refusal:
+                raise _AnchorRefused(refusal)
             # Asked again under the lock too: an answer or another
             # withdrawal written meanwhile closes it first.
             if withdrawing:

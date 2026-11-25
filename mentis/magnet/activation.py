@@ -685,7 +685,7 @@ def _record(st, mid, got, digest, size) -> dict:
             "author": by, "action": posting.RECORD_ONLY,
             "parts": [text_part(_said(summary, got["state"])),
                       {"type": "file", "ref": adm, "media_type": MEDIA_TYPE, "alt": f"{mid}-extract.json"}],
-        }, agents=st.agents, written_by=lambda: wrote)
+        }, agents=st.agents, written_by=lambda: wrote, _record_only=True)
         if "error" in out:
             raise _Stop(422, {**out, "refused": True}, by, op)
         post = out["turn"]
