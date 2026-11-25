@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Magnet from '../src/quiet2/magnets/Magnet'
 import { emptyPlaces } from '../src/quiet2/magnets/places'
-import { filesIndicator, magnetIndicators, newInformationIndicator, perspectivesIndicator, postsIndicator } from '../src/quiet2/magnets/indicators'
+import { filesIndicator, magnetIndicators, newInformationIndicator, perspectivesIndicator, postsIndicator, restingCount } from '../src/quiet2/magnets/indicators'
 import type { MagnetResource, MagnetSnapshot } from '../src/quiet2/magnets/contract'
 
 let checks = 0
@@ -33,6 +33,33 @@ eq(newInformationIndicator().value, null, 'no new-item total exists to show')
 ok(newInformationIndicator().detail.toLowerCase().includes('unavailable'), 'new-item indicator states unavailable')
 ok(!newInformationIndicator().detail.toLowerCase().includes('unread'), 'new-item indicator never speaks of unread, only an absent total')
 
+// The resting puck's one count (the owner's alternative, ent-cdfc682f62eb, to
+// the mockup's satellite ring at rest). A new-item total wins when one exists;
+// until the framework supplies one the badge falls back to what is actually
+// held and says so. Nothing is ever invented, and nothing is drawn when there
+// is nothing to report.
+eq(restingCount(5, 40).value, '5', 'a new-item total is what the resting badge shows')
+eq(restingCount(5, 40).kind, 'new', 'the badge names the new-item total as the thing it counts')
+ok(restingCount(5, 40).detail.includes('5 new items'), 'the new-item badge explains its number in full')
+eq(restingCount(1, 40).value, '1', 'a single new item still counts')
+ok(restingCount(1, 40).detail.includes('1 new item '), 'one new item is said in the singular')
+eq(restingCount(0, 40).value, null, 'nothing new draws no badge, rather than a 0 on the puck')
+eq(restingCount(0, 40).kind, 'new', 'a known-empty new-item total is still a new-item answer, not a fallback')
+ok(restingCount(0, 40).detail.toLowerCase().includes('nothing new'), 'an empty new-item total says so for a reader')
+eq(restingCount(120, null).value, '99+', 'a long count is capped so it cannot widen the puck')
+ok(restingCount(120, null).detail.includes('120 new items'), 'the capped badge keeps the exact number in its explanation')
+
+eq(restingCount(null, 7).value, '7', 'with no new-item total the badge falls back to what is held')
+eq(restingCount(null, 7).kind, 'collected', 'the fallback names itself collected, never new')
+ok(restingCount(null, 7).detail.includes('7 collected items'), 'the fallback says what its number counts')
+ok(restingCount(null, 7).detail.includes('not available'), 'the fallback states that no new-item count exists yet')
+eq(restingCount(undefined, 1).detail.includes('1 collected item'), true, 'one collected item is said in the singular')
+eq(restingCount(null, 0).value, null, 'an empty collection draws no badge')
+ok(restingCount(null, 0).detail.includes('0 collected items'), 'an actually-read empty collection reports 0 truthfully')
+eq(restingCount(null, null).value, null, 'an unread Magnet draws no badge')
+ok(!restingCount(null, null).detail.includes('collected items'), 'before a read the count is unknown and is not invented as 0')
+ok(![restingCount(null, null), restingCount(null, 7), restingCount(0, 40)].some((r) => /\bunread\b/i.test(r.detail)), 'the resting badge never speaks of unread')
+
 const built = magnetIndicators({ postsSourceTally: 7, filesLoaded: 2, filesKnown: true, filesPartial: false })
 eq(built.map((i) => i.key), ['posts', 'files', 'perspectives', 'new'], 'indicator set is exactly posts, files, perspectives, new')
 ok(built.every((i) => i.tab === 'Posts' || i.tab === 'Files' || i.tab === 'Perspectives' || i.tab === 'All'), 'every indicator names an existing tab to open')
@@ -53,6 +80,20 @@ const resource = {
 } as unknown as MagnetResource
 const restHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {} }))
 ok(!restHtml.includes('q2-magnet-indicators'), 'resting puck stays compact: the ring appears only with the open card')
+ok(!restHtml.includes('q2-magnet-count'), 'an unread Magnet puts no count on its puck')
+ok(restHtml.includes('Nothing has been read into this Magnet yet'), 'the unread puck says so in its own accessible name, rather than showing 0')
+
+// The resting puck carries one count once a read has returned: the badge, and
+// the same number explained in the puck's accessible name. Still no ring.
+snap = { ...snap, activation: null }
+const countedHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {} }))
+ok(countedHtml.includes('q2-magnet-count'), 'a read Magnet shows one count badge on the resting puck')
+ok(countedHtml.includes('q2-magnet-count-collected'), 'the badge names what it counts, so a collected total is not read as a new-item one')
+ok(!countedHtml.includes('q2-magnet-count-new'), 'nothing supplies a new-item total yet, so none is claimed')
+ok(countedHtml.includes('>2</span>'), 'the badge is the count of what this Magnet holds')
+ok(countedHtml.includes('2 collected items; a new-item count is not available yet'), 'the resting puck explains its number and what is still unavailable')
+ok(!countedHtml.includes('q2-magnet-indicators'), 'the one count replaces the ring at rest; the ring still waits for the open card')
+ok(!/\bunread\b|\bnew items\b/i.test(countedHtml), 'no new-item count is fabricated on the resting puck')
 
 snap = { ...snap, open: true }
 const openHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {} }))

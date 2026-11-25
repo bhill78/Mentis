@@ -3,6 +3,11 @@
 .q2 .q2-magnet button:focus-visible,.q2 .q2-magnet summary:focus-visible{outline:3px solid #fff3be;outline-offset:4px}
 .q2 .q2-magnet-puck{position:relative;z-index:2;display:grid;place-items:center;width:64px;height:64px;padding:0;border:3px solid #f6d26f;border-radius:50%;background:#edbf50;box-shadow:0 0 0 3px #68502d,0 0 0 6px #d8aa39,inset 0 0 0 3px #d6a847;color:#24211c;font-size:30px!important;font-weight:800!important;touch-action:none;user-select:none}
 .q2 .q2-magnet-puck i{position:absolute;left:-7px;bottom:-6px;display:grid;place-items:center;width:24px;height:24px;border:1.5px solid #f3c24e;border-radius:50%;background:#302926;color:#f4c24f;font:normal 16px sans-serif}
+/* The resting puck's one count (the owner's alternative to the mockup's
+   satellite ring): a notification badge on the puck's shoulder, drawn only
+   when there is something to report. */
+.q2 .q2-magnet-count{position:absolute;z-index:3;top:-6px;right:-6px;display:grid;place-items:center;min-width:22px;height:22px;box-sizing:border-box;padding:0 5px;border:2px solid #2b2423;border-radius:11px;background:#f3c453;color:#241f16;font-size:12px;font-weight:800;line-height:1;pointer-events:none}
+.q2 .q2-magnet-count-new{background:#f0896a;color:#1f1512}
 .q2 .q2-magnet-rest-title{display:block;margin:18px 0 0 -26px;width:116px;max-width:calc(100vw - 32px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:600;text-align:center;pointer-events:none;color:var(--q2-ink,#eee8e6);text-shadow:0 1px 3px #151515}
 .q2 .q2-magnet-flipped .q2-magnet-rest-title{margin-left:-26px}
 .q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}

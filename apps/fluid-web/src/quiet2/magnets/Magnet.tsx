@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
-import { magnetIndicators } from './indicators'
+import { magnetIndicators, restingCount } from './indicators'
 import { retainedFiles } from './Inspection'
 import { MAGNET_COLLECTION_FILTERS, MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
 import { pendingScroll, reachedScroll, savesReportedScroll } from './position'
@@ -161,6 +161,11 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const collectable = !!saved.config && supportsManualCollection(saved.config)
   // Never fabricate a count: unknown until a retained read has returned.
   const counted = s.activation !== undefined ? posts.length + files.length : null
+  /** The resting puck's one number. Nothing supplies a new-item total yet --
+   *  notification state is framework-owned and unbuilt (ent-5382b85d5f4e) --
+   *  so `null` is passed deliberately rather than a field invented here, and
+   *  the badge says what it is actually counting. */
+  const resting = restingCount(null, counted)
   const here = place(s)
   const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.wide, s.dimensions)
   const room = panelRoom(geometry.width, geometry.maxHeight)
@@ -332,7 +337,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     data-magnet={saved.id} style={{ left: s.x, top: s.y }}
     onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); escape() } }}>
     <div className="q2-magnet-puck-wrap">
-      <button ref={puck} type="button" className="q2-magnet-puck" title={title} aria-label={`${open ? 'Close' : 'Open'} ${title} Magnet. Drag or use arrow keys to move.`} aria-expanded={open} aria-controls={cardId}
+      <button ref={puck} type="button" className="q2-magnet-puck" title={title} aria-label={`${open ? 'Close' : 'Open'} ${title} Magnet. ${open ? '' : `${resting.detail}. `}Drag or use arrow keys to move.`} aria-expanded={open} aria-controls={cardId}
         onClick={toggle} onPointerDown={down} onPointerMove={move} onPointerUp={(e) => end(e)} onPointerCancel={(e) => end(e, true)}
         onKeyDown={(e) => {
           const delta = e.shiftKey ? 40 : 12
@@ -340,13 +345,17 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
           const d = directions[e.key]
           if (d) { e.preventDefault(); resource.update(clampPuck(s.x + d[0], s.y + d[1], size.width, size.height)) }
         }}><span aria-hidden="true">{title.trim().charAt(0).toUpperCase() || 'M'}</span><i aria-hidden="true">▤</i></button>
+      {/* One count at rest, not the mockup's ring: the puck stays compact and
+          out of the way, and the number is already said in the puck's own
+          accessible name above, so the badge itself is decoration. */}
+      {!open && !dragging && resting.value !== null && <span className={`q2-magnet-count q2-magnet-count-${resting.kind}`} aria-hidden="true">{resting.value}</span>}
       {open && !dragging && <div className="q2-magnet-indicators" role="group" aria-label={`${title} quick indicators`}>
         {indicators.map((ind) => <button key={ind.key} type="button" className={`q2-magnet-indicator q2-magnet-indicator-${ind.key}`} title={ind.detail} aria-label={`${ind.label}: ${ind.detail}`} onClick={() => goTab(resource, ind.tab)}>
           <span aria-hidden="true">{ind.glyph}</span>{ind.value !== null && <b aria-hidden="true">{ind.value}</b>}
         </button>)}
       </div>}
     </div>
-    {!open && <span className="q2-magnet-rest-title" title={title} style={{ marginLeft: restTitleOffset(s.x, size.width) }}>{title}{counted !== null && <><br /><small>{counted} collected items</small></>}</span>}
+    {!open && <span className="q2-magnet-rest-title" title={title} style={{ marginLeft: restTitleOffset(s.x, size.width) }}>{title}</span>}
     {open && <section id={cardId} role="region" aria-label={`${title} Magnet`} className="q2-magnet-card"
       style={{ left: resizePosition?.left ?? geometry.left, top: resizePosition?.top ?? geometry.top, width: geometry.width, height: geometry.maxHeight,
         // The one place the panel's own room reaches the stylesheet. Published
