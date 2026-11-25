@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
 import MiniConversation, {
-  messageTargetOf, offsetInBox, refOfViewable, referenceClicked, replyTargetOf,
+  isOrdinaryPost, messageTargetOf, offsetInBox, refOfViewable, referenceClicked, replyTargetOf,
 } from '../src/quiet2/magnets/MiniConversation'
 import type { PostPage } from '../src/quiet2/Post'
 import { adapt } from '../src/quiet2/real'
@@ -74,6 +74,16 @@ const turn = (over: Record<string, unknown> = {}) => ({
   author: ME, author_alias: '@brian', written_by: null, at: 1795000000,
   addressees: [], topics: [], answering: null, replies: [], expectations: [], operational_acts: 0,
   ...over,
+})
+
+test('ordinary feed hides Magnet event file parts and keeps ordinary posts', () => {
+  const post = (over: Record<string, unknown>) => adapt(turn(over) as never, OWN, () => undefined)
+  for (const alt of ['Perspective asked', 'Perspective answered', 'mag-123-extract.json']) {
+    assert.equal(isOrdinaryPost(post({ parts: [{ type: 'file', alt }] })), false, alt)
+  }
+  assert.equal(isOrdinaryPost(post({ action: 'record-only' })), true)
+  assert.equal(isOrdinaryPost(post({ parts: [{ type: 'text', text: 'Perspective asked' }] })), true)
+  assert.equal(isOrdinaryPost(post({ parts: [{ type: 'file', alt: 'notes.json' }] })), true)
 })
 
 const conversationBody = (over: Record<string, unknown> = {}) => ({

@@ -64,6 +64,8 @@ export interface Post {
   weight: 'article' | 'brief'
   blocks: Block[]
   attachments?: Attachment[]
+  /** Original file-part alt text, for surfaces that distinguish recorded events. */
+  filePartAlts?: string[]
   replies?: number
   reactions?: number
   /** the post this one answers, for the "replying to" line */

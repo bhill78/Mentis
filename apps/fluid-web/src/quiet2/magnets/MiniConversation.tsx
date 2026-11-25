@@ -48,6 +48,10 @@ import { restore, writePlace } from './places'
 export const CURRENT_MODE = 'CURRENT MODE'
 export const ORDINARY_DISCUSSION = 'Ordinary discussion'
 
+/** Magnet event records are carried by backend-generated file parts. */
+export const isOrdinaryPost = (post: PostT): boolean =>
+  !(post.filePartAlts ?? []).some((alt) => /^Perspective /.test(alt) || /-extract\.json$/.test(alt))
+
 /** NO EXTERNAL NAVIGATION IS PASSED INTO THIS VIEW (owner §3). A Magnet is a
  *  self-contained working surface, so the Conversation view takes what it needs
  *  to work here -- writing, and reading a citation inside the card -- and
@@ -304,7 +308,7 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
   }
 
   const blocked = !!s.identity
-  const top = (flow.read?.top ?? []).map((id) => postOf(id)).filter((p): p is PostT => !!p)
+  const top = (flow.read?.top ?? []).map((id) => postOf(id)).filter((p): p is PostT => !!p && isOrdinaryPost(p))
   const total = flow.read?.total ?? s.total
   const older = flow.read?.older ?? 0
 

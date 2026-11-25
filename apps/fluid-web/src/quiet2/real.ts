@@ -170,6 +170,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
     topics: (Array.isArray(t.topics) ? t.topics : []).map(topicName).filter((n): n is string => !!n),
     blocks,
     attachments: files.map((f) => ({ name: f.name, type: f.mediaType.split('/').pop()?.toUpperCase() || 'File', size: formatSize(f.size) ?? '', url: f.url, item: f })),
+    filePartAlts: parts.filter((p) => p.type === 'file' && typeof p.alt === 'string').map((p) => p.alt!),
     replyTo: t.answering ?? undefined,
     replyNumber: t.answering_number ?? undefined,
     anchor: (parts.find((p) => p.type === 'anchor') as { ref?: string } | undefined)?.ref,
