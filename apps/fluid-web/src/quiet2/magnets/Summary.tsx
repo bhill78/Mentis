@@ -234,6 +234,36 @@ export function collectionOverview(saved: SavedMagnet, s: MagnetSnapshot): strin
   return lines
 }
 
+/** WHAT IS TRUE NOW, as one statement: what has been collected, when, and from
+ *  how many sources. That is what the approved design puts under the heading of
+ *  a surface -- one line in the mockups' own `muted` paragraph, not a stack of
+ *  measurements (`04-browse.png`: "24 items from 2 sources · collected today").
+ *
+ *  The rest of `collectionOverview` -- the span the material was written over,
+ *  how much text it runs to, which words recur, which configured sources gave
+ *  nothing -- is measured detail ABOUT the collection rather than what it
+ *  currently is, so it moves behind the one disclosure with the facts. Nothing
+ *  is deleted and nothing is re-worded: this reads the same lines, and takes the
+ *  first two of them. */
+export function collectionLead(saved: SavedMagnet, s: MagnetSnapshot): string {
+  return collectionOverview(saved, s).slice(0, 2).join(' ')
+}
+
+/** The measured lines that are not the lead, which the disclosure carries. */
+export function collectionDetail(saved: SavedMagnet, s: MagnetSnapshot): string[] {
+  return collectionOverview(saved, s).slice(2)
+}
+
+/** WHAT HAS BEEN COLLECTED, beside the heading, in the design's own place for a
+ *  count (`04-browse.png`'s `<h2>Collected items <span class="subtle">24</span>`).
+ *  It is the one place the Summary says how much there is, and before the single
+ *  retained read answers it says exactly that and claims nothing. */
+export function heldWords(s: MagnetSnapshot, posts: number, files: number): string {
+  if (s.activation === undefined) return 'not read yet'
+  if (!s.activation) return 'nothing collected yet'
+  return `${posts} ${posts === 1 ? 'post' : 'posts'} · ${files} ${files === 1 ? 'file' : 'files'}`
+}
+
 /** QUESTIONS THE COLLECTION MAKES ASKABLE. Each is a question built out of
  *  facts already on this screen -- a source that was collected, a word that was
  *  counted, two batches that exist. None of them is an answer, a finding or a
@@ -444,33 +474,71 @@ export async function compareWithPrevious(resource: MagnetResource, signal?: Abo
   return { words: comparisonWords(c), added: c.added, at: got.at, comparable: c.comparable }
 }
 
+/** A ROW THE READER PRESSES, in the approved design's own shape: the ruled
+ *  record row of `04-browse.png` (`mgd-item`) with the whole row as the control.
+ *  The rule, the title weight, the quoted paragraph and the byline are the
+ *  design's; what this adds is that pressing the row opens the record inside the
+ *  card, which is why the pressable element is a button and its words are
+ *  phrasing content rather than a `<p>`. */
+function RecordRow({ excerpt, expanded, onOpen }: { excerpt: Excerpt; expanded: boolean; onOpen(): void }) {
+  return <div className="mgd-item">
+    <button type="button" className="q2-magnet-quote-row" id={`excerpt-${excerpt.id}`} aria-expanded={expanded} onClick={onOpen}>
+      <b>{excerpt.title}</b>
+      <span className="q2-magnet-quote">“{excerpt.text}{excerpt.text.length >= 220 ? '…' : ''}”</span>
+      <small className="mgd-subtle">{excerpt.origin}</small>
+    </button>
+  </div>
+}
+
+/** AN OFFERED QUESTION, as the mockups offer one: the `mgd-example` block with
+ *  its gold left rule and the `↗` that takes it up (`02-compact-current.png`'s
+ *  "TRY ASKING"). The whole row is the press, as the rows above are. */
+function QuestionRow({ question, onTake }: { question: string; onTake(): void }) {
+  return <div className="mgd-example">
+    <button type="button" className="q2-magnet-question" onClick={onTake}>
+      <span className="q2-magnet-question-words">{question}</span>
+      <span className="mgd-link" aria-hidden="true">↗</span>
+    </button>
+  </div>
+}
+
+/** THE RECORDED QUESTIONS AND INTERPRETATIONS THIS MAGNET HOLDS, behind the
+ *  design's own disclosure for them (`Past questions ▾`, `08-history.png`).
+ *  Nothing is removed: the recorded question, its own wording, its revision and
+ *  the recorded challenges are all still here, attributed and versioned, and
+ *  still read only when the owner asks. What changed is that the Summary's
+ *  resting surface no longer opens on a heading about the record's bookkeeping.
+ *  The disclosure's own words are its accessible name, so the heading that said
+ *  the same thing twice is the label rather than a line under it. */
 function Questions({ resource, rows, events, loading, error, onLoad, read }: {
   resource: MagnetResource; rows: Perspective[]; events: InquiryEvent[]
   loading: boolean; error?: string; onLoad(): void; read: boolean
 }) {
   const challenges = recordedChallenges(events)
-  return <section className="q2-magnet-understanding" aria-label="Recorded questions and interpretations">
-    <h4>Questions and interpretations already recorded</h4>
-    {!read
-      ? <><p className="q2-magnet-muted">Not read yet. Nothing is read from the record until you ask for it.</p>
-        <button type="button" className="q2-magnet-link" disabled={loading} onClick={onLoad}>Show recorded questions</button></>
-      : rows.length
-        ? <ul className="q2-magnet-items">{rows.map((p) => <li key={p.perspective}>
-          <strong>{p.name}</strong>{p.retired ? <small className="q2-magnet-muted"> · retired</small> : null}
-          {p.current_question && <p className="q2-magnet-quote">“{p.current_question.text}”</p>}
-          <small className="q2-magnet-muted">Question · {p.perspective}{p.current_question ? ` · revision ${p.current_question.revision}` : ''}</small>
-        </li>)}</ul>
-        : <p className="q2-magnet-muted">No questions recorded for this Magnet yet.</p>}
-    {read && !!challenges.length && <>
-      <h5>Recorded challenges</h5>
-      <ul className="q2-magnet-items">{challenges.map((e) => <li key={e.post}>
-        <p className="q2-magnet-quote">“{typeof e.data?.text === 'string' ? e.data.text : 'A challenge was recorded with no wording.'}”</p>
-        <small className="q2-magnet-muted">Recorded challenge · {e.post}</small>
-      </li>)}</ul>
-    </>}
-    {error && <p className="q2-magnet-muted" role="status">{error}</p>}
-    <button type="button" className="q2-magnet-link" onClick={() => goTab(resource, 'Perspectives')}>Work on questions</button>
-  </section>
+  return <details className="q2-magnet-provenance q2-magnet-disclosure">
+    <summary><span className="mgd-link mgd-small">Past questions ▾</span></summary>
+    <div aria-label="Questions and interpretations already recorded">
+      {!read
+        ? <><p className="mgd-subtle">Not read yet. Nothing is read from the record until you ask for it.</p>
+          <button type="button" className="mgd-link mgd-small" disabled={loading} onClick={onLoad}>Show recorded questions</button></>
+        : rows.length
+          ? rows.map((p) => <div className="mgd-item" key={p.perspective}>
+            <b>{p.name}</b>{p.retired ? <small className="mgd-subtle"> · retired</small> : null}
+            {p.current_question && <p className="q2-magnet-quote">“{p.current_question.text}”</p>}
+            <small className="mgd-subtle">Question · {p.perspective}{p.current_question ? ` · revision ${p.current_question.revision}` : ''}</small>
+          </div>)
+          : <p className="mgd-subtle">No questions recorded for this Magnet yet.</p>}
+      {read && !!challenges.length && <>
+        <div className="mgd-eyebrow">Recorded challenges</div>
+        {challenges.map((e) => <div className="mgd-item" key={e.post}>
+          <p className="q2-magnet-quote">“{typeof e.data?.text === 'string' ? e.data.text : 'A challenge was recorded with no wording.'}”</p>
+          <small className="mgd-subtle">Recorded challenge · {e.post}</small>
+        </div>)}
+      </>}
+      {error && <p className="mgd-subtle" role="status">{error}</p>}
+      <button type="button" className="mgd-link mgd-small" onClick={() => goTab(resource, 'Perspectives')}>Work on questions</button>
+    </div>
+  </details>
 }
 
 export default function Summary({ resource, onPost }: { resource: MagnetResource; onPost(result: RouteResult): void }) {
@@ -493,7 +561,8 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
   /** A batch change invalidates a comparison taken against the previous one. */
   useEffect(() => { setComparison(null); setMessage('') }, [batch])
 
-  const overview = collectionOverview(resource.saved, s)
+  const lead = collectionLead(resource.saved, s)
+  const detail = collectionDetail(resource.saved, s)
   const excerpts = collectedExcerpts(s.results)
   const starting = startingAction(resource.saved)
   const questions = offeredQuestions(s, !!comparison)
@@ -516,106 +585,122 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
   }
 
   return <section className="q2-magnet-summary" id="q2-magnet-summary">
-    <div className="q2-magnet-section-title">
-      <h3 id="summary-title" tabIndex={-1}>Summary</h3>
-      <span className="q2-magnet-count">{read ? `${posts.length} posts · ${files.length} files` : 'not read yet'}</span>
-      {/* One route into the collected records themselves, where the mockups put
-          it: beside the title, not as a line of its own (round 3, adm-b14a359a32b6). */}
-      {!!s.activation && !!items.length && <button type="button" className="q2-magnet-head-link" onClick={() => browseCollection(resource)}>Collected items →</button>}
+    {/* THE HEADING BLOCK EVERY SURFACE HAS (plan seam 4): the place's name as
+        the eyebrow, what is being shown as the 25px heading with its count
+        beside it, and the one most useful counterpart link at the far edge of
+        that row. The pattern and the numbers are the approved design's
+        (`04-browse.png`), and it replaces the floating link row that was
+        there. */}
+    <div className="mgd-row mgd-spread q2-magnet-place-head">
+      <div className="mgd-grow">
+        <div className="mgd-eyebrow">Summary</div>
+        <h2 id="summary-title" className="mgd-h2" tabIndex={-1}>What this Magnet holds{' '}
+          <span className="mgd-subtle">{heldWords(s, posts.length, files.length)}</span></h2>
+      </div>
+      {!!s.activation && !!items.length && <button type="button" className="mgd-link mgd-small q2-magnet-place-link"
+        onClick={() => browseCollection(resource)}>Collected items →</button>}
     </div>
-    {s.loading && <p className="q2-magnet-muted" role="status">Reading this collection…</p>}
+    {s.loading && <p className="mgd-subtle" role="status">Reading this collection…</p>}
     {read && !s.activation
-      ? <div className="q2-magnet-collection-empty">
-          {/* A meaningful empty state: what is true, one obvious press, and the
-              ordinary route that works with nothing collected (§2, §4). */}
-          <p className="q2-magnet-empty-lead">No collected information yet. Conversation is still available.</p>
-          <p className="q2-magnet-muted">Choose sources in Settings, then collect.</p>
-          <div className="q2-magnet-empty-actions">
-            <button type="button" className="q2-magnet-primary" onClick={() => chooseSources(resource)}>{starting.label}</button>
-            <span className="q2-magnet-muted">{starting.note}</span>
+      ? <>
+          {/* WHAT IS TRUE NOW, then the useful action AS A BUTTON. The sentence
+              that used to describe the action ("Choose sources in Settings,
+              then collect.") is the button and its own note: the owner asked
+              for useful actions presented prominently rather than explained
+              (ent-a24ec84c8176). */}
+          <p className="mgd-p">No collected information yet. Conversation is still available.</p>
+          <div className="mgd-row mgd-spread q2-magnet-lead-action">
+            <span className="mgd-subtle mgd-grow">{starting.note}</span>
+            <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
           </div>
-          <h4>Start a conversation</h4>
-          <ul className="q2-magnet-questions">{questions.map((q) => <li key={q}>
-            <button type="button" className="q2-magnet-question" onClick={() => askOrdinary(q)}>{q}</button>
-          </li>)}</ul>
-        </div>
+          <div className="mgd-divider" />
+          <div className="mgd-eyebrow">Start a conversation</div>
+          {questions.map((q) => <QuestionRow key={q} question={q} onTake={() => askOrdinary(q)} />)}
+        </>
       : <>
         {/* Before the one retained read answers there is nothing to say about
             the collection, so nothing below is claimed: the facts line says it
             has not been read, and that is the whole of it. */}
         {!!s.activation && <>
+        {/* WHAT IS TRUE NOW, STATED ONCE: what was collected, when, and from how
+            many sources. The remaining measured lines are detail about the
+            collection and are behind `Limits and dates ▾` with the facts, which
+            is where the owner kept provenance. */}
+        <p className="mgd-p mgd-muted q2-magnet-lead">{lead}</p>
+        {/* The design's own action row (`03-sources.png`'s "Collect manually"):
+            what is true on the left, the press at the far edge. */}
+        <div className="mgd-row mgd-spread q2-magnet-lead-action">
+          <span className="mgd-subtle mgd-grow">{starting.note}</span>
+          <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
+        </div>
+        <div className="mgd-divider" />
+
         {/* THE COLLECTED RECORDS COME FIRST (owner request ent-068c167fa7e6 §2:
             "Make collected information the primary working content"). What was
             collected is read before anything measured about it, and every row
             opens the record it quotes. */}
-        {!!excerpts.length && <section className="q2-magnet-understanding q2-magnet-records" aria-label="In the collected records’ own words">
-          <div className="q2-magnet-records-head">
-            <h4>In the records’ own words</h4>
-            {items.length > excerpts.length && <button type="button" className="q2-magnet-link" onClick={() => browseCollection(resource)}>
+        {!!excerpts.length && <section aria-label="In the collected records’ own words">
+          <div className="mgd-row mgd-spread">
+            <h3 className="mgd-h3 mgd-grow">In the records’ own words</h3>
+            {items.length > excerpts.length && <button type="button" className="mgd-link mgd-small" onClick={() => browseCollection(resource)}>
               All {items.length} collected items →</button>}
           </div>
-          <ul className="q2-magnet-items q2-magnet-record-list">{excerpts.map((e) => <li key={e.id}>
-            <button type="button" className="q2-magnet-quote-row" id={`excerpt-${e.id}`} aria-expanded={here.inspected === e.id}
-              onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>
-              <strong className="q2-magnet-record-title">{e.title}</strong>
-              <span className="q2-magnet-quote">“{e.text}{e.text.length >= 220 ? '…' : ''}”</span>
-              <small className="q2-magnet-muted">{e.origin}</small>
-            </button>
-          </li>)}</ul>
+          {excerpts.map((e) => <RecordRow key={e.id} excerpt={e} expanded={here.inspected === e.id}
+            onOpen={() => inspect(resource, e.id, `excerpt-${e.id}`)} />)}
         </section>}
 
-        <div className="q2-magnet-written">
-          {overview.map((line, i) => <p key={i}>{line}</p>)}
-        </div>
-
-        <section className="q2-magnet-understanding" aria-label="Questions to explore">
-          <h4>Questions to explore</h4>
-          <ul className="q2-magnet-questions">{questions.map((q) => <li key={q}>
-            <button type="button" className="q2-magnet-question" onClick={() => exploreQuestion(resource, q)}>{q}</button>
-          </li>)}</ul>
+        <div className="mgd-space" />
+        <section aria-label="Questions to explore">
+          <div className="mgd-eyebrow">Questions to explore</div>
+          {questions.map((q) => <QuestionRow key={q} question={q} onTake={() => exploreQuestion(resource, q)} />)}
         </section>
 
-        {/* Comparing two collections is something the owner asks for, so it is
-            disclosed rather than standing open under the records (§4). It opens
-            itself once a comparison has been made, because then it has
-            something to say. */}
-        <section className="q2-magnet-understanding" aria-label="Changes since the previous collection">
-          <details className="q2-magnet-provenance" open={!!comparison}>
-            <summary>What changed</summary>
+        <div className="mgd-divider" />
+        {/* EVERYTHING THAT IS MECHANISM IS BEHIND ONE OF THESE, in the design's
+            own idiom (`Limits and dates ▾`, `Past questions ▾`). Comparing two
+            collections opens itself once a comparison has been made, because
+            then it has something to say. */}
+        <details className="q2-magnet-provenance q2-magnet-disclosure" open={!!comparison}>
+          <summary><span className="mgd-link mgd-small">What changed ▾</span></summary>
+          <div aria-label="Changes since the previous collection">
             {comparison
-              ? <><p>{comparison.words}</p>
-                {!!comparison.added.length && <ul className="q2-magnet-items">{comparison.added.map((e) => <li key={e.id}>
-                  <button type="button" className="q2-magnet-link" onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>{e.title}</button>
+              ? <><p className="mgd-p">{comparison.words}</p>
+                {comparison.added.map((e) => <div className="mgd-item" key={e.id}>
+                  <button type="button" className="mgd-link" onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>{e.title}</button>
                   <p className="q2-magnet-quote">“{e.text}”</p>
-                </li>)}</ul>}
-                <p className="q2-magnet-muted">Compared against the collection from {when(comparison.at) ?? 'earlier'}. Both are captured copies; neither source was read again.</p></>
-              : <><p className="q2-magnet-muted">{NO_COMPARISON}</p>
-                <button type="button" className="q2-magnet-link" disabled={comparing || !batch} onClick={compare}>
+                </div>)}
+                <p className="mgd-subtle">Compared against the collection from {when(comparison.at) ?? 'earlier'}. Both are captured copies; neither source was read again.</p></>
+              : <><p className="mgd-subtle">{NO_COMPARISON}</p>
+                <button type="button" className="mgd-link mgd-small" disabled={comparing || !batch} onClick={compare}>
                   {comparing ? 'Reading the previous collection…' : 'Compare with the previous collection'}</button></>}
-          </details>
-        </section>
+          </div>
+        </details>
 
         <Questions resource={resource} rows={lens.rows} events={lens.events} loading={loadingQuestions || lens.loading}
           error={lens.error} onLoad={loadQuestions} read={askedForQuestions || !!lens.rows.length} />
 
         </>}
 
-        {/* Facts only, and nothing else: every other route into a collected
-            record already lives above (the records' own words) or on the
-            Collection tab itself, so this disclosure does not repeat them
-            (owner request ent-1e82a8786c37: "Simplify the Summary presentation
-            and remove unnecessary explanatory content"). */}
-        <details className="q2-magnet-provenance" open={here.history}>
-          <summary><span className="q2-magnet-eyebrow">Collection overview · facts only</span></summary>
-          <div className="q2-magnet-facts">{summaryFacts(resource.saved, s).map((line, i) => <p key={i}>{line}</p>)}</div>
+        {/* THE ONE DISCLOSURE FOR THE COLLECTION'S OWN MECHANISM, named as the
+            other surfaces name theirs. It carries the counted detail and the
+            facts: the configured sources and what each gave, the recorded
+            state, the selected types, the selected dates, the limits, and the
+            comparison baseline. Nothing is deleted -- it stops being the first
+            thing read (owner ent-a24ec84c8176). */}
+        <details className="q2-magnet-provenance q2-magnet-disclosure" open={here.history}>
+          <summary><span className="mgd-link mgd-small">Limits and dates ▾</span></summary>
+          <div className="q2-magnet-facts">
+            {detail.map((line, i) => <p key={`measured-${i}`}>{line}</p>)}
+            {summaryFacts(resource.saved, s).map((line, i) => <p key={i}>{line}</p>)}
+          </div>
         </details>
       </>}
-    {message && <p className="q2-magnet-muted" role="status">{message}</p>}
+    {message && <p className="mgd-subtle" role="status">{message}</p>}
     {/* Inline, inside the Summary section: never a separate screen. */}
     {here.inspected && <Inspection resource={resource} refId={here.inspected} source={onPost} />}
-    <div className="q2-magnet-grounding">
-      <button type="button" className="q2-magnet-secondary" disabled aria-describedby="grounded-status">Draft an answer from selected records</button>
-      <span id="grounded-status" className="q2-magnet-muted">{GROUNDED_UNAVAILABLE}</span>
+    <div className="mgd-row q2-magnet-grounding">
+      <button type="button" className="mgd-button mgd-secondary" disabled aria-describedby="grounded-status">Draft an answer from selected records</button>
+      <span id="grounded-status" className="mgd-subtle">{GROUNDED_UNAVAILABLE}</span>
     </div>
   </section>
 }

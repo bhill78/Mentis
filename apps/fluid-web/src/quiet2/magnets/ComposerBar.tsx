@@ -564,38 +564,59 @@ export interface ComposerBarViewProps {
   composer: ReactNode
 }
 
+/** THE FOOTING NOTE of the approved compose box: the one subtle line the
+ *  mockups put at the left of it, saying what sending does here
+ *  (`10-current-discussion.png`: "Ordinary discussion" beside Send). It is the
+ *  whole of the standing disclosure this box carries -- nothing explains the
+ *  mechanism beside the words any more -- and what a particular message is
+ *  about is the chip, which is drawn only when there is one. */
+export const COMPOSE_NOTE = 'Ordinary discussion'
+
 /** EVERYTHING THE BAR DRAWS AROUND THE COMPOSER. It holds no state and reaches
  *  nothing, so it is the whole of what can be checked without a DOM; the real
- *  Composer inside it is the app's own and is driven by the browser suite. */
+ *  Composer inside it is the app's own and is driven by the browser suite.
+ *
+ *  THE SHAPE IS THE APPROVED `mgd-compose` BOX: bordered, dark, 9px radius,
+ *  14px inside, with the words above and a footing row under them -- not the
+ *  bare input strip this was. Nothing about sending changes: the field, the
+ *  tools, the split send menu and the Send control are `fluid/Composer`'s own,
+ *  inside the box, and the write gate above still decides whether this draws a
+ *  composer at all. */
 export function ComposerBarView(p: ComposerBarViewProps) {
   if (!p.canWrite) {
     return <div className="q2-magnet-composer q2-magnet-composer-readonly">
-      <p className="q2-mini-muted q2-mini-nowrite">{p.cannotWriteBecause
+      <p className="mgd-subtle q2-mini-nowrite">{p.cannotWriteBecause
         ?? 'Sending is unavailable for this Magnet here. Nothing in this card writes to the record.'}</p>
     </div>
   }
   return <div className="q2-magnet-composer" ref={p.box}>
-    {p.unavailable === NO_OWN_CONVERSATION && <p className="q2-mini-muted" role="status">
+    {p.unavailable === NO_OWN_CONVERSATION && <p className="mgd-subtle" role="status">
       This Magnet has no Conversation of its own yet. Sending makes one and records the message in it.
     </p>}
     {p.unavailable && p.unavailable !== NO_OWN_CONVERSATION && <p className="q2-mini-alert" role="status">{p.unavailable}</p>}
-    {/* WHAT THIS MESSAGE IS ABOUT, in ordinary words and without the
-        identifier: the reader attached it from a view that showed them the
-        thing itself, and the exact identity is what the message carries, not
-        what the sentence has to spell out (owner §2). */}
-    {p.chip && <p className="q2-magnet-chip">
-      <span className="q2-magnet-chip-label">About <b>{contextWords(p.chip)}</b> <small>{CONTEXT_WORDS[p.chip.kind]}</small></span>
-      <button type="button" className="q2-mini-link" aria-label={`Remove ${contextWords(p.chip)} from this message`}
-        onClick={p.onRemoveChip}>Remove</button>
-    </p>}
-    {p.suppressed && !p.chip && <p className="q2-mini-muted">This message carries nothing with it. Open a record and choose “Discuss this record” to attach one.</p>}
-    <fieldset className="q2-mini-composer-controls" disabled={p.frozen}>{p.composer}</fieldset>
-    {p.uncertain && <button type="button" className="q2-mini-send" disabled={!p.canRetry}
-      onClick={p.onRetry}>Send again under the same key</button>}
+    <div className="mgd-compose q2-magnet-compose-box">
+      {/* WHAT THIS MESSAGE IS ABOUT, in ordinary words and without the
+          identifier: the reader attached it from a view that showed them the
+          thing itself, and the exact identity is what the message carries, not
+          what the sentence has to spell out (owner §2). It sits inside the box,
+          over the words it belongs to, as the mockups' own tag does. */}
+      {p.chip && <p className="mgd-tag q2-magnet-chip">
+        <span className="q2-magnet-chip-label">About <b>{contextWords(p.chip)}</b> <small>{CONTEXT_WORDS[p.chip.kind]}</small></span>
+        <button type="button" className="mgd-link mgd-small" aria-label={`Remove ${contextWords(p.chip)} from this message`}
+          onClick={p.onRemoveChip}>Remove</button>
+      </p>}
+      {p.suppressed && !p.chip && <p className="mgd-subtle">This message carries nothing with it. Open a record and choose “Discuss this record” to attach one.</p>}
+      <fieldset className="q2-mini-composer-controls" disabled={p.frozen}>{p.composer}</fieldset>
+      <div className="mgd-row mgd-spread q2-magnet-compose-foot">
+        <span className="mgd-subtle">{COMPOSE_NOTE}</span>
+        {p.uncertain && <button type="button" className="mgd-button" disabled={!p.canRetry}
+          onClick={p.onRetry}>Send again under the same key</button>}
+      </div>
+    </div>
     {p.contextError && <p className="q2-mini-alert" role="status">{p.contextError}</p>}
     {p.identity && <p className="q2-mini-alert" role="status">{p.identity}</p>}
     {p.sendError && <p className={p.uncertain ? 'q2-mini-alert q2-mini-uncertain' : 'q2-mini-alert'} role="status">{p.sendError}</p>}
-    {p.creating && <p className="q2-mini-muted" role="status">Creating this Magnet’s Conversation…</p>}
+    {p.creating && <p className="mgd-subtle" role="status">Creating this Magnet’s Conversation…</p>}
     {p.sent && <p className="q2-mini-sent" role="status">
       {p.sent.replayed
         ? 'That post was already recorded under this key; nothing was recorded a second time.'

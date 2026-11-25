@@ -132,14 +132,14 @@ function HeldFile({ refId }: { refId: string }) {
     }).catch((e) => { if (!ctl.signal.aborted) setError(String(e.message ?? e)) })
     return () => ctl.abort()
   }, [refId])
-  if (error) return <p role="status">{error}</p>
-  if (!bytes) return <p role="status">Reading the file…</p>
+  if (error) return <p className="mgd-subtle" role="status">{error}</p>
+  if (!bytes) return <p className="mgd-subtle" role="status">Reading the file…</p>
   const item = returnedItemOf(bytes)
-  if (!item) return <p>There is nothing in this file this card can show.</p>
+  if (!item) return <p className="mgd-p">There is nothing in this file this card can show.</p>
   return <div className="q2-magnet-file-view">
-    <p className="q2-magnet-muted">{item.name} · {item.size ?? 'Unknown'} bytes</p>
-    {item.treatment === 'pdf' ? <Suspense fallback={<p>Loading PDF viewer…</p>}><PdfView url={item.url} name={item.name} state={pdf} onState={setPdf} placement="column" /></Suspense> : <ViewerBody item={item} />}
-    <a className="q2-magnet-link" href={item.url} download={item.name}>Download this file</a>
+    <p className="mgd-subtle">{item.name} · {item.size ?? 'Unknown'} bytes</p>
+    {item.treatment === 'pdf' ? <Suspense fallback={<p className="mgd-subtle">Loading PDF viewer…</p>}><PdfView url={item.url} name={item.name} state={pdf} onState={setPdf} placement="column" /></Suspense> : <ViewerBody item={item} />}
+    <a className="mgd-link mgd-small" href={item.url} download={item.name}>Download this file</a>
   </div>
 }
 
@@ -190,37 +190,43 @@ export default function Inspection({ resource, refId, source, back }: Inspection
   const batch = refId === s.activation?.artifact.ref
   const close = back ?? (() => closeInspect(resource))
   const captured = result?.at ?? s.activation?.at
+  /* THE RECORD OPENED INSIDE THE CARD, in the approved design's language. It is
+     the `mgd-answer` block -- the gold left rule the mockups give a reply or a
+     detail opened out of a list -- with its own heading row, the captured words,
+     and provenance behind the same `▾` disclosure the other surfaces use. Every
+     control is the one that was here: closing, each listed record, the source
+     Conversation, Discuss this record. */
   return <article className="q2-magnet-inline-evidence q2-magnet-inspection" aria-labelledby="inspect-title">
-    <div className="q2-magnet-section-title">
-      <h3 id="inspect-title" tabIndex={-1}>{batch ? 'Collected information' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Not in this collection'}</h3>
+    <div className="mgd-row mgd-spread">
+      <h3 id="inspect-title" className="mgd-h3 mgd-grow" tabIndex={-1}>{batch ? 'Collected information' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Not in this collection'}</h3>
       <button type="button" className="q2-magnet-icon" aria-label="Close this record" title="Close this record" onClick={close}>×</button>
     </div>
-    {result && !batch && <p className="q2-magnet-muted">Collected {result.kind === 'post' ? 'post' : 'file'} · {evidenceOrigin(result)}</p>}
-    {batch ? <><p>This is {s.batchSelection ? 'the collection as it was' : 'what this Magnet has collected'}, recorded {when(s.activation?.at)}.</p>
-      <p className="q2-magnet-muted">{refId} · {s.activation?.artifact.digest}</p>
-      <ul className="q2-magnet-items">{s.results.map((r) => <li key={`${r.kind}:${r.id}`}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></li>)}</ul></>
+    {result && !batch && <p className="mgd-subtle">Collected {result.kind === 'post' ? 'post' : 'file'} · {evidenceOrigin(result)}</p>}
+    {batch ? <><p className="mgd-p">This is {s.batchSelection ? 'the collection as it was' : 'what this Magnet has collected'}, recorded {when(s.activation?.at)}.</p>
+      <p className="mgd-subtle">{refId} · {s.activation?.artifact.digest}</p>
+      {s.results.map((r) => <div className="mgd-item" key={`${r.kind}:${r.id}`}><button type="button" className="mgd-link mgd-small" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></div>)}</>
       : result ? <>
         {result.kind === 'post' ? <>
-          {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was collected for this post. No live source content was substituted.</p>}
-          {(capturedBody(result).truncated || object(result.value).truncated) && <p role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
-          <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'View the attachment'}</button></li>)}</ul>
-        </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre>{heldValue.shortened && <p role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
-          : artifact ? <HeldFile refId={artifact} /> : <p>This collected record has no file this card can show. Where it came from is kept; no live file was substituted.</p>}
-        <details className="q2-magnet-provenance" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
-          <summary>Where this came from</summary>
+          {result.deleted ? <p className="mgd-p">This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p className="mgd-p">No readable text was collected for this post. No live source content was substituted.</p>}
+          {(capturedBody(result).truncated || object(result.value).truncated) && <p className="mgd-subtle" role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
+          {retainedFiles([result]).map((f) => <div className="mgd-item" key={f.id}><button type="button" className="mgd-link mgd-small" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'View the attachment'}</button></div>)}
+        </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre>{heldValue.shortened && <p className="mgd-subtle" role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
+          : artifact ? <HeldFile refId={artifact} /> : <p className="mgd-p">This collected record has no file this card can show. Where it came from is kept; no live file was substituted.</p>}
+        <details className="q2-magnet-provenance q2-magnet-disclosure" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
+          <summary><span className="mgd-link mgd-small">Where this came from ▾</span></summary>
           <dl>
             <dt>Origin</dt><dd>{evidenceOrigin(result)}</dd>
             <dt>Version</dt><dd>{result.version ?? result.id}</dd>
             <dt>Captured</dt><dd>{when(captured) ?? 'Capture time unstated'}</dd>
             <dt>Bounds</dt><dd>{evidenceBounds(result)}</dd>
           </dl>
-          {heldValue ? <p>{heldValue.collection} / {heldValue.path} · {heldValue.citation} · acquired {when(heldValue.acquired_at)}</p>
-            : <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Source Conversation →</button>}
-          <p className="q2-magnet-muted">The captured copy only. No live source was opened to show this.</p>
+          {heldValue ? <p className="mgd-subtle">{heldValue.collection} / {heldValue.path} · {heldValue.citation} · acquired {when(heldValue.acquired_at)}</p>
+            : <button type="button" className="mgd-link mgd-small" onClick={() => source(result)}>Source Conversation →</button>}
+          <p className="mgd-subtle">The captured copy only. No live source was opened to show this.</p>
         </details>
-        <button type="button" className="q2-magnet-link" id="discuss-evidence" onClick={() => discussEvidence(resource, result)}>Discuss this record</button>
+        <button type="button" className="mgd-link mgd-small" id="discuss-evidence" onClick={() => discussEvidence(resource, result)}>Discuss this record</button>
       </>
-      : /^adm-[a-zA-Z0-9]{6,40}$/.test(refId) ? <><p>A collected file. This view does not qualify it as a Perspective synthesis.</p><p>{PERSPECTIVE_DISCLOSURE}</p><HeldFile refId={refId} /></>
-        : <p>This record is not in the collection shown. Nothing was substituted from the live source. Choose the collection it was in, under Collection history, to read the copy that was captured.</p>}
+      : /^adm-[a-zA-Z0-9]{6,40}$/.test(refId) ? <><p className="mgd-p">A collected file. This view does not qualify it as a Perspective synthesis.</p><p className="mgd-subtle">{PERSPECTIVE_DISCLOSURE}</p><HeldFile refId={refId} /></>
+        : <p className="mgd-p">This record is not in the collection shown. Nothing was substituted from the live source. Choose the collection it was in, under Collection history, to read the copy that was captured.</p>}
   </article>
 }

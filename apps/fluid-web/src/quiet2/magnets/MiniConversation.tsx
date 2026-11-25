@@ -38,6 +38,16 @@ import {
 import './conversation.css'
 import { restore, writePlace } from './places'
 
+/* THE ONE DISCLOSURE THIS SURFACE KEEPS (owner ent-a24ec84c8176: remove
+   redundant disclosures; approved design `10-current-discussion.png`). The
+   mockup states the mode once, as a chip and three words at the top of the
+   exchange, and says nothing else about it anywhere. That replaces the
+   explanatory lines this view used to draw above the posts: the words are the
+   mockup's own, and they are not repeated beside the composer, under a post or
+   on another tab. */
+export const CURRENT_MODE = 'CURRENT MODE'
+export const ORDINARY_DISCUSSION = 'Ordinary discussion'
+
 /** NO EXTERNAL NAVIGATION IS PASSED INTO THIS VIEW (owner §3). A Magnet is a
  *  self-contained working surface, so the Conversation view takes what it needs
  *  to work here -- writing, and reading a citation inside the card -- and
@@ -269,17 +279,25 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
   }), [store, onEvidence])
 
   if (s.unavailable) {
+    /* The same heading block as every other surface, and the one useful action
+       offered as a button rather than described: the sentence that explained
+       what creating one does is the button's own words and its subtle note. */
     return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation" ref={section}>
-      <h3 id="view-title" tabIndex={-1}>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
-      <p>{s.unavailable}</p>
-      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <>
-        <p className="q2-mini-muted">Writing a message below makes this Conversation and records the message in it. Creating it first is the same act, without a message.</p>
-        <button type="button" className="q2-mini-send"
+      <div className="mgd-row mgd-spread q2-magnet-place-head">
+        <div className="mgd-grow">
+          <div className="mgd-eyebrow">Conversation</div>
+          <h2 id="view-title" className="mgd-h2" tabIndex={-1}>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Conversation unavailable'}</h2>
+        </div>
+        {returnToWhereIWas && <span className="q2-mini-head-actions">{returnToWhereIWas}</span>}
+      </div>
+      <p className="mgd-p mgd-muted">{s.unavailable}</p>
+      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <div className="mgd-row">
+        <button type="button" className="mgd-button"
           disabled={s.creating} onClick={() => void store.createOwn()}>
           {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
         </button>
-      </>}
-      {returnToWhereIWas}
+        <span className="mgd-subtle">Writing a message below makes it too.</span>
+      </div>}
       {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
       {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
     </section>
@@ -291,36 +309,47 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
   const older = flow.read?.older ?? 0
 
   return <section className="q2-mini" aria-label="Magnet conversation" ref={section}>
-    <div className="q2-mini-head">
-      <h3 id="view-title" tabIndex={-1}>{flow.read?.name || s.name || 'Magnet conversation'}</h3>
-      {/* ONLY THE WAY BACK, AND ONLY WHEN THERE IS ONE (owner §3): no
-          persistent navigation link stands here. The header carried "Open full
-          Conversation →" on every open of this tab, which is the Magnet
-          behaving as a way out of itself. */}
+    {/* THE HEADING BLOCK EVERY SURFACE HAS (plan seam 4): the place's name as
+        the eyebrow, what is being read as the 25px heading with how much of it
+        there is beside it, and the counterpart link at the far edge of that
+        row. The counterpart here is the way back, and only when there is one
+        (owner §3): no persistent navigation link stands here. The header
+        carried "Open full Conversation →" on every open of this tab, which is
+        the Magnet behaving as a way out of itself. */}
+    <div className="mgd-row mgd-spread q2-mini-head q2-magnet-place-head">
+      <div className="mgd-grow">
+        <div className="mgd-eyebrow">Conversation</div>
+        <h2 id="view-title" className="mgd-h2" tabIndex={-1}>{flow.read?.name || s.name || 'Magnet conversation'}{' '}
+          <span className="mgd-subtle">
+            {total !== null ? `${total} ${total === 1 ? 'post' : 'posts'}` : 'how many posts are recorded here is unavailable'}
+            {s.owed ? ` · ${s.owed} ${s.owed === 1 ? 'request' : 'requests'} still to be answered` : ''}
+          </span></h2>
+      </div>
       {returnToWhereIWas && <span className="q2-mini-head-actions">{returnToWhereIWas}</span>}
     </div>
-    {/* NO STANDING EXPLANATION OF WHAT AN AGENT READS HERE (owner §6): a
-        sentence drawn above every message, on every tab, every time the card
-        opens, is the administrative prose that was taking the working area --
-        and what a message actually carries is now the one thing the composer
-        shows, beside the words it belongs to. Nothing it said is weakened:
-        collected information cannot be sent as context at all while
-        configured-source access is unenforced, and the composer says so, in
-        the moment it matters, if the owner attaches some. */}
-    <p className="q2-mini-muted">
-      {total !== null ? `${total} ${total === 1 ? 'post' : 'posts'}` : 'How many posts are recorded here is unavailable'}
-      {s.owed ? ` · ${s.owed} ${s.owed === 1 ? 'request' : 'requests'} still to be answered` : ''}
-    </p>
-    {s.collection && onEvidence && <button type="button" className="q2-mini-link"
-      onClick={() => onEvidence(s.collection!.artifact.ref)}>View collected information</button>}
+    {/* WHAT SENDING DOES HERE, SAID ONCE, as the approved design says it: the
+        chip and three words at the top of the exchange
+        (`10-current-discussion.png`). The sentences that said the same thing
+        above every message, on every tab, every open, are gone -- that was the
+        administrative prose taking the working area, and the owner asked for
+        redundant disclosures removed. Nothing it said is weakened: collected
+        information cannot be sent with a message at all while
+        configured-source access is unenforced, and the composer refuses in
+        those words, in the moment it matters, if the owner attaches some. */}
+    <div className="mgd-row q2-mini-mode">
+      <span className="mgd-today">{CURRENT_MODE}</span>
+      <span className="mgd-subtle">{ORDINARY_DISCUSSION}</span>
+      {s.collection && onEvidence && <button type="button" className="mgd-link mgd-small"
+        onClick={() => onEvidence(s.collection!.artifact.ref)}>View collected information</button>}
+    </div>
     {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
-    {s.dispatchStatus && <p className="q2-mini-muted" role="status">{s.dispatchStatus}</p>}
+    {s.dispatchStatus && <p className="mgd-subtle" role="status">{s.dispatchStatus}</p>}
     {blocked && <p className="q2-mini-alert" role="status">{s.identity}</p>}
     {s.error && <p className="q2-mini-alert" role="status">{s.error}</p>}
     {flow.error && <p className="q2-mini-alert" role="status">{flow.error}</p>}
     {targetError && <p className="q2-mini-alert" role="status">{targetError}</p>}
-    {note && <p className="q2-mini-muted" role="status">{note}</p>}
-    {!flow.read && !flow.error && conversation && <p className="q2-mini-muted" role="status">Reading this Conversation…</p>}
+    {note && <p className="mgd-subtle" role="status">{note}</p>}
+    {!flow.read && !flow.error && conversation && <p className="mgd-subtle" role="status">Reading this Conversation…</p>}
 
     {/* A REFERENCE IN A POST'S WORDS OPENS INSIDE THIS CARD, as a citation
         opened from any other tab does (`withInspections`). Two things make
@@ -340,21 +369,30 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
       } : undefined}>
         {thread
           ? <div className="q2-mini-thread">
-              <div className="q2-mini-head">
-                <h4>Thread</h4>
-                <button type="button" className="q2-mini-link"
+              <div className="mgd-row mgd-spread q2-mini-head">
+                <h3 className="mgd-h3 mgd-grow">Thread</h3>
+                <button type="button" className="mgd-link mgd-small"
                   onClick={() => { setThread(null); setAt(null) }}>← Back to the Conversation</button>
               </div>
               <ThreadView root={thread} selected={at} />
             </div>
           : <>
               {older > 0 && flow.earlier && <p className="q2-mini-earlier">
-                <button type="button" className="q2-mini-link"
+                <button type="button" className="mgd-link mgd-small"
                   onClick={() => void flow.earlier!()}>{`Earlier posts (${older} older)`}</button>
               </p>}
-              {top.length === 0 && flow.read && <p className="q2-mini-muted">No posts have been read here yet.</p>}
+              {top.length === 0 && flow.read && <p className="mgd-subtle">No posts have been read here yet.</p>}
+              {/* THE EXCHANGE AS THE APPROVED DESIGN DRAWS IT
+                  (`10-current-discussion.png`): what was asked is a
+                  `mgd-chatbubble`, and the reply is a `mgd-answer` with its
+                  gold left rule. The post inside each is still Mentis's own
+                  `quiet2/Post.tsx`, reading the same one store, so the words,
+                  pictures, attached files, replies, byline and operational
+                  status are the conversation's and are not re-implemented --
+                  what is the Magnet's is which of the two blocks a post sits
+                  in, and that is read from the record's own author. */}
               <div className="q2-mini-posts">
-                {top.map((p) => <div className="q2-mini-post" key={p.id}>
+                {top.map((p) => <div className={`q2-mini-post ${p.by.agent ? 'mgd-answer' : 'mgd-chatbubble'}`} key={p.id}>
                   <Post post={p} />
                   <ReplyFold root={p.id} />
                 </div>)}
@@ -366,6 +404,6 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
 
     {/* No composer here: the card has one, in its footer, on every tab. What
         the owner may not do is still said where they would look for it. */}
-    {!canWrite && <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>}
+    {!canWrite && <p className="mgd-subtle q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>}
   </section>
 }

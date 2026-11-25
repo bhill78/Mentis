@@ -15,7 +15,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import Magnet from '../src/quiet2/magnets/Magnet'
-import Summary, { GROUNDED_UNAVAILABLE, summaryFacts, summarySource } from '../src/quiet2/magnets/Summary'
+import Summary, { GROUNDED_UNAVAILABLE, startingAction, summaryFacts, summarySource } from '../src/quiet2/magnets/Summary'
 import EvidenceViews, { evidenceSource, resultTitle } from '../src/quiet2/magnets/EvidenceViews'
 import { batchSource, knownBatches } from '../src/quiet2/magnets/BatchHistory'
 import { discussEvidence, evidenceBounds, evidenceOrigin } from '../src/quiet2/magnets/Inspection'
@@ -89,8 +89,15 @@ test('Summary opens alone, without a pinned composer, and renders only retained 
   // it on the Conversation place only (Part A, plan seam 2).
   assert.ok(!card.includes('supplied-composer'), 'Summary opens with no pinned composer under it')
   assert.ok(!card.includes('id="view-title"') && !card.includes('id="inquiry-title"'), 'Summary opens alone: no evidence list or Perspectives panel beside it')
-  assert.ok(card.includes('1 posts · 1 files'), 'the badge is the real retained count')
-  assert.ok(card.includes('Collection overview · facts only'))
+  // The count is stated beside the heading, as the approved design states one
+  // (`04-browse.png`), and it is the real retained count.
+  assert.ok(card.includes('What this Magnet holds'), 'the heading says what the surface is')
+  assert.ok(card.includes('1 post · 1 file'), 'the count beside it is the real retained count')
+  // Everything that is mechanism, provenance or how collection works is behind
+  // the design's own disclosure for it, not the first thing read.
+  assert.ok(card.includes('Limits and dates ▾'), 'the facts are behind one disclosure')
+  assert.ok(card.indexOf('Limits and dates ▾') > card.indexOf('What this Magnet holds'),
+    'and below what is true now, not above it')
   assert.ok(card.includes('Draft an answer from selected records'), 'the evidence-answer action keeps natural wording')
 })
 
@@ -200,7 +207,7 @@ test('inspection is inline: inside the Summary section, and beneath the clicked 
   const summary = html(createElement(Summary, { resource: r, onPost: () => {} }))
   const section = summary.indexOf('q2-magnet-summary'), inspectTitle = summary.indexOf('id="inspect-title"')
   assert.ok(section >= 0 && inspectTitle > section, 'the inspection renders inside the Summary section')
-  assert.ok(summary.includes('Collection overview · facts only'), 'Summary is not replaced by a separate inspection screen')
+  assert.ok(summary.includes('Limits and dates ▾'), 'Summary is not replaced by a separate inspection screen')
   assert.ok(summary.includes('aria-expanded="true"'), 'the support that was clicked says it is expanded')
   // Ordinary words for ordinary things (owner request §2): a collected record is
   // a record; "evidence" is kept for what supports a claim.
@@ -255,7 +262,13 @@ test('an empty collection says Conversation is still available, on Summary and i
   await r.read()
   const summary = html(createElement(Summary, { resource: r, onPost: () => {} }))
   assert.ok(summary.includes('No collected information yet. Conversation is still available.'))
-  assert.ok(summary.includes('Choose sources in Settings, then collect.'))
+  // Where to go next is offered AS A BUTTON rather than described in a sentence
+  // (owner ent-a24ec84c8176: present useful actions prominently). The sentence
+  // "Choose sources in Settings, then collect." is that button and its note.
+  const start = startingAction(r.saved)
+  assert.ok(summary.includes(`<button type="button" class="mgd-button">${start.label}</button>`),
+    'the useful action is a button on the surface')
+  assert.ok(summary.includes(start.note), 'with its own note beside it')
   assert.ok(summary.includes('Draft an answer from selected records'), 'the disabled action remains visible')
   for (const lens of ['All', 'Posts', 'Files'] as const) {
     const list = html(createElement(EvidenceViews, { resource: r, lens, onPost: () => {}, onFile: () => {} }))

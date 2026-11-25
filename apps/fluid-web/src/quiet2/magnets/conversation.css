@@ -1,72 +1,76 @@
-/* The Magnet card's own Conversation. Scoped to .q2-mini so nothing here
-   reaches the main conversation, its composer or its rails. The yellow card's
-   own palette (magnet.css) is inherited rather than restated. */
-.q2 .q2-mini{border-top:1px solid #554946;padding:14px 0;color:#eee8e6;font-size:14px;line-height:1.45}
-.q2 .q2-mini h3{margin:0;font-size:16px;color:#f2eae8}
-.q2 .q2-mini h4{margin:0;font-size:13px;color:#e8ded9;text-transform:uppercase;letter-spacing:.04em}
-.q2 .q2-mini-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.q2 .q2-mini-head-actions{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-.q2 .q2-mini-link{border:0;background:none;color:#f3c453;padding:0;text-align:left;line-height:1.5;font:inherit;cursor:pointer}
-.q2 .q2-mini-link:disabled{cursor:default;color:#bbaca0}
-.q2 .q2-mini-link:focus-visible{outline:3px solid #fff3be;outline-offset:3px}
-.q2 .q2-mini-muted{color:#c1b3ad;font-size:12px;line-height:1.45;margin:4px 0 10px}
-.q2 .q2-mini-alert{padding:9px 12px;background:#4a3630;border-radius:6px;color:#f0c6a4;font-size:13px;margin:8px 0}
+/* The Magnet card's own Conversation.
+ *
+ * THE DESIGN IS `design.css`. The heading block, the `mgd-chatbubble` a question
+ * sits in, the `mgd-answer` with its gold left rule, the `mgd-today` chip, the
+ * subtle byline, the links and the buttons are all composed from the `mgd-`
+ * classes ported from the approved round-3 CSS (`10-current-discussion.png`),
+ * not restated here.
+ *
+ * What this file still owns is the one thing the mockups do not draw: Mentis's
+ * own post, rendered inside the card. A post here is `quiet2/Post.tsx` and its
+ * replies are `quiet2/Thread.tsx` -- the same components the reading column
+ * uses, the same markup -- and two things about them are the card's. Its
+ * palette: the shared rules are written against the theme's tokens, and the
+ * card is its own dark surface whatever the theme is, so the tokens are
+ * restated here and every shared rule inherits them. And its measure: the
+ * reading column's generous one belongs to a full page, so inside the card the
+ * words take the card's width at the card's size. Nothing here changes what a
+ * post draws.
+ *
+ * Everything is scoped to .q2-mini so nothing reaches the main conversation,
+ * its composer or its rails.
+ */
+.q2 .q2-mini{padding:0;color:#eee8e5;font-size:15px;line-height:1.5}
+.q2 .q2-mini-head{flex-wrap:wrap}
+.q2 .q2-mini-head-actions{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;flex:none}
+.q2 .q2-mini-link{border:0;background:none;color:#edc35d;font-weight:600;padding:0;text-align:left;line-height:1.5;font:inherit;font-weight:600;cursor:pointer}
+.q2 .q2-mini-link:hover{color:#f6d47d}
+.q2 .q2-mini-link:disabled{cursor:default;color:#a89991}
+.q2 .q2-mini-link:focus-visible{outline:2px solid #e6bc50;outline-offset:3px}
+/* The mode line: the one standing disclosure, at the mockup's own 14px gap. */
+.q2 .q2-mini-mode{margin:14px 0;flex-wrap:wrap}
+.q2 .q2-mini-alert{padding:9px 12px;background:#4a3630;border-radius:7px;color:#f0c6a4;font-size:13px;margin:8px 0}
 .q2 .q2-mini-uncertain{background:#453a24;color:#f2dca4}
 .q2 .q2-mini-sent{margin:8px 0;font-size:13px;color:#cfe0c3}
 .q2 .q2-mini-earlier{margin:6px 0}
 
-.q2 .q2-mini-posts{padding:0;margin:8px 0 0}
-.q2 .q2-mini-post+.q2-mini-post{margin-top:14px;border-top:1px solid #473c3a;padding-top:12px}
-
-/* -- MENTIS'S OWN POST, IN THE CARD ----------------------------------------
-   A post here is `quiet2/Post.tsx` and its replies are `quiet2/Thread.tsx`:
-   the same components, the same markup. Only two things are the card's. Its
-   palette: the shared rules are written against the theme's tokens, and the
-   card is its own dark surface whatever the theme is, so the tokens are
-   restated here and every shared rule inherits them. And its measure: the
-   reading column's generous one belongs to a full page, so inside the card
-   the words take the card's width at the card's size. Nothing here changes
-   what a post draws -- its words, pictures, files, replies and status are the
-   conversation's own. */
+/* -- MENTIS'S OWN POST, IN THE CARD ---------------------------------------- */
 .q2 .q2-mini{
-  --text:#eee5e1;--text-dim:#c1b3ad;--text-faint:#a2928c;
-  --line:#473c3a;--line-strong:#6b5c4a;--wash:#211c1b;--canvas:var(--magnet-brown,#2b2423);
-  --accent:#f3c453;
+  --text:#eee8e5;--text-dim:#a89991;--text-faint:#a99a92;
+  --line:#50423c;--line-strong:#786444;--wash:#211c1b;--canvas:var(--magnet-brown,#292322);
+  --accent:#edc35d;
 }
 .q2 .q2-mini .q2-post{padding:0;margin:0}
-.q2 .q2-mini .q2-prose{font-size:14px;line-height:1.5}
-.q2 .q2-mini .q2-brief .q2-prose{font-size:14px;line-height:1.5}
-.q2 .q2-mini .q2-prose .pr-h{font-size:15px;margin:.9em 0 .3em}
-.q2 .q2-mini .q2-title{font-size:16px;margin:0 0 4px}
-.q2 .q2-mini .q2-title-small{font-size:14px;margin:0 0 4px}
+.q2 .q2-mini .q2-prose{font-size:15px;line-height:1.5}
+.q2 .q2-mini .q2-brief .q2-prose{font-size:15px;line-height:1.5}
+.q2 .q2-mini .q2-prose .pr-h{font-size:17px;margin:.9em 0 .3em}
+.q2 .q2-mini .q2-title{font-size:17px;margin:0 0 4px;font-weight:700}
+.q2 .q2-mini .q2-title-small{font-size:15px;margin:0 0 4px}
 .q2 .q2-mini .q2-byline{margin:0 0 5px}
-.q2 .q2-mini .q2-byline-meta,.q2 .q2-mini .q2-byline-who{font-size:12px}
-.q2 .q2-mini .q2-toolbar{margin-top:4px;font-size:12px}
+/* WHO AND WHEN IS `mgd-subtle` (the design's 13px / #a89991), which is what the
+   mockup's byline is. The post draws its own, so the design's values are given
+   to it rather than a second byline being written here. */
+.q2 .q2-mini .q2-byline-meta,.q2 .q2-mini .q2-byline-who{font-size:13px;color:#a89991}
+.q2 .q2-mini .q2-toolbar{margin-top:4px;font-size:13px}
 .q2 .q2-mini .q2-divider-dots{margin:6px 0}
 .q2 .q2-mini .q2-replies{padding-left:14px}
 /* the reading column's own width and centring are a page's, not a card's */
 .q2 .q2-mini .q2-prose,.q2 .q2-mini .q2-body,.q2 .q2-mini .q2-prose-wrap{max-width:none}
 .q2 .q2-mini .q2-broken-out{width:auto!important;margin-left:0!important;max-width:100%}
 
-.q2 .q2-mini-thread{margin:12px 0 0;border-left:2px solid #5a4e4b;padding:8px 0 4px 12px}
+/* -- THE EXCHANGE ---------------------------------------------------------- *
+   A post is drawn in one of the design's two blocks and the block carries the
+   whole of the separation: `.mgd-chatbubble` has its own fill, radius and 12px
+   margins, and `.mgd-answer` its gold left rule. So nothing here adds a rule
+   between posts -- the ruled list this used to be is what the approved design
+   replaced. */
+.q2 .q2-mini-posts{padding:0;margin:4px 0 0}
+.q2 .q2-mini-post.mgd-answer{margin:12px 0}
+.q2 .q2-mini-thread{margin:12px 0 0;border-left:2px solid #786444;padding:8px 0 4px 14px}
 
-.q2 .q2-mini-composer{margin-top:14px;border-top:1px solid #554946;padding-top:12px}
-.q2 .q2-mini-label{display:block;margin-bottom:5px;font-size:12px;color:#c1b3ad}
-.q2 .q2-mini-text{display:block;width:100%;box-sizing:border-box;border:1px solid #7b6b64;border-radius:8px;background:#211c1b;color:#eee8e6;font:inherit;padding:8px 10px;resize:vertical}
-.q2 .q2-mini-text:focus-visible{outline:3px solid #fff3be;outline-offset:2px}
-.q2 .q2-mini-text:disabled{opacity:.6;cursor:not-allowed}
-.q2 .q2-mini-send-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:9px}
-.q2 .q2-mini-send-row .q2-mini-muted{margin:0}
-.q2 .q2-mini-send{border:1px solid #d4a832;border-radius:10px;background:#eabc4e;color:#29221b;padding:8px 16px;font:inherit;font-weight:700;cursor:pointer}
-.q2 .q2-mini-send:disabled{opacity:.6;cursor:default}
-.q2 .q2-mini-send:focus-visible{outline:3px solid #fff3be;outline-offset:3px}
-.q2 .q2-mini-nowrite{margin-top:14px;border-top:1px solid #554946;padding-top:12px}
-
-.q2 .q2-mini-unavailable p{max-width:560px;color:#cbbeb7}
-.q2 .q2-mini-label select{display:block;box-sizing:border-box;max-width:100%;width:100%;margin:4px 0 10px;padding:7px;border:1px solid #7b6b64;border-radius:6px;background:#211c1b;color:#eee8e6;font:inherit}
+.q2 .q2-mini-nowrite{margin-top:14px;border-top:1px solid #50423c;padding-top:12px}
+.q2 .q2-mini-unavailable p{max-width:560px}
 .q2 .q2-mini-evidence{display:inline;overflow-wrap:anywhere;text-decoration:underline;font-size:inherit}
-@media(max-width:600px){.q2 .q2-mini-head{gap:4px}
-.q2 .q2-mini-send-row{gap:8px}}
 
 .q2 .q2-mini-composer-controls{border:0;padding:0;margin:0;min-width:0}
 .q2 .q2-mini .fw-composer{margin:0;min-width:0}

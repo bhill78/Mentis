@@ -99,16 +99,30 @@ export default function BatchHistory({ resource }: { resource: MagnetResource })
    *  snapshot is read, never a request. */
   const shown = resource.snapshot().activation?.artifact.ref ?? null
   const chosen = resource.snapshot().batchSelection?.ref ?? null
+  /* EARLIER COLLECTIONS, in the approved design's language. This is rendered in
+     the Settings overlay, behind the `history` disclosure H5 keeps there, so it
+     is already one press away from the resting surface; what changes here is
+     that it reads as the same product as the rebuilt surfaces -- the heading
+     block of `04-browse.png`, its rows as `mgd-item`, its one explanation as a
+     subtle line rather than a paragraph above the list. Every row, the way back
+     to the latest collection and the walk through earlier pages are unchanged,
+     and selecting one still reads an already-recorded collection and never a
+     live source. */
   return <section aria-label="Collection history">
-    <h3>Collection history</h3>
-    <p>Earlier collections keep their original captured content. Selecting one never collects or refreshes its sources.</p>
-    <button type="button" className="q2-magnet-link" disabled={busy || !chosen} onClick={() => void choose(null)}>Show the latest collection</button>
-    <ul className="q2-magnet-items q2-magnet-history-rows">{rows.map((b) => <li key={b.artifact.ref} aria-current={b.artifact.ref === shown ? 'true' : undefined}>
-      <button type="button" className="q2-magnet-link" disabled={busy || b.artifact.ref === shown} onClick={() => void choose(b)}>{batchLabel(b)}</button>
-      <small>{b.artifact.ref === shown ? 'Showing this one' : `${b.artifact.size.toLocaleString()} bytes`}</small>
-    </li>)}</ul>
-    {next && <button type="button" disabled={busy} onClick={() => void load(next)}>Earlier collections</button>}
-    {busy && <p role="status">Reading collection history…</p>}
-    {error && <p role="status">{error}</p>}
+    <div className="mgd-row mgd-spread q2-magnet-place-head">
+      <div className="mgd-grow">
+        <div className="mgd-eyebrow">Collection</div>
+        <h3 className="mgd-h3">Earlier collections{rows.length ? <span className="mgd-subtle"> {rows.length}</span> : null}</h3>
+      </div>
+      <button type="button" className="mgd-link mgd-small" disabled={busy || !chosen} onClick={() => void choose(null)}>Latest collection →</button>
+    </div>
+    <p className="mgd-subtle">Each keeps its original captured content. Selecting one never collects or refreshes its sources.</p>
+    {rows.map((b) => <div className="mgd-item mgd-row mgd-spread" key={b.artifact.ref} aria-current={b.artifact.ref === shown ? 'true' : undefined}>
+      <button type="button" className="mgd-link mgd-small mgd-grow" disabled={busy || b.artifact.ref === shown} onClick={() => void choose(b)}>{batchLabel(b)}</button>
+      <small className="mgd-subtle">{b.artifact.ref === shown ? 'Showing this one' : `${b.artifact.size.toLocaleString()} bytes`}</small>
+    </div>)}
+    {next && <button type="button" className="mgd-button mgd-secondary" disabled={busy} onClick={() => void load(next)}>Earlier collections</button>}
+    {busy && <p className="mgd-subtle" role="status">Reading collection history…</p>}
+    {error && <p className="mgd-subtle" role="status">{error}</p>}
   </section>
 }

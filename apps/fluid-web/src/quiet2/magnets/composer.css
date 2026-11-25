@@ -1,66 +1,84 @@
-/* The persistent composer in the card's footer slot. It takes the host's ink
-   and spacing: nothing here sets a colour of its own, so the bar reads as part
-   of the card on every look. */
+/* The persistent composer, in the card's footer slot.
+ *
+ * THE BOX IS THE APPROVED DESIGN'S. Its border, dark fill, 9px radius, 14px
+ * inside, text colour and focus-within rule are `design.css`'s `.mgd-compose`
+ * -- the compose box of `02-compact-current.png`, `05`, `09` and `10` -- and
+ * `.mgd-compose textarea` is what gives the app's own field the mockups' flat
+ * words with no chrome of its own. Nothing of that is restated here.
+ *
+ * What is left in this file is the three things the design does not draw: where
+ * the box sits in the frame's footer slot, how tall the field may grow before
+ * it scrolls in itself, and the compacting of the app's own tools at a
+ * phone-sized card. Nothing here changes what the Composer does.
+ */
 
 /* THE BAR IS THE CARD'S FURNITURE, NOT ITS CONTENT. It is persistent, so its
-   height is taken from the reading area on every tab and at every size: these
-   are the approved preview's own measurements for its persistent composer -- a
-   short field whose growth is bounded, compact lines around it -- so that the
-   view above keeps a readable area down to the narrowest size the owner tests
-   (320x640). The frame keeps that area's floor (`magnet.css`). */
+   height is taken from the reading area: a short field whose growth is bounded,
+   and compact lines around it, so that the view above keeps a readable area
+   down to the narrowest size the owner tests (320x640). The frame keeps that
+   area's floor and owns the slot (`magnet.css`). */
 .q2-magnet-composer {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 5px 12px 4px;
-  border-top: 1px solid var(--q2-line, rgb(255 255 255 / 12%));
+  gap: 6px;
   flex: 0 0 auto;
+  /* The box lines up with the body's own text column. The frame's slot already
+     gives 12px, and `.mgd-body`'s rule is `28px + 10px * room`, so this adds
+     the rest of it and moves with the panel exactly as the body does. */
+  padding: 0 calc(16px + 10px * var(--magnet-room, 0)) 8px;
 }
 
-/* The field the app's own Composer draws here: it opens at two rows and grows
-   with the words up to ten, which on a phone-sized card is the whole card. The
-   bar bounds the growth and the field scrolls in itself, as the approved
-   preview's persistent composer does; nothing about the Composer changes. */
+/* The field the app's own Composer draws inside the box: it opens at two rows
+   and grows with the words, and the box bounds that growth so the field scrolls
+   in itself rather than taking the reading area. */
 /* `.q2` is on the selector for the same reason `magnet.css` puts it there:
-   these say something about the app's own composer inside this bar, and they
+   these say something about the app's own composer inside this box, and they
    must hold wherever the app happens to load its stylesheets in relation to
    this one, not only where this file comes last. */
 .q2 .q2-magnet-composer .fw-composer-field { max-height: 5.5rem; }
-.q2 .q2-magnet-composer .fx-composer { margin:0; }
+.q2 .q2-magnet-composer .fx-composer { margin: 0; }
 
-/* Use the regular workspace composer's resting state here too: one field line,
-   no repeated destination label. Focus opens the same Composer and reveals
-   its ordinary tools, permissions and split-send menu. */
-.q2 .q2-magnet-composer .fx-composer.fw-quiet { padding-top: 6px; padding-bottom: 6px; }
+/* Inside the design's box the composer brings no surface of its own: the box is
+   the border and the fill, so the app's composer sits flat in it and spends no
+   line on a destination label it would repeat. Focus opens the same Composer
+   and reveals its ordinary tools, permissions and split-send menu. */
+.q2 .q2-magnet-composer .fx-composer,
+.q2 .q2-magnet-composer .fx-composer.fw-quiet { background: none; border: 0; padding: 0; }
 .q2 .q2-magnet-composer .fx-composer.fw-quiet .fw-composer-head { display: none; }
 .q2 .q2-magnet-composer .fx-composer.fw-quiet .fx-in { margin-top: 0; min-height: 1.35rem; }
 
+/* THE FOOTING ROW of the approved box: one subtle note at the left edge. The
+   send control itself is `fluid/Composer`'s own, in its tools row directly
+   above this line and already at the far right of it. 16px is the mockup's own
+   gap between the words and the footing (`10-current-discussion.png`). */
+.q2-magnet-compose-foot { margin-top: 16px; min-height: 1px; }
+
 /* The regular composer's collapsible mode was originally styled only in the
    workspace dock. The Magnet reuses the same markup and behaviour. */
-.q2 .q2-magnet-composer .fc-collapse { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px; font: var(--type-meta); color: var(--text-faint); }
-.q2 .q2-magnet-composer .fc-unfold { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 32px; padding: 2px 4px; text-align: left; font: var(--type-meta); color: var(--text-dim); }
+.q2 .q2-magnet-composer .fc-collapse { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px; font-size: 12px; color: #a99a92; }
+.q2 .q2-magnet-composer .fc-unfold { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 32px; padding: 2px 4px; text-align: left; font-size: 13px; color: #bfb0a7; }
 .q2 .q2-magnet-composer .fc-unfold-where,.q2 .q2-magnet-composer .fc-unfold-words,.q2 .q2-magnet-composer .fc-unfold-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.q2 .q2-magnet-composer .fc-unfold-words { flex: 1 1 auto; color: var(--text); }
+.q2 .q2-magnet-composer .fc-unfold-words { flex: 1 1 auto; color: #eee8e5; }
 .q2 .q2-magnet-composer .fc-unfold-open { flex: none; }
 
-.q2-magnet-composer-readonly { padding: 10px 12px; }
+/* Where the gate refuses, there is no box at all: one line saying so, in the
+   design's own subtle ink. */
+.q2-magnet-composer-readonly { padding: 10px calc(16px + 10px * var(--magnet-room, 0)); }
 
-/* What the message is about. The thing's own name, and what kind of thing it
-   is in ordinary words: its exact identity is what the message carries, so the
-   line does not spend the reading area spelling an identifier out. */
+/* What the message is about. The thing's own name, and what kind of thing it is
+   in ordinary words: its exact identity is what the message carries, so the
+   chip does not spend the reading area spelling an identifier out. The border,
+   radius, size and ink are `design.css`'s `.mgd-tag`; this is its layout and
+   the clipping that keeps a long label to one line. */
 .q2-magnet-chip {
   display: flex;
   align-items: baseline;
   flex-wrap: nowrap;
   gap: 8px;
-  margin: 0;
-  padding: 3px 8px;
-  border: 1px solid var(--q2-line, rgb(255 255 255 / 16%));
-  border-radius: 6px;
-  font-size: 0.82rem;
+  margin: 0 0 10px;
+  width: fit-content;
+  max-width: 100%;
 }
-/* One line, as the approved preview's own chip is, so a long label costs the
-   reading area nothing. Removing it is still one press away. */
 .q2-magnet-chip-label {
   flex: 1 1 auto;
   min-width: 0;
@@ -75,16 +93,19 @@
 /* NO READING-CHOICE MENU AND NO STATUS BADGE: the choice offered answering
    from the retained collection, which is unavailable while configured-source
    access is unenforced, and the badge was a standing execution note beside the
-   words (owner §§2, 6). The composer says what a message carries, when it
-   carries something, and nothing else. */
+   words (owner §§2, 6). The box says what sending does, once, in its footing,
+   and what a message carries only when it carries something. */
 
-/* ON A PHONE-SIZED CARD the bar gives up its own side padding and sits in the
-   card's text column: that width is what keeps the app's own tools and send
-   control on one line instead of two, which is the largest single cost the
-   reading area above was paying. */
+/* ON A PHONE-SIZED CARD the box gives up the body's own inset and takes the
+   slot's width: that width is what keeps the app's own tools and send control
+   on one line instead of two, which is the largest single cost the reading area
+   above was paying. */
 @media(max-width:700px){
   .q2-magnet-composer { padding-left: 0; padding-right: 0; gap: 4px; }
-  /* and the app's own tools and send control are compacted in this bar, as the
+  .q2-magnet-composer-readonly { padding-left: 0; padding-right: 0; }
+  .q2 .q2-magnet-composer .mgd-compose { padding: 10px; }
+  .q2-magnet-compose-foot { margin-top: 10px; }
+  /* and the app's own tools and send control are compacted in this box, as the
      approved preview compacts them in its persistent composer at this width
      (`composer-tools button{min-width:28px;padding:2px 5px}`,
      `split button{font-size:11px;padding:3px 7px}`). Same controls, same

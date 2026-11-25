@@ -1,64 +1,85 @@
-/* Summary, the evidence lists and the inline inspection. Takes the host's ink:
-   the Magnet card is a fixed dark surface and these views inherit its colour
-   rather than naming one of their own. */
+/* Summary, the evidence lists and the inline inspection.
+ *
+ * THE DESIGN IS `design.css`. Everything with a shape in the approved round-3
+ * mockups -- the heading block, the ruled record row, the quoted paragraph's
+ * colour, the gold-ruled offered question, the buttons, the links, the subtle
+ * byline -- is composed from the `mgd-` classes ported there, not restated
+ * here. What is left in this file is only what a mockup draws with plain text
+ * but a working panel needs as a control: a pressable row, a disclosure that
+ * reads as the mockups' `▾` link, and the parts of the Collection and
+ * inspection surfaces that are not mine to re-shape.
+ */
 .q2-magnet-summary { color: inherit; }
+
+/* The eyebrow the Perspectives panel still uses for its own labels. */
 .q2-magnet-eyebrow { display: block; margin: 8px 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 70%, transparent); }
+
+/* -- what is true now, and the action offered for it ----------------------- */
+
+/* The lead is the design's `muted` paragraph under a heading; its own margins
+   are `.mgd-p`'s, so this only closes the gap to the action under it. */
+.q2-magnet-summary .q2-magnet-lead { margin-bottom: 10px; }
+.q2-magnet-lead-action { flex-wrap: wrap; margin: 0 0 4px; }
+
+/* -- a pressable row ------------------------------------------------------- *
+   The mockups draw a collected record as a ruled block of text (`.mgd-item`).
+   Here the whole block is the control that opens the record inside the card, so
+   the row keeps the design's rule and spacing and this makes the button itself
+   invisible furniture: no border, no background, the card's own ink, and the
+   three lines stacked as `04-browse.png` stacks them. */
+.q2-magnet-quote-row,
+.q2-magnet-question {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.q2-magnet-quote-row:hover, .q2-magnet-quote-row:focus-visible,
+.q2-magnet-question:hover, .q2-magnet-question:focus-visible { color: #fff6ef; }
+.q2-magnet-quote-row > b { display: block; }
+.q2-magnet-quote-row > small { display: block; margin-top: 3px; }
+.q2-magnet-quote-row[aria-expanded='true'] > b { color: #f4d47a; }
+
+/* An offered question: the words, then the `↗` at the far edge of its block. */
+.q2-magnet-question { display: flex; align-items: baseline; gap: 10px; }
+.q2-magnet-question-words { flex: 1; min-width: 0; }
+
+/* The quoted words of a record. `.mgd-item p` is the design's rule for a
+   paragraph in such a row, and a quote inside a button cannot be a `<p>`, so
+   the same three declarations are given to the span that carries it. */
+.q2-magnet-quote { display: block; margin: 6px 0; color: #c4b6b0; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* -- a disclosure, as the mockups write one -------------------------------- *
+   `Limits and dates ▾` and `Past questions ▾` are drawn in the approved design
+   as a small gold link. The summary carries `mgd-link mgd-small`, so all this
+   does is take the browser's own marker off and give the row the link's
+   pointer. */
+.q2-magnet-disclosure { margin: 14px 0; }
+.q2-magnet-disclosure > summary { cursor: pointer; list-style: none; }
+.q2-magnet-disclosure > summary::-webkit-details-marker { display: none; }
+.q2-magnet-disclosure > summary::marker { content: ''; }
+.q2-magnet-disclosure > summary:focus-visible { outline: 2px solid #e6bc50; outline-offset: 3px; }
+/* What a disclosure holds is stacked, so two links it offers are two lines and
+   not one run-on sentence of gold words. */
+.q2-magnet-disclosure > div > .mgd-link { display: block; margin-top: 10px; }
+.q2-magnet-disclosure > div > .mgd-eyebrow { margin-top: 14px; }
+
 .q2-magnet-facts { margin: 6px 0 12px; }
 .q2-magnet-facts p { margin: 5px 0; overflow-wrap: anywhere; }
-.q2-magnet-dependency { margin: 12px 0; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
 
-/* The route into the collected records, beside the title rather than on a line
-   of its own (round-3 mockups: the compact panel's right-hand cross-link). */
-.q2-magnet-head-link { margin-left: auto; padding: 2px 0; border: 0; background: none; color: var(--accent, currentColor); font: var(--type-meta); font-weight: 600; cursor: pointer; white-space: nowrap; }
-.q2-magnet-head-link:hover, .q2-magnet-head-link:focus-visible { text-decoration: underline; }
+/* The one stated limit, under everything. `.mgd-row`'s gap is the design's. */
+.q2-magnet-grounding { flex-wrap: wrap; margin: 22px 0 4px; }
 
-/* The empty collection: what is true, then one obvious press, then the ordinary
-   route. Deliberately short -- a larger panel gets more room, not more prose. */
-.q2-magnet-collection-empty { margin: 14px 0; }
-.q2-magnet-empty-lead { margin: 0 0 4px; font-size: 1.05em; font-weight: 600; }
-.q2-magnet-empty-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0 6px; }
-.q2-magnet-empty-actions .q2-magnet-muted { margin: 0; }
-.q2-magnet-collection-empty h4 { margin: 18px 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 72%, transparent); }
-
-/* Collected records, which lead the Summary. A row reads title, the record's own
-   words, then where it came from -- the order the mockups show. */
-.q2-magnet-records-head { display: flex; align-items: baseline; gap: 10px; }
-.q2-magnet-records-head h4 { flex: 1; min-width: 0; }
-.q2-magnet-records-head .q2-magnet-link { flex: none; white-space: nowrap; font: var(--type-meta); }
-.q2-magnet-record-list > li + li { border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
-.q2-magnet-record-title { display: block; margin-bottom: 2px; }
-.q2-magnet-record-list .q2-magnet-quote { display: block; font-style: normal; }
-.q2-magnet-record-list small { display: block; margin-top: 3px; }
-
-/* The written overview and the three blocks that keep the kinds of statement
-   apart: measured facts, the records' own words, and questions. Each is a
-   section with its own heading so the reader can see which is which without
-   reading a disclaimer. */
-.q2-magnet-written { margin: 6px 0 12px; }
-.q2-magnet-written p { margin: 5px 0; overflow-wrap: anywhere; }
-.q2-magnet-understanding { margin: 0 0 14px; }
-.q2-magnet-understanding h4 { margin: 10px 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 72%, transparent); }
-.q2-magnet-understanding h5 { margin: 8px 0 2px; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
-.q2-magnet-understanding > ul { margin: 4px 0; }
-.q2-magnet-quote { margin: 2px 0; overflow-wrap: anywhere; font-style: italic; }
-.q2-magnet-quote-row { display: block; width: 100%; text-align: left; padding: 7px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.q2-magnet-quote-row:hover, .q2-magnet-quote-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
-.q2-magnet-quote-row[aria-expanded='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
-.q2-magnet-quote-row small { display: block; margin-top: 3px; }
-
-/* Perspectives: the question box leads, and what only administers a question
-   is quieter and below it. Nothing is hidden -- the weight is what changed. */
-.q2-magnet-ask { margin: 4px 0 12px; }
-.q2-magnet-ask h4 { margin: 0 0 4px; }
-.q2-magnet-ask textarea { min-height: 3.2em; }
-.q2-magnet-optional { display: block; margin-top: 6px; font: var(--type-meta); }
-.q2-magnet-secondary-actions { margin: 14px 0 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
-.q2-magnet-secondary-actions h4 { margin: 0 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 72%, transparent); }
-
-.q2-magnet-questions { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.q2-magnet-question { width: 100%; text-align: left; padding: 6px 8px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 999px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.q2-magnet-question:hover, .q2-magnet-question:focus-visible { background: color-mix(in srgb, currentColor 12%, transparent); }
-
+/* -- the Collection's rows and the inline inspection ----------------------- *
+   `q2-magnet-evidence-row`, its text block and its preview belong to the
+   Collection surface, and `q2-magnet-inline-evidence` to the inspection; both
+   are kept as they are. */
 .q2-magnet-evidence-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left; padding: 8px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
 .q2-magnet-evidence-row:hover, .q2-magnet-evidence-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
 .q2-magnet-evidence-row[aria-expanded='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
@@ -72,7 +93,14 @@
 .q2-magnet-evidence-row .q2-magnet-preview { margin: 3px 0 0; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
 .q2-magnet-type-icon { flex: none; width: 1.2em; opacity: .75; }
 
-.q2-magnet-inline-evidence { display: block; margin: 6px 0 14px; padding: 2px 10px 10px; border-left: 2px solid color-mix(in srgb, currentColor 35%, transparent); overflow-wrap: anywhere; }
+/* The inspection is drawn inside the surface that opened it, under the row it
+   came from, with the design's own left rule rather than a border of its own. */
+.q2-magnet-inline-evidence { display: block; margin: 6px 0 14px; padding: 2px 0 10px 17px; border-left: 2px solid #d6ad54; overflow-wrap: anywhere; }
 .q2-magnet-inline-evidence dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0; }
 .q2-magnet-inline-evidence dt { font-weight: 600; }
 .q2-magnet-inline-evidence dd { margin: 0; }
+
+/* Perspectives keeps its own secondary block; the rule stays with the panel
+   that uses it until its owner moves it. */
+.q2-magnet-secondary-actions { margin: 14px 0 0; padding-top: 8px; border-top: 1px solid #50423c; }
+.q2-magnet-secondary-actions h4 { margin: 0 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 72%, transparent); }
