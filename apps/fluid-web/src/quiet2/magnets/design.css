@@ -284,3 +284,18 @@
   border-radius: 4px;
   line-height: 1.5;
 }
+
+/* ---- reach past the frame's own control reset ------------------------- */
+
+/* `magnet.css` opens with `.q2 .q2-magnet button { font: inherit }`, which is
+ * one element more specific than the rules above and so wins on every control
+ * the design gives a type of its own — the approved 13px/650 button, the 13px
+ * link, the 12px pill. Reported by Part C, which restated the values on its own
+ * surface to get past it; the fix belongs here, once, so every part composing
+ * from this file gets the design's type without restating anything.
+ *
+ * Same values as above, at a reach that carries. Nothing new is decided here. */
+.q2 .q2-magnet-card .mgd-button { font-size: 13px; font-weight: 650; font-family: inherit; }
+.q2 .q2-magnet-card .mgd-link { font-weight: 600; font-family: inherit; }
+.q2 .q2-magnet-card .mgd-link.mgd-small { font-size: 13px; }
+.q2 .q2-magnet-card .mgd-pill { font-size: 12px; font-family: inherit; }
