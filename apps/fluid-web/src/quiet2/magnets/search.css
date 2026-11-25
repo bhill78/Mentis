@@ -17,9 +17,14 @@
 .q2 .q2-magnet-search-scope[open]{border:1px solid #5a4e4b;border-radius:11px;padding:7px 11px 2px;background:#00000018}
 .q2 .q2-magnet-search-scope p{margin:6px 0}
 
-.q2 .q2-magnet-result-list li+li{margin-top:12px}
-.q2 .q2-magnet-result-list .q2-magnet-attribution{display:block}
-.q2 .q2-magnet-result{display:block}
+/* A result row reads as a record: what it is called, its own words, then where
+   it came from. One rule between rows, as the round-3 browse mockup shows. */
+.q2 .q2-magnet-result-list li{padding:10px 0}
+.q2 .q2-magnet-result-list li+li{margin-top:0;border-top:1px solid #ffffff14}
+.q2 .q2-magnet-result-list .q2-magnet-attribution{display:block;margin-top:4px;color:#a6968f;font-size:11px}
+.q2 .q2-magnet-result-list .q2-magnet-preview{margin:3px 0 0;color:#d7cbc6;font-size:12px;line-height:1.45}
+.q2 .q2-magnet-result{display:block;width:100%;text-align:left;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:600;cursor:pointer}
+.q2 .q2-magnet-result:hover,.q2 .q2-magnet-result:focus-visible{text-decoration:underline}
 
 .q2 .q2-magnet-empty{margin:12px 0 0;display:flex;flex-direction:column;align-items:flex-start;gap:7px}
 .q2 .q2-magnet-empty p{margin:0;color:#c1b3ad;font-size:12px;line-height:1.45}

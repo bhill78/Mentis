@@ -9,9 +9,16 @@
 .q2-magnet-detail dl > div { display: grid; grid-template-columns: minmax(7.5rem, 35%) 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
 .q2-magnet-detail dt { color: var(--text-faint); }
 .q2-magnet-detail dd { margin: 0; overflow-wrap: anywhere; }
-.q2-magnet-detail h3 { margin: 18px 0 5px; font: 600 .8125rem/1.3 var(--q2-sans, var(--font)); color: var(--text); }
+.q2-magnet-detail h3 { margin: 0 0 5px; font: 600 .8125rem/1.3 var(--q2-sans, var(--font)); color: var(--text); }
 .q2-magnet-detail ul { margin: 0; padding: 0; list-style: none; }
 .q2-magnet-detail li { padding: 4px 0; color: var(--text-dim); overflow-wrap: anywhere; }
+/* Sources lead the detail; the saved record and the editor are each one press
+   away (owner request ent-068c167fa7e6 §2, §4). */
+.q2-magnet-detail-sources .q2-magnet-source-rows li { border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.q2-magnet-detail-config, .q2-magnet-detail-about { margin: 16px 0 0; }
+.q2-magnet-detail-config > summary, .q2-magnet-detail-about > summary { cursor: pointer; width: max-content; color: var(--text-dim); font: var(--type-meta); }
+.q2-magnet-detail-config > summary:hover, .q2-magnet-detail-about > summary:hover { color: var(--text); }
+.q2-magnet-detail-about dl { margin-top: 8px; }
 .q2-magnet-help, .q2-magnet-create > p { margin: 8px 0; color: var(--text-faint); font: var(--type-meta); }
 .q2-magnet-alert { margin: 8px 0 12px; padding: 9px 11px; border-left: 3px solid var(--attention); border-radius: 4px; background: color-mix(in srgb, var(--attention) 8%, transparent); color: var(--text); font: var(--type-meta); }
 .q2-magnet-create label { display: block; margin: 14px 0 0; }

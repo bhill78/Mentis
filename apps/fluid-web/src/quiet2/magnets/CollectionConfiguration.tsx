@@ -52,6 +52,9 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const [arrangements, setArrangements] = useState<Choice[]>([{ id: 'home', name: 'Brain Home' }])
   const [arrangement, setArrangement] = useState(''), [sendable, setSendable] = useState(false), [holds, setHolds] = useState(false)
   const [locations, setLocations] = useState(false)
+  /** Which source kind is being added, if any. Empty is the resting state: the
+   *  two supported kinds are offered and neither one's controls are present. */
+  const [adding, setAdding] = useState<'' | 'conversation' | 'file'>('')
   const [message, setMessage] = useState(''), [reading, setReading] = useState(''), [saving, setSaving] = useState(false)
   const [alert, setAlert] = useState('')
   const alerted = useRef<HTMLParagraphElement>(null)
@@ -165,20 +168,43 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     </label>
     <p id="q2-magnet-name-note" className="q2-magnet-muted">This name is the Magnet’s own and does not change where it is shown.{committedName ? '' : ' It has none of its own yet, so it is currently named after where it is shown.'}</p>
 
+    {/* SOURCES ARE WHAT THIS PANEL IS FOR, so the configured ones are a plain
+        list with their own Remove, and adding one is PROGRESSIVE (owner request
+        ent-068c167fa7e6 §2, §4): the two supported kinds are offered, and only
+        the chosen kind's controls appear. Before a kind is picked there is no
+        Conversation search, no file collection chooser and no file list --
+        which is what "not all controls for all kinds at once" means here. */}
     <h4>Sources</h4>
-    <ul className="q2-magnet-items">{sources.map((s, i) => <li key={sourceIdentity(s)}><span>{sourceWords(s)}</span><button type="button" className="q2-magnet-link" disabled={locked} onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button></li>)}</ul>
+    <ul className="q2-magnet-items q2-magnet-source-rows">{sources.map((s, i) => <li key={sourceIdentity(s)}><span>{sourceWords(s)}</span><button type="button" className="q2-magnet-link" disabled={locked} onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button></li>)}</ul>
     <p role="status" aria-live="polite">{sources.length ? `${sources.length} of 20 sources chosen. Choose Conversations, files, or both.` : NO_SOURCE_TO_COLLECT}</p>
-    <details><summary>Add Conversations</summary><label>Find a Conversation<input type="search" value={query} disabled={locked} onChange={(e) => setQuery(e.target.value)} /></label><div className="q2-magnet-config-choices">{conversations.map((c) => <button type="button" key={c.id} disabled={locked || sources.some((s) => s.kind === 'conversation' && s.conversation === c.id)} onClick={() => add({ kind: 'conversation', conversation: c.id })}>Add {c.name}</button>)}</div>{next && <button type="button" className="q2-magnet-link" onClick={() => { const key = p.brainKey; void conversationChoices(query, next, new AbortController().signal).then((v) => { if (current.current.brainKey === key) { setConversations((old) => [...old, ...v.rows]); setNext(v.next) } }).catch((e) => setReading(e.message)) }}>More Conversations</button>}</details>
-    <details><summary>Add files</summary><label>Where the files are<select value={collection} disabled={locked} onChange={(e) => { setCollection(e.target.value); setFileOffset(0) }}><option value="">Choose a file collection</option>{collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Find a file<input type="search" value={fileQuery} disabled={locked} onChange={(e) => { setFileQuery(e.target.value); setFileOffset(0) }} /></label><div className="q2-magnet-config-choices">{files.map((f) => { const issue = exactFileIssue(collection, f.path) || (f.text !== true ? 'Only plain text files are supported.' : null); return <div key={f.path}><button type="button" disabled={locked || !!issue || sources.some((s) => s.kind === 'file' && s.collection === collection && s.path === f.path)} title={issue ?? undefined} onClick={() => add({ kind: 'file', collection, path: f.path })}>{f.path}</button>{issue && <small>{issue}</small>}{typeof f.size === 'number' && f.size > 65536 && <small>Only the first 64 KiB will be captured, ending on a UTF-8 character boundary.</small>}</div> })}</div><div>{fileOffset > 0 && <button type="button" className="q2-magnet-link" onClick={() => setFileOffset(Math.max(0, fileOffset - 40))}>Previous files</button>}{fileNext !== null && <button type="button" className="q2-magnet-link" onClick={() => setFileOffset(fileNext)}>More files</button>}</div></details>
+    <div className="q2-magnet-add-source" role="group" aria-label="Add a source">
+      <span className="q2-magnet-add-label">Add a source</span>
+      <button type="button" className="q2-magnet-kind" aria-expanded={adding === 'conversation'} disabled={locked}
+        onClick={() => { setAlert(''); setAdding(adding === 'conversation' ? '' : 'conversation') }}>Add Conversations</button>
+      <button type="button" className="q2-magnet-kind" aria-expanded={adding === 'file'} disabled={locked}
+        onClick={() => { setAlert(''); setAdding(adding === 'file' ? '' : 'file') }}>Add files</button>
+    </div>
+    {adding === 'conversation' && <div className="q2-magnet-kind-panel"><label>Find a Conversation<input type="search" value={query} disabled={locked} onChange={(e) => setQuery(e.target.value)} /></label><div className="q2-magnet-config-choices">{conversations.map((c) => <button type="button" key={c.id} disabled={locked || sources.some((s) => s.kind === 'conversation' && s.conversation === c.id)} onClick={() => add({ kind: 'conversation', conversation: c.id })}>Add {c.name}</button>)}</div>{next && <button type="button" className="q2-magnet-link" onClick={() => { const key = p.brainKey; void conversationChoices(query, next, new AbortController().signal).then((v) => { if (current.current.brainKey === key) { setConversations((old) => [...old, ...v.rows]); setNext(v.next) } }).catch((e) => setReading(e.message)) }}>More Conversations</button>}<button type="button" className="q2-magnet-link" onClick={() => setAdding('')}>Done adding Conversations</button></div>}
+    {adding === 'file' && <div className="q2-magnet-kind-panel"><label>Where the files are<select value={collection} disabled={locked} onChange={(e) => { setCollection(e.target.value); setFileOffset(0) }}><option value="">Choose a file collection</option>{collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Find a file<input type="search" value={fileQuery} disabled={locked} onChange={(e) => { setFileQuery(e.target.value); setFileOffset(0) }} /></label><div className="q2-magnet-config-choices">{files.map((f) => { const issue = exactFileIssue(collection, f.path) || (f.text !== true ? 'Only plain text files are supported.' : null); return <div key={f.path}><button type="button" disabled={locked || !!issue || sources.some((s) => s.kind === 'file' && s.collection === collection && s.path === f.path)} title={issue ?? undefined} onClick={() => add({ kind: 'file', collection, path: f.path })}>{f.path}</button>{issue && <small>{issue}</small>}{typeof f.size === 'number' && f.size > 65536 && <small>Only the first 64 KiB will be captured, ending on a UTF-8 character boundary.</small>}</div> })}</div><div>{fileOffset > 0 && <button type="button" className="q2-magnet-link" onClick={() => setFileOffset(Math.max(0, fileOffset - 40))}>Previous files</button>}{fileNext !== null && <button type="button" className="q2-magnet-link" onClick={() => setFileOffset(fileNext)}>More files</button>}</div><button type="button" className="q2-magnet-link" onClick={() => setAdding('')}>Done adding files</button></div>}
 
+    {/* WHAT IS COLLECTED, said before it is offered to be changed. The reader
+        sees the current selection as a sentence; the controls that change it,
+        the date limits and the limits of this build are one press away each
+        (§4: do not present every option at once). */}
     <h4>What to collect</h4>
-    <details><summary>Supported collection</summary><p className="q2-magnet-muted">{SUPPORTED_REASON}</p></details>
-    <div className="q2-magnet-config-types">{['post', 'file', 'image', 'attachment'].map((t) => <label key={t}><input type="checkbox" checked={types.includes(t)} disabled={locked} onChange={(e) => { setAlert(''); edit({ types: e.target.checked ? [...types, t] : types.filter((v) => v !== t) }) }} />{t}</label>)}</div>
-    <details><summary>Date limits</summary><p>Types and dates apply to Conversation content. Files are chosen one by one, by their exact path.</p><label>After (date or ISO time)<input type="text" placeholder="2026-01-01 or 2026-01-01T12:00:00Z" value={after} disabled={locked} onChange={(e) => { setAlert(''); edit({ after: e.target.value }) }} /></label><label>Before (date or ISO time)<input type="text" placeholder="2026-01-31 or 2026-01-31T12:00:00Z" value={before} disabled={locked} onChange={(e) => { setAlert(''); edit({ before: e.target.value }) }} /></label></details>
+    <p className="q2-magnet-muted">{types.length ? types.join(', ') : 'Nothing selected'}{after || before ? ` · ${after || 'any start'} to ${before || 'any end'}` : ''}</p>
+    <details><summary>Change what to collect</summary>
+      <div className="q2-magnet-config-types">{['post', 'file', 'image', 'attachment'].map((t) => <label key={t}><input type="checkbox" checked={types.includes(t)} disabled={locked} onChange={(e) => { setAlert(''); edit({ types: e.target.checked ? [...types, t] : types.filter((v) => v !== t) }) }} />{t}</label>)}</div>
+      <p className="q2-magnet-muted">{SUPPORTED_REASON}</p>
+    </details>
 
     {!supportsManualCollection(p.config) && <label><input type="checkbox" checked={manual} disabled={locked} onChange={(e) => edit({ manual: e.target.checked })} />Use supported manual collection: one extraction when I press Collect now, manual synthesis, no automatic notifications or agent processing. This replaces the saved collection and processing modes.</label>}
 
-    <details><summary>Collection limits</summary>
+    <details><summary>Limits and dates</summary>
+      <p>Types and dates apply to Conversation content. Files are chosen one by one, by their exact path.</p>
+      <label>After (date or ISO time)<input type="text" placeholder="2026-01-01 or 2026-01-01T12:00:00Z" value={after} disabled={locked} onChange={(e) => { setAlert(''); edit({ after: e.target.value }) }} /></label>
+      <label>Before (date or ISO time)<input type="text" placeholder="2026-01-31 or 2026-01-31T12:00:00Z" value={before} disabled={locked} onChange={(e) => { setAlert(''); edit({ before: e.target.value }) }} /></label>
+      <h5>Collection limits</h5>
       <h5>Supported here, and actionable</h5>
       <ul className="q2-magnet-items">{SUPPORTED_SOURCES.map((s) => <li key={s.kind}>{s.words}</li>)}</ul>
       <h5>Proposed only, and not offered as a choice</h5>

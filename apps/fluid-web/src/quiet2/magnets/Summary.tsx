@@ -26,9 +26,10 @@ import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSo
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
 import Inspection, { capturedText, evidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
-import { goTab, inspect, place } from './places'
+import { goTab, inspect, openOverlay, place } from './places'
 import { resultTitle } from './EvidenceViews'
 import { collectionRows } from './collectionRows'
+import { supportsManualCollection } from './configuration'
 import { miniComposerDraft, saveMiniComposer } from './conversation'
 import { setQuestionDraft, panelAt } from './panelDrafts'
 import { perspectivesOf, PERSPECTIVE_BLOCK_REASON, type InquiryEvent, type Perspective } from './perspectives'
@@ -356,6 +357,37 @@ export function exploreQuestion(resource: MagnetResource, question: string): voi
   goTab(resource, 'Perspectives')
 }
 
+/** THE EMPTY COLLECTION'S ONE OBVIOUS STARTING ACTION (owner request
+ *  ent-068c167fa7e6 §2, §4). With nothing collected the useful move is to say
+ *  where to look, so the empty state carries one press that opens Settings on
+ *  the sources -- not a wall of explanation, and not a second Collect control
+ *  whose authority this view does not hold. What the press says depends on
+ *  whether anything is configured yet, which is a fact of the saved definition
+ *  and needs no request. */
+export function startingAction(saved: SavedMagnet): { label: string; note: string } {
+  const sources = saved.config?.sources ?? []
+  if (!sources.length) return { label: 'Choose a source', note: 'Nothing is read until you choose where to look.' }
+  const named = `${sources.length} configured ${sources.length === 1 ? 'source' : 'sources'}.`
+  // Collection runs when the owner presses for it, and only where the saved
+  // modes support that. Nothing here says it happens on its own (§5).
+  return { label: 'Review sources', note: saved.config && supportsManualCollection(saved.config)
+    ? `${named} Collect when you are ready.`
+    : `${named} Collecting by hand is not configured yet; choose manual collection in Settings.` }
+}
+
+/** Opening Settings from the empty state. Kept as a function so the starting
+ *  action can be driven without a browser, like every other press here. */
+export function chooseSources(resource: MagnetResource): void {
+  openOverlay(resource, 'settings')
+}
+
+/** Going to the collected records themselves: the Collection, unfiltered. The
+ *  collected records are the working content, so every route into them from
+ *  here is this one place rather than a type-specific list. */
+export function browseCollection(resource: MagnetResource): void {
+  goTab(resource, 'All')
+}
+
 /** With nothing collected, a starter question is an ordinary message. The
  *  owner's own unsent words are never overwritten: that is what it returns. */
 export function askOrdinaryQuestion(resource: MagnetResource, question: string): string {
@@ -433,6 +465,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
 
   const overview = collectionOverview(resource.saved, s)
   const excerpts = collectedExcerpts(s.results)
+  const starting = startingAction(resource.saved)
   const questions = offeredQuestions(s, !!comparison)
   // Real retained items, offered as the Summary's supports.
   const supports = items.slice(0, 6)
@@ -458,12 +491,21 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
     <div className="q2-magnet-section-title">
       <h3 id="summary-title" tabIndex={-1}>Summary</h3>
       <span className="q2-magnet-count">{read ? `${posts.length} posts · ${files.length} files` : 'not read yet'}</span>
+      {/* One route into the collected records themselves, where the mockups put
+          it: beside the title, not as a line of its own (round 3, adm-b14a359a32b6). */}
+      {!!s.activation && !!items.length && <button type="button" className="q2-magnet-head-link" onClick={() => browseCollection(resource)}>Collected items →</button>}
     </div>
     {s.loading && <p className="q2-magnet-muted" role="status">Reading this collection…</p>}
     {read && !s.activation
       ? <div className="q2-magnet-collection-empty">
-          <p>No collected information yet. Conversation is still available.</p>
+          {/* A meaningful empty state: what is true, one obvious press, and the
+              ordinary route that works with nothing collected (§2, §4). */}
+          <p className="q2-magnet-empty-lead">No collected information yet. Conversation is still available.</p>
           <p className="q2-magnet-muted">Choose sources in Settings, then collect.</p>
+          <div className="q2-magnet-empty-actions">
+            <button type="button" className="q2-magnet-primary" onClick={() => chooseSources(resource)}>{starting.label}</button>
+            <span className="q2-magnet-muted">{starting.note}</span>
+          </div>
           <h4>Start a conversation</h4>
           <ul className="q2-magnet-questions">{questions.map((q) => <li key={q}>
             <button type="button" className="q2-magnet-question" onClick={() => askOrdinary(q)}>{q}</button>
@@ -474,41 +516,56 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
             the collection, so nothing below is claimed: the facts line says it
             has not been read, and that is the whole of it. */}
         {!!s.activation && <>
-        <div className="q2-magnet-written">
-          {overview.map((line, i) => <p key={i}>{line}</p>)}
-          {!!overview.length && <details className="q2-magnet-provenance"><summary>About this overview</summary><p className="q2-magnet-muted">{EXTRACTIVE_LABEL}</p></details>}
-        </div>
-
-        {!!excerpts.length && <section className="q2-magnet-understanding" aria-label="In the collected records’ own words">
-          <h4>In the records’ own words</h4>
-          <ul className="q2-magnet-items">{excerpts.map((e) => <li key={e.id}>
+        {/* THE COLLECTED RECORDS COME FIRST (owner request ent-068c167fa7e6 §2:
+            "Make collected information the primary working content"). What was
+            collected is read before anything measured about it, and every row
+            opens the record it quotes. */}
+        {!!excerpts.length && <section className="q2-magnet-understanding q2-magnet-records" aria-label="In the collected records’ own words">
+          <div className="q2-magnet-records-head">
+            <h4>In the records’ own words</h4>
+            {items.length > excerpts.length && <button type="button" className="q2-magnet-link" onClick={() => browseCollection(resource)}>
+              All {items.length} collected items →</button>}
+          </div>
+          <ul className="q2-magnet-items q2-magnet-record-list">{excerpts.map((e) => <li key={e.id}>
             <button type="button" className="q2-magnet-quote-row" id={`excerpt-${e.id}`} aria-expanded={here.inspected === e.id}
               onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>
+              <strong className="q2-magnet-record-title">{e.title}</strong>
               <span className="q2-magnet-quote">“{e.text}{e.text.length >= 220 ? '…' : ''}”</span>
-              <small className="q2-magnet-muted">{e.title} · {e.origin}</small>
+              <small className="q2-magnet-muted">{e.origin}</small>
             </button>
           </li>)}</ul>
         </section>}
 
-        <section className="q2-magnet-understanding" aria-label="Changes since the previous collection">
-          <h4>What changed</h4>
-          {comparison
-            ? <><p>{comparison.words}</p>
-              {!!comparison.added.length && <ul className="q2-magnet-items">{comparison.added.map((e) => <li key={e.id}>
-                <button type="button" className="q2-magnet-link" onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>{e.title}</button>
-                <p className="q2-magnet-quote">“{e.text}”</p>
-              </li>)}</ul>}
-              <p className="q2-magnet-muted">Compared against the collection from {when(comparison.at) ?? 'earlier'}. Both are captured copies; neither source was read again.</p></>
-            : <><p className="q2-magnet-muted">{NO_COMPARISON}</p>
-              <button type="button" className="q2-magnet-link" disabled={comparing || !batch} onClick={compare}>
-                {comparing ? 'Reading the previous collection…' : 'Compare with the previous collection'}</button></>}
-        </section>
+        <div className="q2-magnet-written">
+          {overview.map((line, i) => <p key={i}>{line}</p>)}
+          {!!overview.length && <details className="q2-magnet-provenance"><summary>About this overview</summary><p className="q2-magnet-muted">{EXTRACTIVE_LABEL}</p></details>}
+        </div>
 
         <section className="q2-magnet-understanding" aria-label="Questions to explore">
           <h4>Questions to explore</h4>
           <ul className="q2-magnet-questions">{questions.map((q) => <li key={q}>
             <button type="button" className="q2-magnet-question" onClick={() => exploreQuestion(resource, q)}>{q}</button>
           </li>)}</ul>
+        </section>
+
+        {/* Comparing two collections is something the owner asks for, so it is
+            disclosed rather than standing open under the records (§4). It opens
+            itself once a comparison has been made, because then it has
+            something to say. */}
+        <section className="q2-magnet-understanding" aria-label="Changes since the previous collection">
+          <details className="q2-magnet-provenance" open={!!comparison}>
+            <summary>What changed</summary>
+            {comparison
+              ? <><p>{comparison.words}</p>
+                {!!comparison.added.length && <ul className="q2-magnet-items">{comparison.added.map((e) => <li key={e.id}>
+                  <button type="button" className="q2-magnet-link" onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>{e.title}</button>
+                  <p className="q2-magnet-quote">“{e.text}”</p>
+                </li>)}</ul>}
+                <p className="q2-magnet-muted">Compared against the collection from {when(comparison.at) ?? 'earlier'}. Both are captured copies; neither source was read again.</p></>
+              : <><p className="q2-magnet-muted">{NO_COMPARISON}</p>
+                <button type="button" className="q2-magnet-link" disabled={comparing || !batch} onClick={compare}>
+                  {comparing ? 'Reading the previous collection…' : 'Compare with the previous collection'}</button></>}
+          </details>
         </section>
 
         <Questions resource={resource} rows={lens.rows} events={lens.events} loading={loadingQuestions || lens.loading}

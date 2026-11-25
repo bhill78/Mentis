@@ -94,5 +94,21 @@ export default function BatchHistory({ resource }: { resource: MagnetResource })
     catch (e) { if (alive.current) setError((e as Error).message) }
     finally { if (alive.current) setBusy(false) }
   }
-  return <section aria-label="Collection history"><h3>Collection history</h3><p>Earlier collections keep their original captured content. Selecting one never collects or refreshes its sources.</p><button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void choose(null)}>Show the latest collection</button><ul className="q2-magnet-items">{rows.map((b) => <li key={b.artifact.ref}><button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void choose(b)}>{batchLabel(b)}</button><small>{b.artifact.size.toLocaleString()} bytes</small></li>)}</ul>{next && <button type="button" disabled={busy} onClick={() => void load(next)}>Earlier collections</button>}{busy && <p role="status">Reading collection history…</p>}{error && <p role="status">{error}</p>}</section>
+  /** Which collection is on screen now, so the list says where the reader is
+   *  rather than offering a row that is already what they are looking at. The
+   *  snapshot is read, never a request. */
+  const shown = resource.snapshot().activation?.artifact.ref ?? null
+  const chosen = resource.snapshot().batchSelection?.ref ?? null
+  return <section aria-label="Collection history">
+    <h3>Collection history</h3>
+    <p>Earlier collections keep their original captured content. Selecting one never collects or refreshes its sources.</p>
+    <button type="button" className="q2-magnet-link" disabled={busy || !chosen} onClick={() => void choose(null)}>Show the latest collection</button>
+    <ul className="q2-magnet-items q2-magnet-history-rows">{rows.map((b) => <li key={b.artifact.ref} aria-current={b.artifact.ref === shown ? 'true' : undefined}>
+      <button type="button" className="q2-magnet-link" disabled={busy || b.artifact.ref === shown} onClick={() => void choose(b)}>{batchLabel(b)}</button>
+      <small>{b.artifact.ref === shown ? 'Showing this one' : `${b.artifact.size.toLocaleString()} bytes`}</small>
+    </li>)}</ul>
+    {next && <button type="button" disabled={busy} onClick={() => void load(next)}>Earlier collections</button>}
+    {busy && <p role="status">Reading collection history…</p>}
+    {error && <p role="status">{error}</p>}
+  </section>
 }

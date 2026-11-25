@@ -171,18 +171,30 @@ export default function Management(p: {
           {rows && <p className="q2-brain-foot"><span>{shown.length} of {rows.length} {rows.length === 1 ? 'Magnet' : 'Magnets'}</span><button type="button" className="q2-link" onClick={() => setRevision((n) => n + 1)}>Refresh</button></p>}
         </>}
 
+        {/* WHAT THIS MAGNET LOOKS AT COMES FIRST (owner request ent-068c167fa7e6
+            §2: viewing and managing configured sources, with the administrative
+            record disclosed rather than stacked in front of it). The identity,
+            the saved modes and the Magnet's own Conversation are all still here
+            and still exact; they are one press away instead of the first screen. */}
         {view === 'detail' && chosen && <div className="q2-magnet-detail">
           {chosen.reason && <p className="q2-magnet-alert" role="alert">{chosen.reason}</p>}
-          <dl>
-            <div><dt>Name</dt><dd>{magnetName(chosen.config, chosen.name)}{magnetName(chosen.config, '') ? '' : ' · named after where it is shown'}</dd></div>
-            <div><dt>Identity</dt><dd>{chosen.id}</dd></div>
-            <div><dt>Sources</dt><dd>{sourceSummary(chosen.config)}</dd></div>
-            <div><dt>Collection</dt><dd>{chosen.config?.collection?.mode ?? 'Not configured'}</dd></div>
-            <div><dt>Synthesis</dt><dd>{chosen.config?.synthesis?.mode ?? 'Not configured'}</dd></div>
-            <div><dt>Own Conversation</dt><dd>{chosen.config?.conversation ?? 'Not opened yet'}</dd></div>
-          </dl>
-          {!!chosen.config?.sources?.length && <section><h3>Configured sources</h3><ul>{chosen.config.sources.map((item, i) => <li key={i}>{sourceItemWords(item)}</li>)}</ul></section>}
-          {chosen.config && p.brainKey && <details><summary>Edit collection configuration</summary><CollectionConfiguration key={chosen.id} magnet={chosen.id} config={chosen.config} brainKey={p.brainKey} canWrite={p.canCreate} onSaved={(config) => setRows((old) => old?.map((r) => r.id === chosen.id ? { ...r, config, reason: undefined } : r) ?? null)} /></details>}
+          <section className="q2-magnet-detail-sources">
+            <h3>Sources</h3>
+            {chosen.config?.sources?.length
+              ? <ul className="q2-magnet-source-rows">{chosen.config.sources.map((item, i) => <li key={i}>{sourceItemWords(item)}</li>)}</ul>
+              : <p className="q2-magnet-help">{chosen.config ? 'No sources yet. This Magnet is ready to converse; choose what it collects below.' : 'Unavailable here.'}</p>}
+          </section>
+          {chosen.config && p.brainKey && <details className="q2-magnet-detail-config"><summary>Change sources and what to collect</summary><CollectionConfiguration key={chosen.id} magnet={chosen.id} config={chosen.config} brainKey={p.brainKey} canWrite={p.canCreate} onSaved={(config) => setRows((old) => old?.map((r) => r.id === chosen.id ? { ...r, config, reason: undefined } : r) ?? null)} /></details>}
+          <details className="q2-magnet-detail-about"><summary>About this Magnet</summary>
+            <dl>
+              <div><dt>Name</dt><dd>{magnetName(chosen.config, chosen.name)}{magnetName(chosen.config, '') ? '' : ' · named after where it is shown'}</dd></div>
+              <div><dt>Identity</dt><dd>{chosen.id}</dd></div>
+              <div><dt>Sources</dt><dd>{sourceSummary(chosen.config)}</dd></div>
+              <div><dt>Collection</dt><dd>{chosen.config?.collection?.mode ?? 'Not configured'}</dd></div>
+              <div><dt>Synthesis</dt><dd>{chosen.config?.synthesis?.mode ?? 'Not configured'}</dd></div>
+              <div><dt>Own Conversation</dt><dd>{chosen.config?.conversation ?? 'Not opened yet'}</dd></div>
+            </dl>
+          </details>
           <div className="q2-magnet-actions"><button type="button" className="q2-magnet-primary" disabled={!openableMagnet(chosen)} onClick={() => { if (openableMagnet(chosen)) p.onOpen(chosen) }}>Open in current workspace</button></div>
         </div>}
 

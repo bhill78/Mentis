@@ -301,16 +301,21 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
       <summary>What was searched</summary>
       {sentences.map((line, n) => <p key={`${n}:${line}`} className="q2-magnet-muted">{line}</p>)}
     </details>
+    {/* A result reads as the record it stands for -- what it is called, its own
+        opening words, then where it came from -- rather than as a typed index
+        row with its classification first (owner request ent-068c167fa7e6 §2:
+        the collected records are the working content). The kind is still said,
+        and is still the filter's vocabulary; it has stopped leading the row. */}
     {matches.length
       ? <ul className="q2-magnet-items q2-magnet-result-list">
           {matches.map((e) => <li key={e.key}>
-            <span className="q2-magnet-attribution">{searchTypeLabel(e.kind)}</span>
             <button type="button" className="q2-magnet-item q2-magnet-result" onClick={() => {
               opened.current = null
               const target = openResult(resource, e)
               if (target) opened.current = { target, entry: e }
             }}>{e.title}</button>
             {e.text && <p className="q2-magnet-preview">{e.text.slice(0, PREVIEW)}</p>}
+            <span className="q2-magnet-attribution">{searchTypeLabel(e.kind)}</span>
           </li>)}
         </ul>
       : <div className="q2-magnet-empty">
