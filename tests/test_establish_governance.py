@@ -178,3 +178,44 @@ def test_a_successor_without_placement_keeps_its_predecessors(world, tmp_path):
     assert len(succ) == 1 and corpus.stands(succ[0])["stands"]
     assert corpus.read([succ[0]])[0]["body"] == new
     assert cv.placement_delivery(succ[0], WHOLE_BRAIN_SCOPE) is None
+
+
+def test_a_consolidating_successor_replaces_several_rules_in_one_act(world, tmp_path):
+    st, owner = world["st"], world["owner"]
+    cv, corpus = st.cv, st.corpus
+    olds = []
+    for words in ("Organise coordinated work.", "Verify at the end.", "Finish your tests."):
+        e = corpus.create_and_establish(kind="rule", body={"text": words},
+                                        attributed_to=owner)
+        cv.place(e, whole_brain=True, by=owner, because="old practice")
+        olds.append(e)
+    items = [{"key": "dev", "title": "How development work runs",
+              "text": "One short rule for development work.",
+              "replaces": olds[0], "also_replaces": olds[1:]}]
+    path = _decisions(tmp_path, items)
+    assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
+                      "--attributed-to", owner]) == 0
+    succ = corpus.stands(olds[0])["superseded_by"]
+    assert len(succ) == 1 and corpus.stands(succ[0])["stands"]
+    for e in olds:
+        assert not corpus.stands(e)["stands"]
+        assert corpus.stands(e)["superseded_by"] == succ
+
+
+def test_a_redelivery_changes_only_the_delivery_level(world, tmp_path):
+    st, owner = world["st"], world["owner"]
+    cv, corpus = st.cv, st.corpus
+    rule = corpus.create_and_establish(kind="rule", body={"text": "Close superseded rounds."},
+                                       attributed_to=owner)
+    cv.place(rule, whole_brain=True, by=owner, because="old practice")
+    p = tmp_path / "decisions.json"
+    p.write_text(json.dumps({"items": [], "redeliver": [
+        {"entry": rule, "title": "Close superseded rounds", "delivery": "conditional",
+         "when": "a later round supersedes earlier work", "because": "only when it applies"}]}),
+        encoding="utf-8")
+    assert tool.main(["--server", world["url"], "--decisions", str(p), "--apply",
+                      "--attributed-to", owner]) == 0
+    assert corpus.stands(rule)["stands"]
+    got = cv.placement_delivery(rule, WHOLE_BRAIN_SCOPE)
+    assert got["delivery"] == "conditional" and "supersedes" in got["when"], got
+    assert len(cv.placement_links_now(rule, cv.whole_brain())) == 1

@@ -5647,27 +5647,6 @@ def _resource_operation(cv, name: str, args: dict, grant: dict, *,
         raise NotPermitted(str(exc)) from None
 
 
-def _in_checkout(path: str) -> bool:
-    """Whether `path` is inside a Git working tree: it, or a directory above
-    it, holds `.git` (a directory for a clone, a file for a worktree). The
-    path is resolved first, so a link or junction into a checkout's
-    subdirectory is judged by where it really leads (found by review)."""
-    cur = os.path.realpath(path)
-    while True:
-        if os.path.exists(os.path.join(cur, ".git")):
-            return True
-        up = os.path.dirname(cur)
-        if up == cur:
-            return False
-        cur = up
-
-
-def _overlaps(a: str, b: str) -> bool:
-    """Whether one directory is, or contains, the other."""
-    from mentis.operations import inside
-    return inside(a, b) or inside(b, a)
-
-
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     """The operations beyond reading, each bounded by the grant it arrived with.
 
@@ -7546,24 +7525,16 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 raise NotPermitted(
                     f"{reviewed!r} is neither this work nor work it "
                     "delegated, so it is not this run's to hand to a review")
+            # WHERE A REVIEW WORKS (owner, 2026-11-25): a review needs reliable
+            # evidence of the exact candidate, not a duplicate of its
+            # environment. An unnamed review works where the reviewed work
+            # was done and reads the exact commit there (git show / diff) and
+            # the running candidate; a separate review workspace is named only
+            # when the review must build or test in isolation.
             theirs = _declared(cv, reviewed)
             path = (theirs if isinstance(theirs, str) else
                     theirs.get("path") if isinstance(theirs, dict) else None)
             named = (repository or {}).get("path")
-            if path and _in_checkout(path):
-                if not named:
-                    raise NotPermitted(
-                        f"the work under review was done in the checkout "
-                        f"{path!r}; a review does not work in its author's "
-                        "checkout. Name the review's own workspace "
-                        "(repository: an absolute directory holding a separate "
-                        "checkout, reused across review rounds), and check out "
-                        "the exact commit under review there.")
-                if _overlaps(named, path):
-                    raise NotPermitted(
-                        f"the review workspace {named!r} overlaps the checkout "
-                        f"{path!r} the work under review was done in; name a "
-                        "separate directory for the review")
             where = named or path
             repository = {"review_of": reviewed, **({"path": where} if where else {})}
         # HOW FAR THE CHILD REACHES. Bounded by default: it receives what this

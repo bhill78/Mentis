@@ -3,8 +3,8 @@
 A part's corrections are handed the part's existing checkout (`repository`), and
 a review works in its OWN review workspace while still naming what it reviews
 (`review_of`), so a standing review checkout can be reused across rounds and the
-review keeps avoiding its author's runtime. A review is never put to work in the
-checkout its author declared.
+review keeps avoiding its author's runtime. Since 2026-11-25 a review that names
+no workspace works where the reviewed work was done.
 
 Checked through the real delegate operation and the real dispatch path, with
 only the runs scripted (`tests/_loop.runs`).
@@ -84,28 +84,61 @@ def test_a_correction_is_handed_the_parts_existing_checkout(world, built):
         os.path.normpath(b["builder_ws"])
 
 
-def test_a_review_without_its_own_workspace_is_refused_in_the_authors_checkout(
-        world, built):
-    from mentis.worker import NotPermitted
+def test_an_unnamed_review_works_where_the_reviewed_work_was_done(world, built):
+    """Owner, 2026-11-25: a review needs evidence of the exact candidate, not a
+    duplicate environment. Unnamed, it works in the reviewed checkout."""
+    from mentis.web.dispatch import declared, declared_workspace
     b = built
-    with pytest.raises(NotPermitted, match="does not work in its author's checkout"):
-        _delegate(world, b["grant"], participant=b["rev"], work="review part A",
-                  persona=b["reviewer"], review_of=b["part"]["expectation"])
+    cv = world["cv"]
+    review = _delegate(world, b["grant"], participant=b["rev"], work="review part A",
+                       persona=b["reviewer"], review_of=b["part"]["expectation"])
+    assert declared(cv, review["expectation"])["review_of"] == b["part"]["expectation"]
+    assert declared_workspace(cv, review["expectation"]) ==         os.path.normpath(b["builder_ws"])
 
 
 @pytest.mark.parametrize("where", ["same", "inside", "around"])
-def test_a_review_workspace_overlapping_the_authors_checkout_is_refused(
+def test_a_named_review_workspace_may_overlap_the_authors_checkout(
         world, built, where):
-    from mentis.worker import NotPermitted
+    from mentis.web.dispatch import declared_workspace
     b = built
     path = {"same": b["builder_ws"],
             "inside": os.path.join(b["builder_ws"], "sub"),
             "around": str(b["tmp"])}[where]
     os.makedirs(path, exist_ok=True)
-    with pytest.raises(NotPermitted, match="overlaps the checkout"):
-        _delegate(world, b["grant"], participant=b["rev"], work="review part A",
-                  persona=b["reviewer"], review_of=b["part"]["expectation"],
-                  repository=path)
+    review = _delegate(world, b["grant"], participant=b["rev"], work="review part A",
+                       persona=b["reviewer"], review_of=b["part"]["expectation"],
+                       repository=path)
+    assert declared_workspace(world["cv"], review["expectation"]) ==         os.path.normpath(path)
+
+
+def test_a_review_of_coordinated_work_avoids_the_runtime_that_authored_it(
+        world, built):
+    """Found 2026-11-25: reviewing the carrier's request avoided the carrier's
+    runtime (codex) although the work was authored by a delegated run on
+    another runtime. The author is read from the delegated runs."""
+    from mentis.web.dispatch import review_signal_of
+    b = built
+    cv = world["cv"]
+    impl = _delegate(world, b["grant"], participant=b["bob"],
+                     work="integrate the parts", repository=b["builder_ws"],
+                     runtime="claude")
+    assert "error" not in impl, impl
+    _run(world, impl)
+    assert _started(cv, impl["expectation"])["runtime"] == "claude"
+    review, ran, said = review_signal_of(cv, b["reviewer"],
+                                         {"review_of": b["top"]})
+    assert review and ran == "claude", said
+
+
+def test_a_review_of_work_that_delegated_nothing_avoids_its_own_runtime(
+        world, built):
+    from mentis.web.dispatch import review_signal_of
+    b = built
+    cv = world["cv"]
+    _run(world, b["part"])
+    review, ran, said = review_signal_of(cv, b["reviewer"],
+                                         {"review_of": b["part"]["expectation"]})
+    assert review and ran == "codex", said
 
 
 def test_a_review_works_in_its_own_workspace_and_stays_independent(world, built):
@@ -149,27 +182,3 @@ def test_a_review_of_work_in_a_workspace_root_still_works_there(world, runs, tmp
                        review_of=part["expectation"])
     assert declared_workspace(cv, review["expectation"]) == os.path.normpath(root)
 
-
-def test_a_link_into_the_authors_checkout_is_still_the_authors_checkout(world, runs, tmp_path):
-    """A declared directory that is a junction into a subdirectory of a checkout
-    is judged by where it leads, so a review is not put to work there."""
-    import _winapi
-    from mentis.worker import NotPermitted
-    cv = world["cv"]
-    cid = a_conversation(world)
-    say(world, cid, "@Ada build it", action="ask-participant",
-        dispatch=[{"participant": world["who"]["@Ada"], "work": "build it",
-                   "runtime": "codex"}])
-    grant = runs[-1]
-    inner = tmp_path / "checkout" / "crate"
-    os.makedirs(inner)
-    _checkout(tmp_path / "checkout")
-    alias = str(tmp_path / "alias-to-crate")
-    _winapi.CreateJunction(str(inner), alias)
-    part = _delegate(world, grant, participant=cv.create_participant("@Bob"),
-                     work="build the crate", repository=alias)
-    with pytest.raises(NotPermitted, match="does not work in its author's checkout"):
-        _delegate(world, grant, participant=cv.create_participant("@Rev"),
-                  work="review the crate",
-                  persona=cv.define_persona("Reviewer", "Review the work."),
-                  review_of=part["expectation"])
