@@ -20,13 +20,16 @@ import { CLIENT_HEADERS } from '../../api'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
 import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
-import { inspect, place, placeKeyOf, writePlace } from './places'
+import { MAGNET_COLLECTION_FILTERS, goTab, inspect, place, placeKeyOf, writePlace } from './places'
 import { SUPPORTING_WHY } from './perspectives'
 import CollectionConfiguration from './CollectionConfiguration'
-import { magnetName } from './configuration'
+import { SearchToolbar } from './SearchView'
+import { magnetName, supportsManualCollection } from './configuration'
+import './design.css'
 import './summary.css'
 import './perspectives.css'
 import './configuration.css'
+import './collection.css'
 
 const words = (v: unknown) => typeof v === 'string' ? v : ''
 const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {}
@@ -40,6 +43,15 @@ function rowWhen(at?: number | null): string | null {
     ? `today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
     : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
+/** When a collection was last captured, the way the approved browse line says
+ *  it ("Collected today"): a day, never the raw recorded number. The Sources
+ *  surface gives the clock as well (`CollectionConfiguration.lastCollected`). */
+export function collectedDay(at?: number | null): string | null {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return null
+  const d = new Date(at * 1000)
+  return d.toDateString() === new Date().toDateString() ? 'today' : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
 /* -- WHO, BY NAME ------------------------------------------------------------
    The collection read states a post's author as the participant's recorded
    entry id (`route.ts` `author`), which is exactly the raw identifier the
@@ -197,14 +209,14 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
    *  mockup round 3, 04-browse.png): a title a reader recognises, its captured
    *  excerpt, and who or when it was captured, never a raw id, a recorded
    *  digest or a type glyph. */
-  const rows = () => <ul className="q2-magnet-items">
-    {items.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
+  const rows = () => <ul className="q2-magnet-items q2-magnet-collected-items">
+    {items.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`} className="mgd-item">
       <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
         onClick={() => inspect(resource, r.id, `item-${r.id}`)}>
         <span className="q2-magnet-row-text">
-          <strong>{resultTitle(r)}</strong>
+          <b>{resultTitle(r)}</b>
           {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
-          <small className="q2-magnet-muted">{rowByline(r, named)}</small>
+          <small className="mgd-subtle">{rowByline(r, named)}</small>
         </span>
       </button>
       {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
@@ -212,7 +224,7 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
         <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>View the collected post</button>}
     </li>)}
   </ul>
-  const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…'
+  const empty = (what: string) => <p className="mgd-p mgd-muted">{s.loading ? 'Reading…'
     : s.error || s.reason || (!read ? 'This collection has not been read yet. Opening never collects and never reads a live source.'
       : !s.activation ? 'No collected information yet. Conversation is still available.'
         : partial ? `No ${what} collected so far. More may be available.` : `No ${what} in what this Magnet collects.`)}</p>
@@ -220,39 +232,72 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
    *  item this list does not hold still has to be readable. */
   const elsewhere = here.inspected && !items.some((r) => r.id === here.inspected)
   // SOURCE MANAGEMENT, INTEGRATED INTO COLLECTION (approved mockup round 3,
-  // 03-sources.png / 04-browse.png): the unified `All` place toggles between
-  // the collected items above and its own Sources, reusing B's panel exactly
-  // as Settings does -- the staged draft lives in `panelDrafts`, keyed by
-  // Brain and Magnet rather than by which copy of the panel is on screen, so
-  // editing here and editing in Settings is the same unsaved edit. This needs
-  // no seam into Host or the frame: `resource` already carries what it saves
-  // through (`saved.config`, `saved.id`).
+  // 03-sources.png / 04-browse.png): the unified `All` place shows either the
+  // collected items or its own Sources, reusing B's panel exactly as Settings
+  // does -- the staged draft lives in `panelDrafts`, keyed by Brain and Magnet
+  // rather than by which copy of the panel is on screen, so editing here and
+  // editing in Settings is the same unsaved edit. This needs no seam into Host
+  // or the frame: `resource` already carries what it saves through
+  // (`saved.config`, `saved.id`).
   //
   // The disclosure is the place's own (`contract.ts` `MagnetPlace.sources`),
   // not local state: the shell's own "Sources" entry (`Magnet.tsx`,
   // `showSourcesInline`) writes the same flag, so the two are one entry, not
   // a second implementation of source management.
   const config = resource.saved.config
-  const showSources = here.sources
-  const integrated = lens === 'All' && !!config
+  const showSources = lens === 'All' && !!config && here.sources
   const mayWriteArrangement = canWrite ?? NO_WRITE
-  return <section>
-    {integrated && <p className="q2-magnet-collection-toggle">
-      {showSources
-        ? <button type="button" className="q2-magnet-link" onClick={() => writePlace(resource, placeKeyOf(s), { sources: false })}>Collected items{read ? ` · ${items.length}` : ''} →</button>
-        : <button type="button" className="q2-magnet-link" onClick={() => writePlace(resource, placeKeyOf(s), { sources: true })}>Sources{config!.sources.length ? ` · ${config!.sources.length}` : ''}</button>}
+  if (showSources) return <CollectionConfiguration magnet={resource.saved.id} config={config!} brainKey={resource.brainKey}
+    inCollection resource={resource} canWrite={mayWriteArrangement}
+    onBrowse={() => writePlace(resource, placeKeyOf(s), { sources: false })}
+    onSaved={(next) => {
+      resource.saved.config = next; resource.saved.name = magnetName(next, resource.saved.name); resource.saved.reason = undefined
+      resource.update({ title: resource.saved.name }); void resource.read()
+    }} />
+  // COLLECTED ITEMS, to the approved design (04-browse.png): the place's own
+  // heading block with the counterpart link on its row, the search and the
+  // type filters under it, the rows, and one closing line. The frame no longer
+  // draws the filter row or a search box (plan seam 1): the controls are the
+  // same ones, drawn where the design puts them. Nothing is said twice.
+  const collectable = !!config && supportsManualCollection(config)
+  const mayCollect = mayWriteArrangement('home') && collectable && !s.collecting
+  const collectedOn = collectedDay(s.activation?.at)
+  return <section className="q2-magnet-collected">
+    <div className="mgd-row mgd-spread q2-magnet-place-head">
+      <div className="mgd-grow">
+        <div className="mgd-eyebrow">Collection</div>
+        <h2 id="view-title" className="mgd-h2" tabIndex={-1}>Collected items{read && <span className="mgd-subtle"> {items.length}</span>}</h2>
+      </div>
+      {!!config && <button type="button" className="mgd-link mgd-small q2-magnet-place-link"
+        onClick={() => { goTab(resource, 'All'); writePlace(resource, 'All', { sources: true }) }}>Sources · {config.sources.length} →</button>}
+    </div>
+    <SearchToolbar resource={resource} placeholder="Search collected items" />
+    {/* SEAM: `04-browse.png` shows four pills -- All / Posts / Files / Images.
+        Three exist: the lens state has `MAGNET_COLLECTION_TABS`, and the place
+        keys behind them are `contract.ts`'s `MAGNET_TABS`. Both are shared,
+        carrier-owned files this part does not change, so the fourth is not
+        drawn here rather than drawn with nothing behind it. Images are in the
+        collection and are listed under `Files` and `All`, as they were. */}
+    <div className="mgd-row q2-magnet-type-pills" role="group" aria-label="Show in the collection">
+      {/* Which filter is showing is this view's own identity -- Host mounts the
+          one instance that matches the tab -- so the pill follows `lens` rather
+          than re-deriving it from the snapshot. The filters themselves, and
+          what pressing one does, are `places.ts`'s and unchanged. */}
+      {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className={`mgd-pill${lens === f.tab ? ' mgd-active' : ''}`}
+        aria-pressed={lens === f.tab} onClick={() => goTab(resource, f.tab)}>{f.tab}</button>)}
+    </div>
+    {partial && read && !!s.activation && <p className="mgd-subtle q2-magnet-partial">This collection is partial.</p>}
+    {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
+    {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
+    {/* The one closing line the design gives this surface: when it was
+        collected, and the way to collect again. The same `resource.collect()`
+        the header used to offer (plan seam 3), under the same capability the
+        panel's own save is gated by -- never an offer of a write that would
+        then be refused. */}
+    {!!config && <p className="mgd-subtle q2-magnet-collected-line">
+      {collectedOn ? `Collected ${collectedOn}` : 'Not collected yet'} · <button type="button" className="mgd-link mgd-small"
+        disabled={!mayCollect} title={collectable ? undefined : 'Manual collection is not configured'}
+        onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
     </p>}
-    {integrated && showSources ? <CollectionConfiguration magnet={resource.saved.id} config={config!} brainKey={resource.brainKey} inCollection
-        canWrite={mayWriteArrangement} onSaved={(next) => {
-          resource.saved.config = next; resource.saved.name = magnetName(next, resource.saved.name); resource.saved.reason = undefined
-          resource.update({ title: resource.saved.name }); void resource.read()
-        }} /> : <>
-      <p id="view-title" className="q2-magnet-view-meta" tabIndex={-1}>
-        {read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'Not read yet'}
-        {partial && read && !!s.activation && ' · this collection is partial.'}
-      </p>
-      {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
-      {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
-    </>}
   </section>
 }

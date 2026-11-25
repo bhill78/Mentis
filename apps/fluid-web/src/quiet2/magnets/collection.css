@@ -1,0 +1,73 @@
+/* COLLECTION, TO THE APPROVED ROUND-3 DESIGN (03-sources.png, 04-browse.png).
+ *
+ * Everything that carries the design itself -- the type scale, the spacing,
+ * the colours, the pills, the search box, the rules between rows -- is
+ * `design.css`'s `mgd-` classes, composed from and never copied here. This
+ * file only does what composing cannot: reset the controls these surfaces are
+ * built from so the design's own rules land on them unaltered, and place the
+ * few blocks the mockups show in relation to each other.
+ *
+ * Nothing here restates a value from `design.css`. A rule that needed one and
+ * did not find it is reported, not invented.
+ */
+
+/* ---- the place's heading block (seam 4) -------------------------------- */
+
+/* `mgd-eyebrow` over `mgd-h2`, with the counterpart link on the same row at
+   the far edge. The link sits on the heading's baseline, not the block's
+   centre, which is where both mockups put it. */
+.q2 .q2-magnet-place-head { align-items: flex-end; margin: 0 0 14px; }
+.q2 .q2-magnet-place-head .mgd-h2 { margin-bottom: 0; }
+.q2 .q2-magnet-place-link { flex: none; white-space: nowrap; padding-bottom: 4px; }
+
+/* ---- collected items (04-browse.png) ----------------------------------- */
+
+/* The search box is `mgd-search`; the label around it only has to stop being a
+   layout of its own and give the clear control somewhere to sit. */
+.q2 .q2-magnet-collected .q2-magnet-search,
+.q2 .q2-magnet-results .q2-magnet-search { position: relative; display: block; margin: 0; padding: 0; border: 0; background: none; }
+.q2 .q2-magnet-collected .q2-magnet-search .q2-magnet-icon,
+.q2 .q2-magnet-results .q2-magnet-search .q2-magnet-icon { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+
+/* The type filters, between the search and the first item. */
+.q2 .q2-magnet-type-pills { margin: 15px 0; flex-wrap: wrap; gap: 8px; }
+
+.q2 .q2-magnet-partial { margin: 0 0 10px; }
+
+/* One item: a title, its captured excerpt, one attribution line, ruled below
+   (`mgd-item`). The row is a button because inspecting it opens in place, so
+   it is stripped back to text and the list's own rule is the only edge. */
+.q2 .q2-magnet-collected-items { margin: 0; }
+.q2 .q2-magnet-collected-items li + li { margin-top: 0; }
+.q2 .q2-magnet-collected .q2-magnet-evidence-row { display: block; padding: 0; border-radius: 0; background: none; }
+.q2 .q2-magnet-collected .q2-magnet-evidence-row:hover,
+.q2 .q2-magnet-collected .q2-magnet-evidence-row:focus-visible { background: none; text-decoration: none; }
+.q2 .q2-magnet-collected .q2-magnet-evidence-row:hover b,
+.q2 .q2-magnet-collected .q2-magnet-evidence-row:focus-visible b { text-decoration: underline; }
+.q2 .q2-magnet-collected .q2-magnet-evidence-row[aria-expanded='true'] { background: none; }
+.q2 .q2-magnet-collected .q2-magnet-row-text { display: block; }
+.q2 .q2-magnet-collected .q2-magnet-row-text > small { display: block; margin-top: 2px; }
+
+/* The one closing line, under the last rule. */
+.q2 .q2-magnet-collected-line { margin: 14px 0 0; }
+
+/* ---- sources (03-sources.png) ------------------------------------------ */
+
+/* Each configured source is one `mgd-source` row: name, what it is, Remove at
+   the far edge. `＋ Add source` closes the list on its own ruled row, so the
+   button needs nothing but room to sit in. */
+.q2 .q2-magnet-sources .mgd-source > .mgd-grow { min-width: 0; overflow-wrap: anywhere; }
+.q2 .q2-magnet-sources .mgd-source .mgd-link { flex: none; }
+
+/* An editor opened in place -- `＋ Add source`, `Change`, `Limits and dates`.
+   It is the existing controls, indented under the row that opened them so it
+   is plain which line is being edited. */
+.q2 .q2-magnet-editor { margin: 12px 0 4px; padding-left: 13px; border-left: 2px solid #52443e; }
+.q2 .q2-magnet-editor > .mgd-row { flex-wrap: wrap; gap: 8px; }
+.q2 .q2-magnet-editor label { display: block; margin: 8px 0; }
+.q2 .q2-magnet-editor h5 { margin: 10px 0 3px; font-size: 13px; font-weight: 600; }
+.q2 .q2-magnet-editor .q2-magnet-items li { font-size: 13px; }
+
+/* The commit, shown only while something is actually unsaved. */
+.q2 .q2-magnet-commit { margin: 16px 0 0; }
+.q2 .q2-magnet-commit .mgd-row { gap: 14px; flex: none; }

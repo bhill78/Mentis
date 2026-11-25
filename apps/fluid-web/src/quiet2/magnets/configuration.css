@@ -47,8 +47,7 @@
 .q2-magnet-config .q2-magnet-alert { display: block; margin: 8px 0 12px; padding: 9px 11px; border-left: 3px solid var(--attention, currentColor); border-radius: 4px; background: color-mix(in srgb, var(--attention, currentColor) 8%, transparent); color: inherit; font: inherit; }
 .q2-magnet-lens label { display: block; font: var(--type-meta); }
 .q2-magnet-lens select { display: block; max-width: 100%; width: 100%; min-height: 32px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
-/* Source management, integrated into Collection (approved mockup round 3,
-   03-sources.png / 04-browse.png): the one toggle link between the collected
-   items and their sources, at the top of the unified Collection place. */
-.q2-magnet-collection-toggle { display: flex; justify-content: flex-end; margin: 0 0 8px; }
-.q2-magnet-collection-toggle .q2-magnet-link { font: var(--type-meta); font-weight: 600; }
+/* The floating toggle row this file used to style is gone: in the approved
+   round-3 design each place's counterpart link is on its own heading row
+   (`collection.css`, `q2-magnet-place-link`), said once. What remains here
+   styles Settings' own copy of the panel, which no mockup covers. */

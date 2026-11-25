@@ -68,8 +68,15 @@ function resource(id: `mag-${string}`, body?: (c: MagnetConfig) => unknown) {
 }
 const empty = (c: MagnetConfig) => ({ magnet: c.id, config: c, activation: null, page: null })
 const html = (node: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(node)
+/** The count the approved heading states beside "Collected items" (round 3,
+ *  04-browse.png). `null` where none is stated -- which is what an unread
+ *  collection must do, rather than fabricate a number. */
+const counted = (s: string) => s.match(/Collected items<span class="mgd-subtle"> (\d+)<\/span>/)?.[1] ?? null
+/** The rows alone, without the heading block, the search box or the filters
+ *  that now stand over them: what "the list is not filtered" is about. */
+const listOnly = (s: string) => { const at = s.indexOf('<ul'); return at < 0 ? '' : s.slice(at) }
 
-test('Summary opens alone with the composer, and renders only retained facts', async () => {
+test('Summary opens alone, without a pinned composer, and renders only retained facts', async () => {
   store()
   const { r } = resource('mag-h3summary')
   setOpen(r, true)
@@ -78,7 +85,9 @@ test('Summary opens alone with the composer, and renders only retained facts', a
     views: { Summary: createElement(Summary, { resource: r, onPost: () => {} }) },
     footerComposer: createElement('form', { id: 'supplied-composer' }, 'composer') }))
   assert.ok(card.includes('id="summary-title"'), 'the default tab renders Summary')
-  assert.ok(card.includes('supplied-composer'), 'Summary opens with the composer present')
+  // No approved round-3 mockup pins a composer under Summary: the frame draws
+  // it on the Conversation place only (Part A, plan seam 2).
+  assert.ok(!card.includes('supplied-composer'), 'Summary opens with no pinned composer under it')
   assert.ok(!card.includes('id="view-title"') && !card.includes('id="inquiry-title"'), 'Summary opens alone: no evidence list or Perspectives panel beside it')
   assert.ok(card.includes('1 posts · 1 files'), 'the badge is the real retained count')
   assert.ok(card.includes('Collection overview · facts only'))
@@ -145,7 +154,10 @@ test('All, Posts and Files show every retained item of their kind, with real cou
   const files = html(createElement(EvidenceViews, { resource: r, lens: 'Files', onPost: () => {}, onFile: () => {} }))
   const rows = (s: string) => (s.match(/q2-magnet-evidence-row/g) ?? []).length
   assert.equal(rows(all), 2); assert.equal(rows(posts), 1); assert.equal(rows(files), 1)
-  assert.ok(all.includes('2 collected items') && posts.includes('1 collected item') && files.includes('1 collected item'))
+  // The approved design states the count beside the heading rather than as a
+  // sentence under it (round 3, 04-browse.png: "Collected items 24"). What is
+  // pinned is unchanged: a real count of what the list actually holds.
+  assert.equal(counted(all), '2'); assert.equal(counted(posts), '1'); assert.equal(counted(files), '1')
   assert.ok(posts.includes('Post #12') && !posts.includes('nested/calibration.txt'), 'Posts shows only post evidence')
   assert.ok(files.includes('nested/calibration.txt') && !files.includes('Post #12'), 'Files shows only file evidence')
   // Clean rows (owner request ent-1e82a8786c37): no raw ids, no recorded
@@ -168,10 +180,13 @@ test('a tab list is never filtered by the universal search query', async () => {
   r.update({ query: 'a phrase no retained item contains' })
   const after = html(createElement(EvidenceViews, { resource: r, lens: 'All', onPost: () => {}, onFile: () => {} }))
   assert.equal((after.match(/q2-magnet-evidence-row/g) ?? []).length, 2, 'the search query hides no retained row')
-  assert.equal(after, before, 'the list is identical with and without a query')
+  // The search box is inside Collected items in the approved design (round 3,
+  // 04-browse.png, plan seam 1), so the query is now visible in this markup --
+  // in the box, and nowhere else. The list itself is still untouched by it.
+  assert.equal(listOnly(after), listOnly(before), 'the list is identical with and without a query')
   r.update({ overlay: 'search' })
   const overlay = html(createElement(EvidenceViews, { resource: r, lens: 'Posts', onPost: () => {}, onFile: () => {} }))
-  assert.ok(overlay.includes('1 collected item'), 'an open search overlay does not narrow the tab it covers')
+  assert.equal(counted(overlay), '1', 'an open search overlay does not narrow the tab it covers')
   for (const gone of ['s.query', 'toLowerCase', 'No retained items match this search']) {
     assert.ok(!code(viewsSrc()).includes(gone), `the in-tab substring filter is gone (${gone})`)
   }
@@ -245,7 +260,7 @@ test('an empty collection says Conversation is still available, on Summary and i
   for (const lens of ['All', 'Posts', 'Files'] as const) {
     const list = html(createElement(EvidenceViews, { resource: r, lens, onPost: () => {}, onFile: () => {} }))
     assert.ok(list.includes('No collected information yet. Conversation is still available.'), `${lens} says the collection is empty`)
-    assert.ok(list.includes('0 collected items'))
+    assert.equal(counted(list), '0', `${lens} states the real count beside its heading`)
   }
 })
 

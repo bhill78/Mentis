@@ -117,14 +117,16 @@ export function clearSearch(resource: MagnetResource) {
   })
 }
 
-/** H4's search line for H1's `searchToolbar` slot. The frame renders its own
- *  when none is supplied, and that one has neither the resume nor the reset
- *  above, so this is the one the card should be given. */
-export function SearchToolbar({ resource }: { resource: MagnetResource }) {
+/** THE SEARCH BOX, drawn where the approved design puts it (plan seam 1): the
+ *  frame no longer carries a toolbar, so this goes inside Collected items
+ *  (`04-browse.png`, "Search collected items") and at the top of the results
+ *  themselves. It is the same control it always was -- the resume and the
+ *  reset included -- restyled to `mgd-search`; only who draws it changed. */
+export function SearchToolbar({ resource, placeholder = 'Search this Magnet…' }: { resource: MagnetResource; placeholder?: string }) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   return <label className="q2-magnet-search">
-    <span className="q2-sr-only">Search this Magnet</span>
-    <input type="search" value={s.query} placeholder="Search this Magnet…" autoComplete="off"
+    <span className="q2-sr-only">{placeholder}</span>
+    <input type="search" className="mgd-search" value={s.query} placeholder={placeholder} autoComplete="off"
       onChange={(e) => typeSearch(resource, e.target.value)}
       onClick={() => resumeSearch(resource)}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); resumeSearch(resource) } }} />
@@ -285,6 +287,10 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
       <h3 id="results-title" tabIndex={-1}>Results</h3>
       {returnToTab}
     </div>
+    {/* The frame stopped carrying a search box (plan seam 1), so the results
+        carry their own: the phrase that produced them stays editable where
+        they are read, which is what the frame's toolbar used to do. */}
+    <SearchToolbar resource={resource} />
     <div className="q2-magnet-result-toolbar">
       <label htmlFor={typeId}>Type</label>
       <select id={typeId} value={type} onChange={(e) => setSearchType(resource, e.target.value as MagnetSearchType)}>
