@@ -35,7 +35,7 @@ import Summary, {
   compareCollections, compareWithPrevious, comparisonWords, exploreQuestion,
   frequentWords, itemIdentity, offeredQuestions, recordedChallenges, summaryFacts, summarySource,
 } from '../src/quiet2/magnets/Summary'
-import Perspectives, { DISCUSS_IS_ORDINARY, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
+import Perspectives, { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { forgetPanelDrafts, panelAt, panelDrafts, setQuestionDraft, setRenameDraft } from '../src/quiet2/magnets/panelDrafts'
@@ -463,7 +463,7 @@ test('the Perspectives panel puts the question before every administrative contr
   assert.match(createAction, /name: suggested, question: drafts\.question/)
   assert.doesNotMatch(createAction, /reason/, 'creating a question sends only its name and question')
   assert.ok(rendered.includes('Its name is taken from the question when you create it.'))
-  assert.ok(rendered.includes(DISCUSS_IS_ORDINARY), 'what discussing does, and does not, read is said where it is offered')
+  assert.ok(rendered.includes('Discussion does not read your collected items.'), 'what discussing does, and does not, read is said where it is offered')
   assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the gate keeps its own reason here too')
   // Renaming, revising and retiring are still reachable, just not first.
   const panel = code(panelSrc())
