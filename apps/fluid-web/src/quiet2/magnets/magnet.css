@@ -96,8 +96,6 @@
    heading. Deliberately one class less specific than `.mgd-h2`, so a view that
    uses the approved block wins here without an override. */
 .q2-magnet-view h2{margin:8px 0 10px;font-size:25px;line-height:1.2;letter-spacing:-.02em;font-weight:600;color:#eee8e5}
-.q2 .q2-magnet-body h3{font-size:16px;margin:0;color:#f2eae8}
-.q2 .q2-magnet-body section{border-top:1px solid #554946;padding:14px 0}
 .q2 .q2-magnet-muted,.q2 .q2-magnet-attribution{color:#c1b3ad;font-size:12px;line-height:1.45}
 .q2 .q2-magnet-muted{margin:4px 0 10px}
 .q2 .q2-magnet-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -175,11 +173,13 @@
 .q2 .q2-magnet-indicator-files{right:-10px;top:50%;transform:translateY(-50%)}
 .q2 .q2-magnet-indicator-new{bottom:-10px;left:50%;transform:translateX(-50%)}
 .q2 .q2-magnet-indicator-perspectives{left:-10px;top:50%;transform:translateY(-50%);opacity:.82}
-/* `.q2-magnet-expanded` is on the frame whenever the card is open at all, so
-   the chrome it used to re-measure here is now one set of room-driven rules
-   above. What stays is what is genuinely about an open card. */
-.q2 .q2-magnet-expanded .q2-magnet-body{padding-top:4px}
-.q2 .q2-magnet-expanded .q2-magnet-card section{padding:18px 0}
+/* The body's inset is `design.css`'s `.mgd-body` and nothing else. The two
+   rules that used to sit here -- 4px above the body and 18px around every
+   `<section>` in the card -- were the old chrome's substitute for a body
+   padding, and nearly every view's root is a `<section>`, so with the approved
+   26/28 in force they read as a second, unasked-for inset above each view's
+   heading block. Spacing inside a view is the view's, from `design.css`'s own
+   `.mgd-space`, `.mgd-divider` and `.mgd-item`. */
 .q2 .q2-magnet-scope{color:#d5c8c0;font-size:13px}
 /* Inset to the chrome's own 24px, now that the card carries no padding. */
 .q2 .q2-magnet-read-status{flex:none;margin:8px 24px;padding:9px 12px;background:#4a3630;border-radius:8px;color:#f0c6a4;font-size:13px}
