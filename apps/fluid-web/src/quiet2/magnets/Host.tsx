@@ -24,6 +24,7 @@ import { magnetName } from './configuration'
 import { listMagnets } from './managementApi'
 import { loadWorking, openedMagnets, saveOpenedMagnets } from './workingState'
 import { confirmBrain } from '../../brainBinding'
+import { READ_ONLY } from '../live'
 
 const get: MagnetGet = async (path, signal) => {
   const r = await fetch(path, { headers: CLIENT_HEADERS, signal, cache: 'no-store' })
@@ -45,6 +46,21 @@ export default function MagnetHost(p: MagnetHostProps) {
   const viewers = useViewerLayout()
   const [chooser, setChooser] = useState(false)
   const writes = useMagnetWrites(p.brainKey)
+  /* THE PAGE'S READ-ONLY PROMISE, KEPT NOW THAT COLLECTING HAS MOVED.
+   *
+   * `Collect now` used to be the frame's own header button, gated
+   * `!READ_ONLY && writes.arrangement('home')`. The approved design
+   * (03-sources.png) puts collecting in Collection's "Collect manually" row,
+   * so the gate has to travel with it: `live.ts` says the read-only preview
+   * "offers nothing that writes", and without this it would draw a Collect now
+   * that its proxy then refuses. Reported by Part B as a seam for the
+   * integrator (its own files cannot import READ_ONLY without breaking the
+   * node tests on `import.meta.env`).
+   *
+   * Settings' copy of the configuration panel is given the SAME function, so
+   * the embedded Sources view and Settings still share one authority seam
+   * rather than one of them being quietly more permissive. */
+  const mayArrange: typeof writes.arrangement = (arrangement) => !READ_ONLY && writes.arrangement(arrangement)
   const origin = useRef<MagnetOrigin | null>(null)
   const requested = useRef(0)
   const previousBrain = useRef(p.brainKey)
@@ -136,12 +152,13 @@ export default function MagnetHost(p: MagnetHostProps) {
           footerComposer={<ComposerBar resource={r} canWrite={mayWrite} cannotWriteBecause={noWriteWhy} />}
           views={withInspections(r, {
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
-            // `canWrite` is the same `writes.arrangement` Settings' own copy of
-            // this panel is given below -- one authority seam, not a second,
-            // permissive one for the embedded Sources view.
-            All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={writes.arrangement} />,
-            Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={writes.arrangement} />,
-            Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={writes.arrangement} />,
+            // `canWrite` is the same `mayArrange` Settings' own copy of this
+            // panel is given below -- one authority seam, not a second,
+            // permissive one for the embedded Sources view. It now gates
+            // Collection's Collect now as well as its Sources editing.
+            All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
+            Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
+            Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
             Perspectives: <Perspectives resource={r} canWrite={mayWrite} onEvidence={evidence} />,
             // No external navigation is handed to the Conversation view (owner
             // §3): `toOwn` is Settings' one explicit contextual action, below,
@@ -168,7 +185,7 @@ export default function MagnetHost(p: MagnetHostProps) {
             // is already right everywhere it is read, but the header of a card
             // that is already open is the frame's title, so a rename needs it.
             settings: <SettingsView resource={r} hasOwnConversation={hasOwn} canReset
-              identity={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.name = magnetName(config, r.saved.name); r.saved.reason = undefined; r.update({ title: r.saved.name }); void r.read() }} />}
+              identity={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={mayArrange} onSaved={(config) => { r.saved.config = config; r.saved.name = magnetName(config, r.saved.name); r.saved.reason = undefined; r.update({ title: r.saved.name }); void r.read() }} />}
               onReset={() => r.update({ x: 12, y: 12 })} onRemove={() => p.close(r)}
               onSource={toSource} onConversation={toOwn} onOrigin={() => p.origin(r)} />,
           }, (result) => p.post(r, result))} />
