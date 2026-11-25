@@ -437,7 +437,6 @@ function Questions({ resource, rows, events, loading, error, onLoad, read }: {
         <small className="q2-magnet-muted">Recorded challenge · {e.post}</small>
       </li>)}</ul>
     </>}
-    {read && <details className="q2-magnet-provenance"><summary>Evidence links</summary><p className="q2-magnet-muted">{SUPPORT_UNRECORDED}</p></details>}
     {error && <p className="q2-magnet-muted" role="status">{error}</p>}
     <button type="button" className="q2-magnet-link" onClick={() => goTab(resource, 'Perspectives')}>Work on questions</button>
   </section>
@@ -536,7 +535,6 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
 
         <div className="q2-magnet-written">
           {overview.map((line, i) => <p key={i}>{line}</p>)}
-          {!!overview.length && <details className="q2-magnet-provenance"><summary>About this overview</summary><p className="q2-magnet-muted">{EXTRACTIVE_LABEL}</p></details>}
         </div>
 
         <section className="q2-magnet-understanding" aria-label="Questions to explore">
@@ -569,10 +567,6 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         <Questions resource={resource} rows={lens.rows} events={lens.events} loading={loadingQuestions || lens.loading}
           error={lens.error} onLoad={loadQuestions} read={askedForQuestions || !!lens.rows.length} />
 
-        {/* Where the whole-collection discussion offer used to be. It is a
-            statement, not a control: there is nothing to press that would
-            supply the collection to an agent. */}
-        {batch && <details className="q2-magnet-provenance"><summary>Answer from collected records</summary><p className="q2-magnet-muted">{COLLECTION_NOT_ANSWERABLE}</p></details>}
         </>}
 
         {/* Facts only, and nothing else: every other route into a collected

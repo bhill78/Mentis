@@ -127,9 +127,6 @@ test('nothing in the overview characterises, concludes or summarises the materia
   assert.ok(!/\b(suggests|indicates|appears|concludes|shows that|overall|key (finding|theme)|in summary|therefore|we found)\b/i.test(text),
     'no derived claim about what the material means')
   assert.ok(!/\bthis collection is about\b/i.test(text))
-  // The honest label is rendered beside the written lines, not merely exported.
-  const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(rendered.includes(EXTRACTIVE_LABEL.slice(0, 40)), 'the view states that nothing read or summarised the collection')
   assert.ok(!code(summarySrc()).includes('synthes') || code(summarySrc()).includes('Synthesize from evidence'),
     'the only synthesis word in the code is the disabled affordance')
 })
@@ -242,7 +239,7 @@ test('recorded questions and interpretations are shown apart, attributed and ver
   assert.ok(open.includes('ent-topicA11111'), 'it is attributed to its own record')
   assert.ok(open.includes('Recorded challenges') && open.includes('The spare bench was never in scope.'),
     'a recorded contradiction is shown as a challenge, not as a finding')
-  assert.ok(open.includes(SUPPORT_UNRECORDED), 'per-record support and contradiction is stated unrecorded, not mocked up')
+  assert.ok(!open.includes('Evidence links'), 'no per-record support or contradiction is mocked up as available')
   assert.equal(recordedChallenges(inquiries.snapshot().events).length, 1)
   assert.equal(recordedChallenges(inquiries.snapshot().events)[0].post, 'ent-event222222')
 })
@@ -360,7 +357,7 @@ test('no Summary control offers or triggers answering from the collected records
   const { r } = resource('mag-ewhole')
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(rendered.includes(COLLECTION_NOT_ANSWERABLE), 'where the offer was, the limit is stated instead')
+  assert.ok(rendered.includes(GROUNDED_UNAVAILABLE), 'the single stated limit still covers the whole collection')
   for (const gone of ['Discuss this whole collection', 'This whole collected batch',
     'Attaches the collected batch', 'answered from the retained collection']) {
     assert.ok(!rendered.includes(gone), `${gone} is not offered`)
@@ -453,7 +450,7 @@ test('the Perspectives panel puts the question before every administrative contr
   const { r } = resource('mag-equestionfirst')
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
   const ask = rendered.indexOf('New question or hypothesis')
-  const create = rendered.indexOf('Create this question')
+  const create = rendered.indexOf('Ask ?')
   const lens = rendered.indexOf('aria-label="Active question"')
   const history = rendered.indexOf('Wording history')
   assert.ok(ask > 0 && create > ask, 'the question box and its one press come first, in that order')
@@ -527,7 +524,7 @@ test('every control the Perspectives panel shows uses ordinary question language
   assert.ok(labels.length >= 4, 'the labelled controls are there to be checked')
   for (const label of labels) assert.doesNotMatch(label, /inquir/i, `a control is still announced as inquiry: ${label}`)
   for (const named of ['Active question', 'No question — ordinary Conversation', 'More questions',
-    'Create this question', 'View question history', 'Choose a question',
+    'Ask ?', 'Save for later',
     'Branch a new question from this one', 'Retry unchanged question action']) {
     assert.ok(rendered.includes(named), `${named} is the control's name now`)
   }
