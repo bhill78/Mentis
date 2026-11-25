@@ -63,10 +63,6 @@
    footer. Nothing here sets a padding of its own -- `.mgd-body` is the rule. */
 .q2 .q2-magnet-view{flex:1 1 auto;min-height:70px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .q2 .q2-magnet-view:focus{outline:none}
-/* The mockups' one footer line, under a hairline, saying the edges drag. It is
-   the smallest thing in the panel and it says it once (owner §4). */
-.q2 .q2-magnet-hint{flex:none;margin:0;border-top:1px solid var(--magnet-rule);
-  padding:13px 24px;font-size:12px;line-height:1.3;color:#a89991;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* The header: the Magnet's name, then `⤢ ⚙ ×` at the far edge, over a
    hairline. The mockup's `.head` -- 20px above the line, 15px below it, 24px
    at the sides, the controls 12px apart -- with the near inset above clearing

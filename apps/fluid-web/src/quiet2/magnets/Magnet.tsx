@@ -429,7 +429,6 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
       {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
       {/* The mockups' one footer line, in their own six words. It is the only
           thing in the panel that says the edges can be dragged. */}
-      <p className="q2-magnet-hint" aria-hidden="true">Drag the panel edge to resize</p>
     </section>}
   </div>
 }

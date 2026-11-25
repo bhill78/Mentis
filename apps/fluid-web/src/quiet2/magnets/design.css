@@ -230,7 +230,7 @@
   line-height: 1.5;
 }
 .q2-magnet-card .mgd-compose textarea,
-.q2-magnet-card .mgd-compose input {
+.q2-magnet-card .mgd-compose input:not([type="file"]) {
   background: none;
   border: 0;
   color: #eee8e5;
