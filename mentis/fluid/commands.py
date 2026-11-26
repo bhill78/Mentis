@@ -67,6 +67,10 @@ and a definition's own (`mentis.magnet`), wherever it is placed:
   POST /fluid/api/magnets/<id>/activate                         the Rust front's;
                                              Python alone never records one
                                              (`mentis.magnet.activation`)
+  POST /fluid/api/magnets/<id>/authorize                        the owner opens
+                                             ONE exchange to a named source
+                                             outside this Magnet's collection
+                                             (`mentis.magnet.scope.authorize`)
 
 WHERE AN AGENT REQUEST STARTED SAYS WHERE IT GOES, and its result with it:
 
@@ -189,6 +193,10 @@ MAGNET_DEFINITION_ACTS = {"delete": "magnet-delete",
                           "conversation": "magnet-conversation"}
 MAGNET_LIFT = "magnet-lift"
 MAGNET_ACTIVATE = "magnet-activate"
+#: `magnets/<id>/authorize` (Part B): the owner's own act opening ONE exchange
+#: in this Magnet's Conversation to a named source outside its collection. The
+#: door for `mentis.magnet.scope.authorize` and nothing else.
+MAGNET_AUTHORIZE = "magnet-authorize"
 #: `magnets/propose`: one sentence in, a proposal out (Part G1). Reads only.
 MAGNET_PROPOSE = "magnet-propose"
 WORKSPACES = "workspaces"
@@ -244,6 +252,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return MAGNET_DEFINITION_ACTS[verb], tid
     if head == MAGNETS and tid and verb == "activate":
         return MAGNET_ACTIVATE, tid
+    if head == MAGNETS and tid and verb == "authorize":
+        return MAGNET_AUTHORIZE, tid
     if head == WORKSPACES and tid and verb in WORKSPACE_ACTS:
         return WORKSPACE_ACTS[verb], tid
     if head == WORKSPACES and tid:
@@ -1188,6 +1198,75 @@ def magnet_definition_command(st, which, mid, body,
         return _bad(str(exc))
     except arrangements.Unreadable as exc:
         return 409, {"error": str(exc), "kind": "Unreadable"}, []
+
+
+#: Everything `magnets/<id>/authorize` takes. Anything else is malformed: a
+#: body cannot name who an owner write is by, and this door accepts no option.
+AUTHORIZE_FIELDS = {"brain", "op", "turn", "opens", "reason"}
+
+
+def magnet_authorize(st, mid, body, *, brain) -> tuple[int, dict, list]:
+    """`POST /fluid/api/magnets/<id>/authorize` {brain, op, turn, opens, reason?}:
+    THE OWNER OPENS ONE EXCHANGE, to what it names (Part B).
+
+    The door `mentis.magnet.scope.authorize` was written for and did not have,
+    so until now no client could create an authorization and every exchange was
+    unauthorized -- which left the owner's correction ("allowing conversations
+    to explore additional sources when explicitly authorized", amendment
+    adm-c38044ee5157 section 3) undelivered.
+
+    IT ADDS WHAT A DOOR ADDS, AND NOTHING ELSE. The confirmed Brain, the
+    operation key a screen may retry under, and HTTP words for a refusal.
+    Every rule stays `scope.authorize`'s: the recorded owner and nobody else,
+    the owner's own asking Turn in this Magnet's own Conversation, 1..4 things
+    named, one act, no persistence beyond that one exchange. The owner is read
+    from the Brain, as on every other write on this door; `author` in the body
+    is not accepted, rather than ignored, because here it would look like
+    authority. This route never dispatches and changes no grant: the one door
+    (`/api/worker`) reads the act for that exchange's execution.
+    """
+    from mentis.conversation.versions import Refused
+    from mentis.fluid.inspect import brain_key
+    from mentis.magnet import Unreadable, scope
+    from mentis.operational.work_overview import owner_of
+    try:
+        key = brain_key(st.corpus)
+    except OSError as exc:
+        return 409, {"error": str(exc), "kind": "BrainUnconfirmed"}, []
+    if not brain or not key or brain != key or body.get("brain") != key:
+        return 409, {"error": "confirm this serving Brain before authorizing an "
+                              "exchange to reach outside this Magnet's collection",
+                     "kind": "BrainUnconfirmed" if not brain else "BrainChanged",
+                     "refused": True}, []
+    extra = sorted(set(body) - AUTHORIZE_FIELDS)
+    if extra:
+        return _bad(f"an authorization takes {sorted(AUTHORIZE_FIELDS)} and "
+                    f"nothing else; the owner is read from this Brain, never "
+                    f"from the body: {extra}")
+    op = body.get("op")
+    if not isinstance(op, str) or not op.strip() or len(op) > 160:
+        return _bad("an authorization needs \"op\", the client's operation key: "
+                    "a nonempty string of at most 160 characters")
+    reason = body.get("reason")
+    if reason is not None and not isinstance(reason, str):
+        return _bad("\"reason\" is the owner's own words, or absent")
+    owner = owner_of(st.cv)
+    if not owner:
+        return 422, {"error": "this record names no owner, so nothing here can "
+                              "be the owner's own act", "refused": True,
+                     "code": "owner-required", "magnet": mid}, []
+    try:
+        out = scope.authorize(st, mid, turn=body.get("turn"),
+                              opens=body.get("opens"), by=owner, op=op.strip(),
+                              reason=reason)
+    except scope.Refused as exc:
+        return 422, {"error": str(exc), "code": "authorization-refused",
+                     "refused": True, "magnet": mid}, []
+    except Refused as exc:
+        return exc.refusal.get("status", 422), {**exc.refusal, "refused": True}, []
+    except Unreadable as exc:
+        return 409, {"error": str(exc), "kind": "Unreadable"}, []
+    return 200, {**out, "brain": key}, []
 
 
 # -- a workspace's manifest, beside the record ----------------------------------
@@ -2558,7 +2637,8 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/magnets/lift, "
                                             "/fluid/api/magnets/propose, "
                                             "/fluid/api/magnets/<id>/delete, "
-                                            "/conversation or /activate, "
+                                            "/conversation, /activate or "
+                                            "/authorize, "
                                             "/fluid/api/magnets/<id>/perspectives, "
                                             "/perspectives/selected, "
                                             "/perspectives/<topic>/question, /rename, "
@@ -2584,6 +2664,12 @@ def handle_post(handler, parsed, length: int) -> None:
         if not handler.headers.get(BRAIN_HEADER):
             return handler._send(409, {"error": "confirm this Brain before a Perspective write",
                                        "kind": "BrainUnconfirmed"})
+    if which[0] == MAGNET_AUTHORIZE:
+        from mentis.web import BRAIN_HEADER
+        if not handler.headers.get(BRAIN_HEADER):
+            return handler._send(409, {
+                "error": "confirm this Brain before authorizing an exchange",
+                "kind": "BrainUnconfirmed"})
     raw = handler._read_body(length)
     if _door_refused(handler, parsed, bool(raw)):
         return
@@ -2642,6 +2728,10 @@ def handle_post(handler, parsed, length: int) -> None:
                 or which[0] in MAGNET_DEFINITION_ACTS.values():
             status, out, later = magnet_definition_command(
                 st, which[0], which[1], body, written_by=writer)
+        elif which[0] == MAGNET_AUTHORIZE:
+            from mentis.web import BRAIN_HEADER
+            status, out, later = magnet_authorize(
+                st, which[1], body, brain=handler.headers.get(BRAIN_HEADER))
         elif which[0] in (WORKSPACES, WORKSPACE_REMOVE) \
                 or which[0] in WORKSPACE_ACTS.values():
             status, out, later = workspace_command(st, which[0], which[1], body)

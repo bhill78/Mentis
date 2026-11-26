@@ -3547,7 +3547,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # as it stands now, to a resumed session (WS-P).
         situation_from = len(payload)
         if managed:
-            payload += "\n\n---\n" + MC.payload(managed)
+            # PART B: and what the owner authorized THIS exchange to reach
+            # outside the collection, if anything. Read from the record at
+            # send time (`MC.authorized`), never from the frozen context: the
+            # authorization is an act on the asking Turn, which does not exist
+            # when the context is frozen. The door still decides every read.
+            payload += "\n\n---\n" + MC.payload(
+                managed, opens=MC.authorized(cv, managed))
         delivered = composition.governing_ids()
         svc.authority.authorise_for(instance.instance_id,
                                     {**grant_basis, "delivered": delivered})

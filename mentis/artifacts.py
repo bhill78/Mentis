@@ -1143,6 +1143,57 @@ def in_conversation(corpus, cv, conversation, ref, *,
     return None, "no live Turn in this Conversation carries it"
 
 
+#: A Magnet-confined run's own held material (`magnet_own_reach`).
+MAGNET_OWN = "magnet-own-material"
+
+
+def magnet_own_reach(corpus, cv, grant: dict, ref: str):
+    """`(reason, "")` when a Magnet-confined grant reaches THIS Magnet's own
+    held material; `None` when this is not that case, so the ordinary rules
+    decide unchanged.
+
+    THE READ-SIDE HALF OF THE MAGNET BOUNDARY (`opr-d4b617de6850`, plan
+    adm-43ecee5872e9 section 3 Part B). `mentis.magnet.scope` narrows only: it
+    already says this Magnet's own batch and its own Perspective packages are
+    inside the confinement, and deliberately admits nothing the ordinary rules
+    refused -- so a confined run could not actually read its own collection
+    batch. The ordinary rules refuse it because `artifacts.hold` records this
+    material against the Magnet, not in a Conversation, and a Perspective or
+    `reach:'work'` run has no Conversation reach at all.
+
+    NARROW, AND NOT AMBIENT. Only a grant whose scope IS a Magnet confinement
+    takes this path, and only material held under that Magnet's own two doors
+    at that Magnet's own source. It is exactly what `scope._own_material`
+    admits at the per-target gate, so the two halves cannot disagree. Deletion
+    and restriction still refuse, as they do for any reader, and every other
+    artifact falls through to the ordinary rules and the scope gate.
+    """
+    from mentis.magnet import scope as magnet_scope
+    confined = magnet_scope.parsed((grant or {}).get("scope"))
+    if confined is None:
+        return None
+    mid = confined.magnet
+    if not mid or not isinstance(ref, str) or not ref.strip():
+        return None            # a malformed confinement reaches nothing extra
+    ref = ref.strip()
+    if not magnet_scope._own_material(corpus, mid, ref):
+        return None
+    st = describe(corpus, ref, verify=False)["state"]
+    if st not in ("held", "held-but-missing", "held-but-corrupt"):
+        return None, f"it is {st}"
+    if deleted_from(corpus, cv, ref):
+        return None, "the Magnet material it belongs to has been deleted"
+    made = producing_act(corpus, cv, ref)
+    barred = (restriction_of(cv, made["caused_by"])
+              if made and made.get("caused_by") else None)
+    if barred and barred not in _lineage(cv, (grant or {}).get("expectation")):
+        return None, f"it was produced under restricted work ({barred})"
+    return {"ref": ref, "because": MAGNET_OWN, "magnet": mid,
+            "scope": grant.get("scope"),
+            "reach": f"this execution is confined to Magnet {mid}'s collection "
+                     f"scope, and this is that Magnet's own held material"}, ""
+
+
 def reachable(corpus, cv, grant: dict, ref: str) -> tuple[dict | None, str]:
     """Whether THIS execution may read `ref`, and why -- what the door checks.
 
@@ -1152,6 +1203,9 @@ def reachable(corpus, cv, grant: dict, ref: str) -> tuple[dict | None, str]:
     from mentis.worker import TRANSIENT_SCOPE
     if grant.get("scope") == TRANSIENT_SCOPE:
         return quick_ask_reach(corpus, cv, ref)
+    own = magnet_own_reach(corpus, cv, grant, ref)
+    if own is not None:
+        return own
     acquired = acquired_reach(corpus, ref)
     if acquired is not None:
         return acquired

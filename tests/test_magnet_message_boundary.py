@@ -222,15 +222,33 @@ COLLECTED = {"kind": "collected_item", "ref": "live:ent-collected11:part:1",
              "version": "adm-0123456789ab", "digest": "b" * 64}
 
 
-def test_a_collected_record_travels_as_identity_and_carries_no_collected_content(world, monkeypatch):
-    """The owner's §§1/6 requirement at the door: a supporting record is what a
-    message is about. Membership is the collection's own check, and what is
-    frozen is identity -- never captured content, so the retained collection is
-    still not answer evidence."""
+def test_a_collected_record_travels_as_readable_evidence_with_its_cite(world, monkeypatch):
+    """REVISED BY PART B, which is the widening Part A's contract named.
+
+    This used to assert that a `collected_item` hydrated NOTHING -- identity
+    only -- because nothing then decided what a run carrying the exchange could
+    read. `mentis.magnet.scope` decides it now, so Part B hydrates the row into
+    what the agent needs to use it: the text the BATCH retains and the `cite` a
+    reply's reference resolves through (plan adm-43ecee5872e9 section 3 Part B).
+
+    What has NOT moved, and is asserted here rather than assumed:
+      * `collection.member` is still the single membership check, called for
+        exactly what was selected, in this Magnet;
+      * nothing but the batch is read -- no live source, no id the row names;
+      * the owner's own words are still exactly the owner's.
+    """
     from mentis.magnet import collection as C
     mid = a_magnet(world)
     asked = []
+    row = {"kind": "file", "id": COLLECTED["ref"], "version": "adm-0123456789ab",
+           "conversation": None, "author": None, "at": 1.0, "via": "held-source",
+           "value": {"ref": "adm-0123456789ab", "digest": "c" * 64,
+                     "text": "the retained row's own words",
+                     "citation": "adm-0123456789ab@cccccccccccc[0:28]"}}
     monkeypatch.setattr(C, "member", lambda st, m, r: asked.append((m, dict(r))) or dict(r))
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: (
+        {"artifact": {"ref": v}}, {"sources": [{"results": [row]}]}))
+    monkeypatch.setattr(C, "row_digest", lambda r: COLLECTED["digest"])
     b = request(world, mid, op="with-collected",
                 magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
     status, selected = send(world, b)
@@ -238,16 +256,172 @@ def test_a_collected_record_travels_as_identity_and_carries_no_collected_content
     assert asked and all(one == (mid, COLLECTED) for one in asked), \
         "every membership check is for exactly what was selected, in this Magnet"
     frozen = routed(world, selected)["managed_context"]
-    assert frozen["references"] == [COLLECTED]
-    assert set(frozen["references"][0]) == {"kind", "ref", "version", "digest"}
-    # The one thing that must not happen: collected material reaching the run.
-    # A post reference hydrates its `parts`; a collected record hydrates none,
-    # and the prompt still says the collection is not answerable from.
-    assert "parts" not in frozen["references"][0]
+    got = frozen["references"][0]
+    assert {k: got[k] for k in COLLECTED} == COLLECTED, "the identity is unchanged"
+    assert got["text"] == "the retained row's own words"
+    assert got["cite"] == "adm-0123456789ab@cccccccccccc[0:28]"
+    # ONLY the batch's own fields: no `parts`, no bytes, nothing followed.
+    assert set(got) == {"kind", "ref", "version", "digest", "text", "cite"}
     payload = M.payload(frozen)
-    assert COLLECTED["digest"] in payload and "Grounded answers from the retained collection" in payload
+    assert COLLECTED["digest"] in payload
+    assert "the retained row's own words" in payload
+    assert "Grounded answers from the retained collection" not in payload
+    assert "unavailable" not in payload and "until" not in payload
+    assert "this Magnet's own recorded collection batches" in payload
+    assert "refused there" in payload
+    # AND AN UNAUTHORIZED EXCHANGE IS TOLD NOTHING ABOUT REACHING OUTSIDE.
+    assert "authorized THIS ONE EXCHANGE" not in payload
+    assert M.authorized(world["cv"], frozen) == ()
+    opened = M.payload(frozen, opens=[{"kind": "runtime-web-search"}])
+    assert "authorized THIS ONE EXCHANGE" in opened
+    assert "your runtime's own web search" in opened
+    assert "does not carry into the next exchange" in opened
     # And the owner's own words are still exactly the owner's.
     assert M.words(world["cv"], frozen) == b["text"]
+
+
+def test_a_collected_post_row_hydrates_no_text_it_never_captured(world, monkeypatch):
+    """A batch retains a collected POST's identity and provenance, never its
+    words. So nothing is hydrated for it, and nothing goes looking: the id the
+    row names is not followed. The owner's selection is what puts that post
+    within the run's reach (`mentis.magnet.scope`), at the one door."""
+    from mentis.magnet import collection as C
+    mid = a_magnet(world)
+    row = {"kind": "post", "id": COLLECTED["ref"], "version": "ent-collected11",
+           "conversation": "ent-elsewhere11", "author": "ent-whoever11",
+           "at": 1.0, "number": 1, "via": "home", "deleted": False}
+    monkeypatch.setattr(C, "member", lambda st, m, r: dict(r))
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: (
+        {"artifact": {"ref": v}}, {"sources": [{"results": [row]}]}))
+    monkeypatch.setattr(C, "row_digest", lambda r: COLLECTED["digest"])
+    b = request(world, mid, op="collected-post-row",
+                magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
+    status, selected = send(world, b)
+    assert status == 200, selected
+    got = routed(world, selected)["managed_context"]["references"][0]
+    assert "text" not in got, "the batch captured no words for a post row"
+    assert got["cite"] == "ent-collected11", "the cite is what a reply resolves"
+    assert set(got) == {"kind", "ref", "version", "digest", "cite"}
+
+
+def test_one_hydrated_row_cannot_exhaust_the_managed_context_bound(world, monkeypatch):
+    """The 64 KiB hydrated bound is the whole message's and still refuses
+    outright; `ROW_TEXT_MOST` is one row's share of it, so selecting a single
+    retained file cannot exhaust it. A cut is never silent: `shortened`,
+    `omitted_bytes` and a cite narrowed to the bytes actually hydrated say so,
+    and the cut is at a codepoint boundary."""
+    from mentis.magnet import collection as C
+    mid = a_magnet(world)
+    text = "é" * 40000                       # 80,000 bytes retained, > 64 KiB
+    row = {"kind": "file", "id": COLLECTED["ref"], "version": "adm-0123456789ab",
+           "conversation": None, "author": None, "at": 1.0, "via": "held-source",
+           "value": {"ref": "adm-0123456789ab", "digest": "c" * 64, "text": text,
+                     "citation": "adm-0123456789ab@cccccccccccc[0:80000]"}}
+    monkeypatch.setattr(C, "member", lambda st, m, r: dict(r))
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: (
+        {"artifact": {"ref": v}}, {"sources": [{"results": [row]}]}))
+    monkeypatch.setattr(C, "row_digest", lambda r: COLLECTED["digest"])
+    b = request(world, mid, op="oversized-collected",
+                magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
+    status, selected = send(world, b)
+    assert status == 200, selected
+    got = routed(world, selected)["managed_context"]["references"][0]
+    kept = got["text"].encode("utf-8")
+    assert len(kept) <= C.ROW_TEXT_MOST
+    assert got["text"] == "é" * (C.ROW_TEXT_MOST // 2), "cut at a codepoint"
+    assert got["shortened"] is True
+    assert got["omitted_bytes"] == 80000 - len(kept)
+    assert got["cite"] == f"adm-0123456789ab@cccccccccccc[0:{len(kept)}]"
+    # AND THE WHOLE MESSAGE'S BOUND STILL REFUSES: sixteen such rows exceed it.
+    selector = _collected_selector(world, mid, dict(COLLECTED))
+    selector["references"] = [{**COLLECTED, "ref": f"live:ent-row{n:08d}:p"}
+                              for n in range(16)]
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: (
+        {"artifact": {"ref": v}},
+        {"sources": [{"results": [{**row, "id": r["ref"]}
+                                  for r in selector["references"]]}]}))
+    before = world["cv"]._c.advance()
+    status, answer = send(world, request(world, mid, op="sixteen-collected",
+                                         magnet_context=selector))
+    assert status == 422 and answer["code"] == "context-too-large", answer
+    assert world["cv"]._c.advance() == before
+
+
+def test_a_row_the_batch_no_longer_states_exactly_is_not_substituted(world, monkeypatch):
+    """PART E'S SEAM, CHECKED (commit `cabda5eb`). `references()` now leaves
+    out a row whose own bytes cannot be digested (`UndigestibleRow`) instead of
+    failing the whole read, and `member` goes through `references()`. So an
+    un-digestible row is refused as a stale reference, on its own, while the
+    rest of the batch keeps its identities -- and hydration never substitutes
+    anything for it."""
+    from mentis.conversation import versions as V
+    from mentis.magnet import collection as C
+    good = {"kind": "post", "id": "ent-digestible1", "version": "ent-digestible1",
+            "conversation": "ent-elsewhere11", "author": "ent-whoever11",
+            "at": 1.0, "number": 1, "via": "home", "deleted": False}
+    odd = {**good, "id": COLLECTED["ref"], "at": float("inf")}
+    with pytest.raises(C.UndigestibleRow):
+        C.row_digest(odd)
+    activation = {"artifact": {"ref": COLLECTED["version"]}}
+    page = {"sources": [{"results": [good, odd]}]}
+    served = C.references(activation, page)
+    assert set(served) == {"ent-digestible1"}, "one odd row, not the batch"
+    assert served["ent-digestible1"]["digest"] == C.row_digest(good)
+
+    # AND THROUGH HYDRATION. Membership is granted here so the odd row reaches
+    # hydration at all -- the real `member` already refuses it, through the
+    # same `references()` -- and what hydration then does with it is the thing
+    # neither part checked: refuse it, on its own, substituting nothing, while
+    # the digestible row beside it hydrates.
+    mid = a_magnet(world)
+    monkeypatch.setattr(C, "member", lambda st, m, r: dict(r))
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: (activation, page))
+    with pytest.raises(V.Refused) as refusal:
+        C.hydrated(world["state"], mid, dict(COLLECTED))
+    assert refusal.value.refusal["code"] == "stale-reference"
+    assert refusal.value.refusal["status"] == 409
+    fine = C.hydrated(world["state"], mid, {
+        **COLLECTED, "ref": "ent-digestible1", "digest": C.row_digest(good)})
+    assert fine["cite"] == "ent-digestible1" and "text" not in fine
+
+
+def test_a_magnet_confined_grant_reaches_its_own_material_and_nothing_else(world):
+    """PART B's read-side half (`opr-d4b617de6850`). `mentis.magnet.scope`
+    narrows only, so it says this Magnet's own batch is in scope and admits
+    nothing the ordinary rules refused -- which left a confined run unable to
+    read its own collection. The ordinary rules now reach that material when,
+    and only when, the grant IS that Magnet's confinement."""
+    from mentis import artifacts
+    from mentis.magnet import scope as S
+    from mentis.web import _surface
+    mid = a_magnet(world)
+    b = request(world, mid, action="ask-participant")
+    status, out = send(world, b)
+    assert status == 200, out
+    cv, exp = world["cv"], out["expectations"][0]
+    own = artifacts.hold(cv._c, cv, b"batch bytes", act=artifacts.SUBMITTED,
+                         actor=b["author"], source=f"magnet:{mid}",
+                         door="magnet-extract", claimed_media_type="application/json")
+    foreign = artifacts.hold(cv._c, cv, b"somebody else's batch",
+                             act=artifacts.SUBMITTED, actor=b["author"],
+                             source="magnet:mag-elsewhere", door="magnet-extract",
+                             claimed_media_type="application/json")
+    mine, theirs = own["admission"], foreign["admission"]
+    ordinary = {"expectation": exp, "conversation": out["home"],
+                "scope": "organising"}
+    assert artifacts.reachable(cv._c, cv, ordinary, mine)[0] is None
+    for scope in ("magnet:" + mid, "magnet-synthesis:" + mid):
+        confined = {**ordinary, "scope": scope}
+        why, _ = artifacts.reachable(cv._c, cv, confined, mine)
+        assert why is not None, scope
+        assert why["because"] == artifacts.MAGNET_OWN and why["magnet"] == mid
+        # ANOTHER MAGNET'S MATERIAL IS NOT REACHED, and the scope gate agrees.
+        assert artifacts.reachable(cv._c, cv, confined, theirs)[0] is None
+        assert S.why_not(_surface(world["state"]), S.parsed(scope), confined,
+                         "read_artifact", {"ref": theirs})
+    # A CONFINEMENT WHOSE MAGNET IS UNREADABLE REACHES NOTHING EXTRA.
+    assert artifacts.reachable(cv._c, cv, {**ordinary, "scope": "magnet:"},
+                               mine)[0] is None
 
 
 @pytest.mark.parametrize("code, status", [
@@ -376,6 +550,87 @@ def test_a_retained_pool_attachment_is_held_to_the_magnet_scope(world, door):
     why = S.why_not(surface, confined, grant, "read_artifact",
                     {"ref": foreign["admission"]})
     assert why and f"outside Magnet {mid}'s collection scope" in why
+
+
+def test_the_owner_can_authorize_one_exchange_through_a_real_door(world):
+    """PART B GIVES THE AUTHORIZATION A DOOR. Part A implemented, recorded and
+    tested `scope.authorize`, and had to report that no client could call it --
+    so every exchange was unauthorized and "allowing conversations to explore
+    additional sources when explicitly authorized" (owner, amendment
+    adm-c38044ee5157 section 3) was not delivered. `POST /fluid/api/magnets/
+    <id>/authorize` is that door, and it stays exactly what A built: the
+    owner's own explicit act, naming what it opens, non-persisting, recorded as
+    an act. It calls `scope.authorize` and does nothing else.
+    """
+    from mentis.magnet import scope as S
+    mid = a_magnet(world, sources=[])
+    own_conversation_of(world, mid)
+    b = request(world, mid, action="ask-participant")
+    status, answer = send(world, b)
+    assert status == 200, answer
+    cv, key = world["cv"], brain_key(world["cv"]._c)
+    path, turn = f"magnets/{mid}/authorize", answer["post"]
+    opens = [{"kind": "runtime-web-search"},
+             {"kind": "collection", "collection": "col-extra"}]
+    asked = {"brain": key, "op": "authorize-1", "turn": turn, "opens": opens}
+
+    # A CONFIRMED BRAIN FIRST, like every other owner write on this door.
+    before = cv._c.advance()
+    assert post(world, asked, path=path, headers={})[0] == 409
+    assert post(world, {**asked, "brain": "another-brain"}, path=path)[0] == 409
+    assert cv._c.advance() == before
+
+    status, got = post(world, asked, path=path)
+    assert status == 200, got
+    assert got["magnet"] == mid and got["turn"] == turn and got["opens"] == opens
+    assert cv._act(got["act"])["act"] == S.AUTHORIZED
+    confined = S.parsed("magnet:" + mid)
+    assert S.authorization(cv, confined, turn) == tuple(
+        {k: v for k, v in one.items()} for one in opens)
+
+    # ONE EXCHANGE, NOT THE MAGNET: the next message is a different Turn, and
+    # unauthorized again with no further act. Nothing persisted.
+    nxt = send(world, request(world, mid, action="ask-participant",
+                              op="next-exchange"))[1]
+    assert S.authorization(cv, confined, nxt["post"]) == ()
+    # AND NO AUTHORIZATION REACHES A SYNTHESIS CONFINEMENT, whatever is recorded.
+    assert S.authorization(cv, S.parsed("magnet-synthesis:" + mid), turn) == ()
+
+    # ONE OCCURRENCE, HOWEVER OFTEN THE SCREEN SENDS IT.
+    again = post(world, asked, path=path)
+    assert again[0] == 200 and again[1]["replayed"] and again[1]["act"] == got["act"]
+    assert post(world, {**asked, "opens": [opens[0]]}, path=path)[0] == 422
+
+    # WHAT IT WILL NOT RECORD. Each refuses and writes no act.
+    elsewhere = cv.open_conversation("Not this Magnet's")
+    other = cv.say(elsewhere, b["author"], [{"type": "text", "text": "elsewhere"}])
+    before = cv._c.advance()
+    for n, bad in enumerate(([], [{"kind": "anything-else"}], [{"kind": "collection"}],
+                             [{"kind": "collection", "collection": "col-x", "and": 1}],
+                             [{"kind": "runtime-web-search"}] * 2,
+                             [{"kind": "runtime-web-search"}] * 5, "not-a-list")):
+        status, got = post(world, {**asked, "op": f"bad-{n}", "opens": bad}, path=path)
+        assert status == 422 and got["refused"], (bad, status, got)
+    # A Turn that is not the owner's own asking Turn in this Magnet's Conversation.
+    for wrong in (other, "ent-neverthere1", None, 7):
+        status, got = post(world, {**asked, "op": f"turn-{wrong}", "turn": wrong},
+                           path=path)
+        assert status == 422 and got["refused"], (wrong, status, got)
+    # THE OWNER IS READ FROM THE BRAIN. A body cannot name who it is by.
+    assert post(world, {**asked, "op": "named", "author": world["agent"]},
+                path=path)[0] == 400
+    assert post(world, {**asked, "op": "extra", "mode": "grounded"},
+                path=path)[0] == 400
+    assert post(world, {k: v for k, v in asked.items() if k != "op"},
+                path=path)[0] == 400
+    assert cv._c.advance() == before, "a refused authorization records nothing"
+
+    # AND THE PROMPT SAYS SO, for the exchange that carries one.
+    frozen = M.accepted(cv, turn=turn)
+    assert M.authorized(cv, frozen) == tuple(opens)
+    said = M.payload(frozen, opens=M.authorized(cv, frozen))
+    assert "your runtime's own web search" in said and "col-extra" in said
+    assert M.authorized(cv, M.accepted(cv, turn=nxt["post"])) == ()
 
 
 def test_receipt_replay_does_not_hand_on_owner_stopped_unstarted_work(world):

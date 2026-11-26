@@ -182,6 +182,150 @@ def member(st, mid, selected) -> dict:
     return got
 
 
+# -- hydration: one selected row as readable evidence (Part B) -----------------
+#
+# `member` above verifies that a selection IS one of this Magnet's own recorded
+# rows, and returns its identity. That was all the send boundary carried, so an
+# agent was handed an id it could not quote (plan adm-43ecee5872e9 section 3,
+# Part B). `hydrated` adds the two things a quotable row needs -- the text the
+# BATCH ITSELF retains, and the cite a reply's reference resolves through -- and
+# adds nothing else:
+#
+#   * `member` STAYS THE SINGLE MEMBERSHIP CHECK (contract
+#     `docs/magnets/part-b-perspectives-api.md`, "the contract Part B
+#     implements its hydration against", 1). It is called first and unchanged,
+#     so a forged, foreign, stale, deleted or restricted selection refuses with
+#     exactly the words and status it always did, before anything is hydrated.
+#   * NOTHING LIVE IS READ, AND NOTHING IS SUBSTITUTED. Every byte comes out of
+#     the same verified immutable batch `member` just checked. An id the row
+#     happens to name -- its post, its Admission, its address -- is NOT
+#     followed: a row whose text the batch did not retain hydrates no text, and
+#     says so by leaving the field out rather than going to find some.
+#   * HYDRATION WIDENS NO REACH. What crosses into the prompt is what the owner
+#     selected in that exchange; the run must still ask the one door for
+#     anything else (contract 2).
+
+#: ONE ROW'S SHARE of the managed context. `message_context.CONTEXT_MAX`
+#: (64 KiB) bounds the whole hydrated context and still refuses outright; this
+#: bounds one row inside it, so selecting a single retained file -- whose text
+#: the batch may hold up to 64 KiB of -- cannot exhaust the message's cap on
+#: its own, and 16 selections can still reach it. Text cut here is never cut
+#: silently: `shortened`, `omitted_bytes` and a `cite` narrowed to the bytes
+#: actually hydrated all say so.
+ROW_TEXT_MOST = 8 * 1024
+
+
+def _value(row) -> dict:
+    got = row.get("value") if isinstance(row, dict) else None
+    return got if isinstance(got, dict) else {}
+
+
+def retained_text(row) -> str | None:
+    """The text THIS BATCH retains for this row, or None if it retains none.
+
+    A held-source file row carries the captured range (`value.text`, verified
+    whole by `activation._verified_file`). A collected post row carries its
+    identity and provenance only -- the batch never captured its words -- so
+    nothing is hydrated for it and nothing goes looking.
+    """
+    got = _value(row).get("text")
+    return got if isinstance(got, str) else None
+
+
+def cite(row) -> str | None:
+    """What a reply pointing at this row resolves through.
+
+    The batch's own citation where it recorded one (`adm-ref@digest[0:end]`,
+    the same form `mentis.sources.reading` serves). Otherwise the row's own
+    recorded version or id, which the owner's selection also put within the
+    run's reach (`mentis.magnet.scope._selected_refs`), so a reply citing it
+    resolves at the one door instead of naming something unreadable.
+    """
+    said = _value(row).get("citation")
+    if isinstance(said, str) and said.strip():
+        return said.strip()
+    for key in ("version", "id"):
+        got = row.get(key) if isinstance(row, dict) else None
+        if isinstance(got, str) and got.startswith(("ent-", "adm-")):
+            return got
+    return None
+
+
+def _bounded(text: str) -> tuple[str, int]:
+    """`(text, omitted)` cut to `ROW_TEXT_MOST` UTF-8 bytes at a codepoint
+    boundary. Bytes are the unit because the cap and the cite's range are."""
+    raw = text.encode("utf-8")
+    if len(raw) <= ROW_TEXT_MOST:
+        return text, 0
+    cut = ROW_TEXT_MOST
+    while cut > 0 and raw[cut] & 0xC0 == 0x80:      # never split a codepoint
+        cut -= 1
+    return raw[:cut].decode("utf-8"), len(raw) - cut
+
+
+def _narrowed(said: str | None, end: int) -> str | None:
+    """A recorded `...[0:N]` cite restated for the bytes actually hydrated, so
+    a quote and its citation never claim a range that was not supplied."""
+    if not said or not re.fullmatch(r".*\[0:[0-9]+\]", said):
+        return said
+    return said.rsplit("[", 1)[0] + f"[0:{end}]"
+
+
+def _batch_page(st, mid, version):
+    """The recorded batch `member` has just verified, read again to hydrate out
+    of it. `(activation, page)`, or `(None, None)` where it cannot be served --
+    never a substitute, as everywhere else in this module."""
+    acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is={"magnet": mid},
+                                 about=version, newest_first=True, limit=1)
+    if not acts or acts[0]["detail"].get("artifact", {}).get("ref") != version:
+        return None, None
+    try:
+        return _retained(st, mid, acts[0])
+    except UnreadableCollection:
+        return None, None
+
+
+def hydrated(st, mid, selected) -> dict:
+    """The selected collected row as readable evidence: its verified identity,
+    the text the batch retains for it, and its cite. `Refused` otherwise.
+
+    The identity is `member`'s, unchanged. The row is then located in the same
+    recorded batch by the identity `member` returned -- id AND digest, so the
+    row hydrated is the row that was verified.
+    """
+    from mentis.fluid.message_context import refuse
+    identity = member(st, mid, selected)            # THE ONE MEMBERSHIP CHECK
+    _, page = _batch_page(st, mid, identity["version"])
+    row = None
+    for one in (page or {}).get("sources") or ():
+        for candidate in (one.get("results") or () if isinstance(one, dict) else ()):
+            if not isinstance(candidate, dict) or candidate.get("id") != identity["ref"]:
+                continue
+            try:
+                if row_digest(candidate) == identity["digest"]:
+                    row = candidate
+            except UndigestibleRow:
+                continue
+    if row is None:
+        # `member` admitted it a moment ago, so the batch has changed under the
+        # send or cannot be stated exactly. Either way it is not substituted.
+        refuse("stale-reference", "the selected collected record changed or is not "
+               "in that collection", status=409)
+    out = dict(identity)
+    said = cite(row)
+    text = retained_text(row)
+    if text is not None:
+        kept, omitted = _bounded(text)
+        out["text"] = kept
+        if omitted:
+            out["shortened"] = True
+            out["omitted_bytes"] = omitted
+            said = _narrowed(said, len(kept.encode("utf-8")))
+    if said:
+        out["cite"] = said
+    return out
+
+
 def read(st, mid, *, batch=None, digest=None):
     config = _config(st, mid)
     if (batch is None) != (digest is None) or (batch is not None and (

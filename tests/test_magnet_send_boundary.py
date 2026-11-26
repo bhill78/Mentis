@@ -16,7 +16,8 @@ from mentis.fluid import message_context as MC
 from mentis.web import dispatch as D
 from tests._loop import world, script_every_backend  # noqa: F401
 from tests.test_agent_request_routing import a_magnet
-from tests.test_magnet_message_boundary import request, send, routed
+from tests.test_magnet_message_boundary import (COLLECTED, _collected_selector,
+                                                request, send, routed)
 
 
 def asking(world, *, runtime="codex", persona=None):
@@ -201,6 +202,93 @@ def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, monkeypatc
             assert result.get("ok") is False, result
     else:
         assert not any(row["detail"]["state"] == "supplied" for row in rows)
+
+
+CITE = "adm-0123456789ab@cccccccccccc[0:28]"
+QUOTE = "the retained row's own words"
+
+
+def a_retained_row(monkeypatch):
+    """One held-source row as a verified batch records it: identity, the text
+    the batch retained and the citation it recorded. Membership and the batch
+    read are the collection's, and are stood in for here so this file tests the
+    SEND, not the activation format (`tests/test_magnet_collection.py` owns
+    that, against real committed batches)."""
+    from mentis.magnet import collection as C
+    row = {"kind": "file", "id": COLLECTED["ref"], "version": "adm-0123456789ab",
+           "conversation": None, "author": None, "at": 1.0, "via": "held-source",
+           "value": {"ref": "adm-0123456789ab", "digest": "c" * 64,
+                     "text": QUOTE, "citation": CITE}}
+    monkeypatch.setattr(C, "member", lambda st, m, r: dict(r))
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: (
+        {"artifact": {"ref": v}}, {"sources": [{"results": [row]}]}))
+    monkeypatch.setattr(C, "row_digest", lambda r: COLLECTED["digest"])
+    return row
+
+
+def test_a_selected_collected_row_reaches_the_run_as_quotable_evidence(world, monkeypatch):
+    """PART B'S DONE-WHEN AT THE ACTUAL SEND. A Magnet-scoped request carrying
+    a `collected_item` hands the run that row's retained text and its cite, so
+    the reply can quote the row and the citation it writes resolves back to the
+    row the owner selected -- through the same membership check, to the same
+    identity. The run still holds the Magnet's own confinement, so nothing
+    about hydration widened what it may ask the door for."""
+    from mentis.magnet import collection as C
+    a_retained_row(monkeypatch)
+    mid = a_magnet(world, sources=[])
+    body = request(world, mid, action="ask-participant", op="collected-send",
+                   magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
+    body["dispatch"][0]["runtime"] = "codex"
+    status, answer = send(world, body)
+    assert status == 200, answer
+    reply = f'The collection says "{QUOTE}" ({CITE}).'
+    seen = []
+
+    def perform(spec):
+        seen.append(spec)
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         stop_reason="end_turn", text=reply)
+
+    script_every_backend(world["state"].agents, perform)
+    assert D.dispatch(world["state"], **world["sent"][0])["ok"]
+    frozen = routed(world, answer)["managed_context"]
+    cited = frozen["references"][0]
+    # (1) THE ROW CROSSED AS EVIDENCE, text and cite, inside the one payload.
+    assert MC.payload(frozen) in seen[0].prompt
+    assert QUOTE in seen[0].prompt and CITE in seen[0].prompt
+    assert cited["text"] == QUOTE and cited["cite"] == CITE
+    # (2) THE REPLY QUOTES IT, and the citation it wrote is the row's own.
+    said = [p.get("text") or "" for row in world["cv"].turns(answer["home"])
+            for p in (world["cv"]._c.read([row["turn"]])[0]["body"].get("parts") or ())]
+    assert any(QUOTE in one and CITE in one for one in said), said
+    # (3) AND IT RESOLVES TO THE ROW THE OWNER SELECTED: the same identity,
+    # through the same membership check, gives back the same cite.
+    again = C.hydrated(world["state"], mid,
+                       {k: cited[k] for k in ("kind", "ref", "version", "digest")})
+    assert again["cite"] == CITE and again["text"] == QUOTE
+    assert {k: again[k] for k in COLLECTED} == COLLECTED
+    # (4) HYDRATION WIDENED NO REACH: the grant is still the confinement.
+    supplied = audit(world, answer)[-1]["detail"]
+    assert supplied["state"] == "supplied"
+    assert supplied["grant"]["scope"] == "magnet:" + mid
+
+
+def test_a_selection_outside_the_magnets_batch_still_sends_nothing(world, monkeypatch):
+    """Hydration is downstream of membership, so it cannot rescue a selection
+    the collection refuses: the real `member` is in force here and the batch is
+    another Magnet's, so the send refuses and nothing is dispatched."""
+    from mentis.magnet import collection as C
+    mid = a_magnet(world, sources=[])
+    asked = []
+    monkeypatch.setattr(C, "_batch_page", lambda st, m, v: asked.append(v) or (None, None))
+    body = request(world, mid, action="ask-participant", op="foreign-collected",
+                   magnet_context=_collected_selector(world, mid, dict(COLLECTED)))
+    before = world["cv"]._c.advance()
+    status, answer = send(world, body)
+    assert status == 409 and answer["code"] == "stale-reference", answer
+    assert not asked, "membership refuses before anything is hydrated"
+    assert world["cv"]._c.advance() == before
+    assert not world["sent"]
 
 
 def test_reservation_record_failure_sends_nothing_and_keeps_no_reserved_audit(world, monkeypatch):
