@@ -163,11 +163,27 @@ def _closed(said, link):
     return said if link else f"{said}."
 
 
-def _source_words(one, seen):
+def _source_words(one, seen, corpus=None):
     """A captured source in ordinary words, never its recorded id (owner
-    ent-1e82a8786c37). Several of a kind are numbered so they stay apart."""
-    kind = ((one.get("source") or {}).get("kind") if isinstance(one.get("source"), dict)
-            else None) or "source"
+    ent-1e82a8786c37). Several of a kind are numbered so they stay apart.
+
+    A MAGNET'S CONFIGURED `file` SOURCE NAMES A COLLECTION, NOT A CONNECTOR.
+    Every held file -- a web page, a feed entry, an ordinary file on disk --
+    is configured the same way (`kind: "file"`, a `collection`), so the
+    configured kind alone cannot say "web search" honestly. Where `corpus`
+    is given, the collection's own declared connector
+    (`mentis.sources.declaration`) is read instead, and only a connector this
+    module already has words for changes what is said; an undeclared
+    collection, or an ordinary one (filesystem, sqlite), keeps "held file"
+    exactly as before."""
+    source = one.get("source") if isinstance(one.get("source"), dict) else {}
+    kind = source.get("kind") or "source"
+    if kind == "file" and corpus is not None and isinstance(source.get("collection"), str):
+        from mentis.sources import declaration
+        decl = declaration(corpus, source["collection"])
+        connector = decl.get("connector") if decl else None
+        if isinstance(connector, str) and connector in ("web", "web-search", "rss-atom", "git"):
+            kind = connector
     words = {"conversation": "Conversation", "file": "held file", "git": "Git repository",
              "rss-atom": "feed", "web-search": "web search", "web": "web page"}.get(kind, kind)
     seen[words] = seen.get(words, 0) + 1
@@ -184,13 +200,13 @@ def _when(at):
         return None
 
 
-def _rows_of(page):
+def _rows_of(page, corpus=None):
     """Every recorded row of the batch, with the source it was captured from."""
     out, seen = [], {}
     for one in page.get("sources") or ():
         if not isinstance(one, dict):
             continue
-        words = _source_words(one, seen)
+        words = _source_words(one, seen, corpus)
         for row in one.get("results") or ():
             if isinstance(row, dict) and isinstance(row.get("id"), str):
                 out.append({"row": row, "key": one.get("key"), "words": words})
@@ -430,7 +446,7 @@ def answer(st, mid, topic, body, by, written_by):
     closure.add(batch_ref)
     verified = E.batch(st, mid, closure.nodes[batch_ref], closure.raw[batch_ref])
     closure.add(question_desc["ref"], question_desc)
-    rows = _rows_of(verified["page"])
+    rows = _rows_of(verified["page"], st.corpus)
     is_standing = P.standing(st, mid) == topic and not fresh
     lines = (_state_of(rows, new_ids, activation, verified["page"]) if is_standing
              else _about(question_text, rows))

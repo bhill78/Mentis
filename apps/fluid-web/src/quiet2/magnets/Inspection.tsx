@@ -17,6 +17,7 @@ import { PDF_START, type PdfState } from '../viewer/types'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { MAGNET_TABS } from './contract'
 import type { MagnetContext, MagnetPlaceKey, MagnetResource } from './contract'
+import { linkHost, rowHeadline, rowLink } from './links'
 import { closeInspect, inspect, place, writePlace, placeKeyOf } from './places'
 import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 import './summary.css'
@@ -114,10 +115,20 @@ export function evidenceBounds(r: RouteResult): string {
  *
  *  H2 owns the composer; the contract fields it reads (`context`,
  *  `contextSuppressed`) are H1's, so this writes them and nothing else. If H2
- *  exports its own forced-context action, this becomes its one caller. */
+ *  exports its own forced-context action, this becomes its one caller.
+ *
+ *  THE LABEL LEADS WITH THE ROW'S OWN WORDS WHERE IT HAS THEM. A collected web
+ *  row's headline and site are read back out of its own verified bytes
+ *  (`links.tsx` `rowHeadline`, `linkHost`), exactly as the row itself already
+ *  leads with them -- never the held-file key underneath. The reference
+ *  attached is still `r.id`: only what the chip says changes. */
 export function discussEvidence(resource: MagnetResource, r: RouteResult) {
   const kind: MagnetContext['kind'] = r.kind === 'post' || r.kind === 'file' || r.kind === 'image' || r.kind === 'attachment' ? r.kind : 'file'
-  resource.update({ context: { ref: r.id, kind, label: `${r.kind === 'post' ? 'Collected post' : 'Collected file'} · ${evidenceOrigin(r)}` }, contextSuppressed: false })
+  const headline = rowHeadline(r)
+  const site = headline ? linkHost(rowLink(r)) : null
+  const label = headline ? `${headline}${site ? ` · ${site}` : ''}`
+    : `${r.kind === 'post' ? 'Collected post' : 'Collected file'} · ${evidenceOrigin(r)}`
+  resource.update({ context: { ref: r.id, kind, label }, contextSuppressed: false })
 }
 
 function HeldFile({ refId }: { refId: string }) {

@@ -29,7 +29,11 @@ directly: `tests/test_magnet_perspectives.py` drives the whole answer path
 """
 from __future__ import annotations
 
+import pytest
+
+from mentis import api
 from mentis.magnet import perspectives_work as W
+from mentis.web import _State, fixture
 
 # The exact bytes TEST holds for one row of the owner's Magnet
 # `mag-265878e92e5c987c`, read from GET /fluid/api/magnets/<id>/collection on
@@ -215,3 +219,48 @@ def test_a_question_the_collection_cannot_answer_still_refuses_to_answer_it():
     assert "None of the" in said and "records this Magnet has collected mention" in said
     assert "Nothing outside this collection was read" in said
     assert said and not said.startswith("From the")
+
+
+# -- what the batch itself says about where a row came from (ent-49620b753f71) -
+
+# A Magnet's configured source always names a held-file collection the same
+# way (`kind: "file"`, a `collection` id) whatever connector actually
+# acquired its bytes -- a web search, a feed or an ordinary file on disk.
+# `page()` above fakes the configured kind directly as "web-search" to pin
+# the wording; these tests drive the real seam, a declared collection's own
+# connector read back through `mentis.sources.declaration`.
+
+@pytest.fixture
+def brain(tmp_path):
+    fixture.build(str(tmp_path / "brain"))
+    return _State(str(tmp_path / "brain"))
+
+
+def _configured_file_source(collection, rows):
+    return {"sources": [{"key": f"file:{collection}:", "status": "ok",
+                         "source": {"kind": "file", "collection": collection},
+                         "results": rows}]}
+
+
+def test_a_file_source_over_a_declared_web_search_collection_is_named_accurately(brain):
+    out = api.sources(brain.corpus).declare(name="Space news", connector="web-search",
+                                            options={"queries": ["space missions"]})
+    rows = W._rows_of(_configured_file_source(out["collection"], [held(FEED_TEXT)]), brain.corpus)
+    assert rows[0]["words"] == "web search", \
+        "the collection's own connector is named, not the Magnet's generic 'file' source kind"
+
+
+def test_an_ordinary_file_source_still_reads_as_a_held_file(brain):
+    out = api.sources(brain.corpus).declare(name="Notes", connector="filesystem")
+    rows = W._rows_of(_configured_file_source(out["collection"], [held(PAGE_TEXT)]), brain.corpus)
+    assert rows[0]["words"] == "held file", "an ordinary file collection stays honestly named"
+
+
+def test_an_undeclared_collection_falls_back_to_held_file(brain):
+    rows = W._rows_of(_configured_file_source("col-missing111", [held(PAGE_TEXT)]), brain.corpus)
+    assert rows[0]["words"] == "held file"
+
+
+def test_with_no_corpus_given_the_configured_kind_is_used_exactly_as_before():
+    rows = W._rows_of(_configured_file_source("col-missing111", [held(PAGE_TEXT)]))
+    assert rows[0]["words"] == "held file"

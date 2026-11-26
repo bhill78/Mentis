@@ -358,3 +358,25 @@ test('Discuss this record attaches the reference only, and clears suppression', 
   assert.equal(context.text, undefined, 'captured content never enters the attached context')
   assert.equal(r.snapshot().contextSuppressed, false, 'an explicit discuss clears suppression')
 })
+
+test('Discuss this record on a collected web row leads with its own headline and site, not the held-file key', async () => {
+  store()
+  const headline = 'Space missions and astronomy — what launched, what was found'
+  const path = 'space-missions-and-astronomy-what-launch/a733ec1ec5e51a4b'
+  const text = `${headline}\n\nhttps://example.com/space-news/launch\n\nWhat the article reported about the launch.`
+  const end = new TextEncoder().encode(text).length
+  const WEB = { kind: 'file', id: 'adm-web111111', version: 'adm-web111111', conversation: null, author: null, at: 1764000600, via: 'held-source',
+    value: { ref: 'adm-web111111', digest, collection: 'col-web', path, text,
+      offset: 0, end, size: end, acquired_at: 1764000600, shortened: false, omitted_bytes: 0, next_offset: null,
+      citation: `adm-web111111@${digest.slice(0, 12)}[0:${end}]` } }
+  const WEB_SOURCE = { kind: 'file', collection: 'col-web', path }
+  const { r } = resource('mag-h3discussweb', (c) => ({ magnet: c.id, config: c, activation: ACTIVATION,
+    page: { sources: [{ source: WEB_SOURCE, key: `file:col-web:${path}`, status: 'ok', results: [WEB] }] } }))
+  await r.read()
+  discussEvidence(r, r.snapshot().results[0])
+  const context = r.snapshot().context!
+  assert.equal(context.ref, 'adm-web111111', 'the attached reference is still the row\'s own id, unchanged')
+  assert.equal(context.kind, 'file')
+  assert.equal(context.label, `${headline} · example.com`, 'the chip leads with the verified headline and site, not col-web / the held-file path')
+  assert.equal(context.text, undefined, 'captured content never enters the attached context')
+})

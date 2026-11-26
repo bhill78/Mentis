@@ -30,6 +30,7 @@ import { miniAsking } from './asking'
 import {
   NO_OWN_CONVERSATION, attachContext, miniAttempt, miniConversationOf, removeContext, retireContext,
 } from './conversation'
+import { linkHost, rowHeadline, rowLink } from './links'
 import { place, remember, route, writePlace } from './places'
 import { perspectivesOf } from './perspectives'
 import './conversation.css'
@@ -334,9 +335,14 @@ export function contextCandidate(resource: MagnetResource,
       : /^adm-/.test(ref) ? 'file' : 'post'
     const value = row?.value as { title?: unknown } | undefined
     const title = typeof value?.title === 'string' && value.title ? value.title : ''
+    // A collected web row leads with its own headline and site, read back out
+    // of its verified bytes, rather than the held-file key underneath.
+    const headline = row ? rowHeadline(row) : null
+    const site = headline ? linkHost(rowLink(row!)) : null
+    const label = headline ? `${headline}${site ? ` · ${site}` : ''}` : title || ref
     /* Attached AT the version the view is showing: the chip stands for that
        row, not for whatever the record holds when Send is pressed. */
-    const candidate: MagnetContext = stamped({ ref, kind, label: title || ref }, versionOfRecord(s.results, ref))
+    const candidate: MagnetContext = stamped({ ref, kind, label }, versionOfRecord(s.results, ref))
     return selectedReference(s.results, candidate).ok ? candidate : null
   }
   const onPerspectives = s.overlay === null ? s.tab === 'Perspectives' : s.searchTarget?.kind === 'Perspectives'
