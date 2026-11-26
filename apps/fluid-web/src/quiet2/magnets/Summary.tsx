@@ -27,16 +27,44 @@
  *  gate is open (Part A, `GROUNDED_ANSWERS_ENABLED`), so a Summary that still
  *  said it was shut would be the interface claiming something untrue. Every
  *  answer shown here states what it was grounded in, and an answer that
- *  explored outside the collection is rendered as a different thing. */
+ *  explored outside the collection is rendered as a different thing.
+ *
+ *  **PRESENTED BY WHAT IT REPRESENTS** (owner #1017 `ent-599e68de0893`, plan
+ *  Part 5). Three things this view used to get wrong, all of them about
+ *  presentation and none about what is claimed:
+ *
+ *  1. The server records every answer as `lines: [{text, cites:[row ids]}]`
+ *     (`mentis/magnet/perspectives_work.py`) and this view read only
+ *     `data.text` and split it on newlines, so the citation each statement
+ *     carries -- the one thing that makes a statement checkable -- was thrown
+ *     away before the reader saw it. It is read now, and every statement is
+ *     pressable to the captured records it was written from (`answerLines`,
+ *     `citedRows`, `Briefing`).
+ *  2. A recorded answer that is a written document rather than one statement
+ *     per line is rendered as prose by the Fluid renderer that already exists
+ *     (`Prose`, `src/prose.tsx`): headings, paragraphs, lists and pipe tables,
+ *     and in a browser the marked `timeline`/`chart` blocks of the existing
+ *     registry. Nothing new is written and no renderer is edited.
+ *  3. The lead before any answer exists was a record count ("This Magnet holds
+ *     72 collected files, collected …"). It is what the material NAMES now
+ *     (`materialLead`), read out of the rows' own captured words; every
+ *     measurement -- the counts, the span, the word total, the counted words --
+ *     is behind the one facts disclosure it always had.
+ *
+ *  And where the collected material records when it was published, that dated
+ *  shape is drawn as a table rather than described (`datedMaterial`,
+ *  `datedTable`): a set of dated published articles is a table, whatever the
+ *  bytes it is stored as. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { Prose, isStructured } from '../../prose'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
 import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { goTab, inspect, openOverlay, place } from './places'
 import { resultTitle } from './EvidenceViews'
-import { AnswerStatement, Linked, SourceLink, linkHost, rowBody, rowLink } from './links'
+import { AnswerStatement, Linked, SourceLink, linkHost, rowBody, rowHeader, rowLink } from './links'
 import { collectionRows } from './collectionRows'
 import { supportsManualCollection } from './configuration'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
@@ -119,6 +147,14 @@ export function summaryFacts(saved: SavedMagnet, s: MagnetSnapshot): string[] {
   if (saved.config && ['criteria', 'phrases', 'topics', 'filters'].some((k) => !!saved.config?.selection[k as keyof typeof saved.config.selection]))
     lines.push('Criteria, phrases, topics and filters are kept with the Magnet; this source does not apply them.')
   lines.push(s.previousOpen ? 'Activity is compared with this tab’s last-open time only; there is no shared read state.' : 'No last-open baseline in this tab yet.')
+  // THE COUNTED WORDS ARE A FACT ABOUT THE TEXT, so they are stated where the
+  // facts are. They were a sentence of the written overview -- the thing a
+  // reader met before anything the material says -- which is the "collection
+  // statistics ... presented as the primary content" the owner asked to be
+  // demoted (#1017). Nothing is deleted and nothing is re-worded: the same
+  // counted line, in the disclosure the other measurements are in.
+  const frequent = frequentWords(s.results)
+  if (frequent.length) lines.push(`Most used words, counted: ${frequent.map((w) => `${w.word} (${w.count})`).join(', ')}.`)
   return lines
 }
 
@@ -246,8 +282,9 @@ export function collectionOverview(saved: SavedMagnet, s: MagnetSnapshot): strin
     ? `The collected material is all from ${day(span.first)}.`
     : `The collected material was written between ${day(span.first)} and ${day(span.last)}.`)
   if (words) lines.push(`Its collected text runs to about ${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}.`)
-  const frequent = frequentWords(s.results)
-  if (frequent.length) lines.push(`Most used words, counted: ${frequent.map((w) => `${w.word} (${w.count})`).join(', ')}.`)
+  // The counted words moved to `summaryFacts`: see the note there. Every line
+  // left here is still a measurement, and the view keeps all of them behind the
+  // facts disclosure rather than leading with one.
   if (s.status && s.status !== 'ok') lines.push(`Not every source reported its whole scope, so this is what was collected, not everything that exists${s.reason ? `: ${s.reason}` : '.'}`)
   const sources = saved.config?.sources ?? []
   const uncaptured = sources.filter((source) => { const key = configuredKey(source); return !key || !counts.get(key) })
@@ -255,25 +292,162 @@ export function collectionOverview(saved: SavedMagnet, s: MagnetSnapshot): strin
   return lines
 }
 
-/** WHAT IS TRUE NOW, as one statement: what has been collected, when, and from
- *  how many sources. That is what the approved design puts under the heading of
- *  a surface -- one line in the mockups' own `muted` paragraph, not a stack of
- *  measurements (`04-browse.png`: "24 items from 2 sources · collected today").
+/* ---------------------------------------------------------------------------
+   WHAT THE MATERIAL NAMES -- the lead before any answer is recorded.
+
+   The lead used to be the first two lines of `collectionOverview`: "This
+   Magnet holds 72 collected files, collected 26 November 2026. They came from
+   72 held files." Both sentences are true and both are counts, so the first
+   thing a reader met was bookkeeping -- exactly the "collection statistics
+   ... presented as the primary content" the owner asked to be demoted (#1017
+   `ent-599e68de0893`). Every one of those lines is still written, and still
+   available, behind the facts disclosure.
+
+   What leads instead is read out of the rows' own captured words. */
+
+/** Leading words stripped off a capitalised run before it is read as a name:
+ *  a sentence-initial "The" or a question word is grammar, not a subject. The
+ *  same list as `mentis/magnet/perspectives_work.py::_LEADING_STOP`. */
+const LEADING_STOP = new Set(('the a an this that these those is are was were it its new from for with on at to in of as by '
+  + 'what how why when where who which and or but not here there').split(' '))
+
+/** THE SUBJECTS THE COLLECTED MATERIAL ITSELF NAMES: runs of two or more
+ *  consecutive capitalised words ("Roman Space Telescope", "Artemis
+ *  Programme"), ranked by how many rows name each.
  *
- *  The rest of `collectionOverview` -- the span the material was written over,
- *  how much text it runs to, which words recur, which configured sources gave
- *  nothing -- is measured detail ABOUT the collection rather than what it
- *  currently is, so it moves behind the one disclosure with the facts. Nothing
- *  is deleted and nothing is re-worded: this reads the same lines, and takes the
- *  first two of them. */
-export function collectionLead(saved: SavedMagnet, s: MagnetSnapshot): string {
-  return collectionOverview(saved, s).slice(0, 2).join(' ')
+ *  This is content read, not a word counted -- a collection whose rows name
+ *  nothing beyond ordinary sentences yields nothing at all, which is the honest
+ *  outcome for it rather than a frequency table dressed up as a theme. The
+ *  server makes the same reading over the same bytes
+ *  (`perspectives_work.py::_subject_candidates`, `_subjects`) and the two agree
+ *  on purpose: what this surface offers to ask about should be what an answer
+ *  written from these rows leads with. */
+export function namedSubjects(results: RouteResult[], limit = 3): string[] {
+  const counts = new Map<string, number>(), order: string[] = []
+  for (const r of results) {
+    const said = new Set<string>()
+    // The row's own words, READ AS SEPARATE PASSAGES -- never its provenance
+    // trailer, which restates the configured search itself and would name the
+    // same "subject" in every row. The headline and the material are read
+    // apart because a run must not span the join between them: a feed title
+    // ending in its byline, read straight into a body that opens with a name,
+    // gave "NASA The Roman Space Telescope", a phrase neither passage says.
+    const header = rowHeader(r)
+    for (const passage of header ? [header.headline ?? '', header.body] : [resultTitle(r), capturedText(r)]) {
+      let run: string[] = []
+      const close = () => {
+        let phrase = run
+        while (phrase.length && LEADING_STOP.has(phrase[0].toLowerCase())) phrase = phrase.slice(1)
+        if (phrase.length >= 2) said.add(phrase.join(' '))
+        run = []
+      }
+      // A sentence end closes a run too: "… ships to the launch site. Its
+      // coronagraph …" is two sentences, not one name.
+      for (const raw of String(passage).split(/\s+/)) {
+        const token = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+        if (token && /^\p{Lu}/u.test(token)) {
+          run.push(token)
+          if (/[.!?:;]$/.test(raw)) close()
+          continue
+        }
+        close()
+      }
+      close()
+    }
+    for (const phrase of said) {
+      if (!counts.has(phrase)) order.push(phrase)
+      counts.set(phrase, (counts.get(phrase) ?? 0) + 1)
+    }
+  }
+  return order.sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || order.indexOf(a) - order.indexOf(b))
+    .slice(0, limit)
 }
 
-/** The measured lines that are not the lead, which the disclosure carries. */
-export function collectionDetail(saved: SavedMagnet, s: MagnetSnapshot): string[] {
-  return collectionOverview(saved, s).slice(2)
+/** Said where the material names no subject of its own. Honest rather than
+ *  silent, and it does not fall back to a count. */
+export const NAMES_NOTHING_YET = 'The collected material names no subject that stands out of it yet. What it holds is quoted below in its own words.'
+
+/** WHAT THE COLLECTION'S MATERIAL IS ABOUT, in one sentence, from its own
+ *  words. The lead before an answer is recorded against the standing question
+ *  -- and not a measurement of the collection, which is what it was. */
+export function materialLead(s: MagnetSnapshot): string {
+  if (s.activation === undefined || !s.activation) return ''
+  const subjects = namedSubjects(s.results, 3)
+  if (!subjects.length) return NAMES_NOTHING_YET
+  const named = subjects.length > 1
+    ? `${subjects.slice(0, -1).join(', ')} and ${subjects[subjects.length - 1]}`
+    : subjects[0]
+  return `The collected material names ${named}.`
 }
+
+/* ---------------------------------------------------------------------------
+   DATED PUBLISHED MATERIAL IS A TABLE (owner #1017: "present information
+   according to what it represents, not its internal storage type ... prose,
+   images, tables, charts or timelines where appropriate").
+
+   A set of articles that each record when they were published and who
+   published them has a shape, and that shape is a table -- whatever the bytes
+   it happens to be stored as (a held file, in this Magnet's case, which is why
+   it was being drawn as a stack of quoted text). The columns are read out of
+   each row's OWN recorded trailer, the one `mentis/sources/feeds.py::
+   _entry_body` writes and `perspectives_work.py::_published`/`_publisher`
+   read server-side: nothing is derived, inferred or fetched, and a row that
+   recorded no publication date contributes no row to the table.
+
+   It is drawn by the renderer that already draws tables -- `Prose`'s pipe
+   tables (`src/prose.tsx`) -- so nothing here is a new renderer or a new
+   presentation layer. */
+
+/** When a collected row says IT was published, and by whom, from its own
+ *  recorded `Published:`/`Publisher:` lines. Never `r.at`, which is when this
+ *  Magnet fetched it -- a different fact, and the one the Summary used to
+ *  report as when the material was written. */
+export function rowPublication(r: RouteResult): { published: string | null; publisher: string | null } {
+  const text = capturedText(r) || (typeof object(r.value).text === 'string' ? object(r.value).text : '')
+  let published: string | null = null, publisher: string | null = null
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim()
+    if (!published && line.startsWith('Published:')) {
+      const said = line.slice('Published:'.length).trim()
+      const at = Date.parse(said)
+      published = Number.isFinite(at) ? new Date(at).toISOString().slice(0, 10) : null
+    }
+    if (!publisher && line.startsWith('Publisher:')) publisher = line.slice('Publisher:'.length).trim() || null
+  }
+  return { published, publisher }
+}
+
+export interface DatedRow { id: string; title: string; published: string; publisher: string }
+/** The collected rows that record their own publication date, newest first. */
+export function datedMaterial(results: RouteResult[], most = 10): DatedRow[] {
+  const out: DatedRow[] = []
+  for (const r of results) {
+    const { published, publisher } = rowPublication(r)
+    if (!published) continue
+    out.push({ id: r.id, title: resultTitle(r), published, publisher: publisher ?? '—' })
+  }
+  return out.sort((a, b) => b.published.localeCompare(a.published) || a.title.localeCompare(b.title)).slice(0, most)
+}
+
+/** Whether a table is worth drawing: two or more dated rows, over more than
+ *  one date. One date is not a time axis, and a single row is not a table. */
+export function worthTabulating(rows: DatedRow[]): boolean {
+  return rows.length >= 2 && new Set(rows.map((d) => d.published)).size > 1
+}
+
+/** A table cell's text, safe to put between pipes. A headline holding a `|`
+ *  would otherwise open a column the author did not write. */
+const cell = (words: string, most = 80): string => {
+  const said = String(words).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim()
+  return said.length > most ? `${said.slice(0, most - 1)}…` : said || '—'
+}
+
+/** Those rows as the Markdown pipe table `Prose` already draws. */
+export function datedTable(rows: DatedRow[]): string {
+  return ['| Published | What it is | Publisher |', '|---|---|---|',
+    ...rows.map((d) => `| ${cell(d.published, 12)} | ${cell(d.title)} | ${cell(d.publisher, 40)} |`)].join('\n')
+}
+export const DATED_WHY = 'Published dates and publishers as the records themselves recorded them — not when this Magnet collected them.'
 
 /** WHAT HAS BEEN COLLECTED, beside the heading, in the design's own place for a
  *  count (`04-browse.png`'s `<h2>Collected items <span class="subtle">24</span>`).
@@ -298,7 +472,14 @@ export function offeredQuestions(s: MagnetSnapshot, earlier = false): string[] {
     return out
   }
   const counts = capturedCounts(s)
-  for (const w of frequentWords(s.results, 2)) out.push(`What do the collected records say about ${w.word}?`)
+  // A SUBJECT THE MATERIAL NAMES, where it names one. "What do the collected
+  // records say about Roman Space Telescope?" is a question about the material;
+  // "… about launches?" -- a word that happened to recur -- is a question about
+  // a word count. Where the rows name nothing, the counted word is still the
+  // honest thing to offer, so that is the fallback and not a silence.
+  const subjects = namedSubjects(s.results, 2)
+  for (const subject of subjects) out.push(`What do the collected records say about ${subject}?`)
+  if (!subjects.length) for (const w of frequentWords(s.results, 2)) out.push(`What do the collected records say about ${w.word}?`)
   // A collected source is still something to ask about, asked without its
   // recorded key: an offered question a reader presses is not the place for an
   // identity (owner request ent-1e82a8786c37), and one that carried it read
@@ -496,6 +677,111 @@ export async function compareWithPrevious(resource: MagnetResource, signal?: Abo
   return { words: comparisonWords(c), added: c.added, at: got.at, comparable: c.comparable }
 }
 
+/* ---------------------------------------------------------------------------
+   THE RECORDED ANSWER, WITH THE STRUCTURE IT WAS RECORDED WITH.
+
+   The server writes every answer as `lines: [{text, cites:[row ids]}]` and
+   records that structure on the answered event beside the joined `text`
+   (`mentis/magnet/perspectives_work.py::answer`, `data["lines"]`). This view
+   read only `data.text` and split it on newlines, so `cites` -- the records
+   each statement was actually written from, which `_selections` has already
+   validated against the retained batch -- was read NOWHERE in this directory.
+   A statement whose support cannot be opened is a statement the reader has to
+   take on trust, which is the opposite of what grounding it was for.
+
+   Nothing here changes a recorded character, and nothing here invents a
+   citation: a cited id that is not in the batch shown is dropped rather than
+   drawn as an opening that would not open. */
+
+export interface AnswerLine {
+  /** The statement, exactly as recorded. */
+  text: string
+  /** The collected rows it was written from, by their recorded ids. */
+  cites: string[]
+}
+
+/** An answer's statements with their citations. Falls back to the joined text
+ *  split per line for an answer recorded before `lines` was written, so an
+ *  older answer still renders -- with no citations, because it recorded
+ *  none, and never with guessed ones. */
+export function answerLines(e?: InquiryEvent | null): AnswerLine[] {
+  const recorded = e?.data?.lines
+  if (Array.isArray(recorded)) {
+    const out: AnswerLine[] = []
+    for (const line of recorded) {
+      const said = object(line)
+      if (typeof said.text !== 'string' || !said.text.trim()) continue
+      out.push({ text: said.text.trim(),
+        cites: (Array.isArray(said.cites) ? said.cites : []).filter((c: unknown): c is string => typeof c === 'string' && !!c) })
+    }
+    if (out.length) return out
+  }
+  return statements(answerText(e)).map((text) => ({ text, cites: [] }))
+}
+
+export interface Cited { id: string; title: string }
+/** The rows a statement cites, named by their own words and in the order the
+ *  statement names them. A row the batch shown does not hold is dropped: this
+ *  surface opens captured copies, and nothing is substituted for one it has
+ *  not got. */
+export function citedRows(cites: string[], results: RouteResult[]): Cited[] {
+  const by = new Map(results.map((r) => [r.id, r]))
+  const out: Cited[] = [], seen = new Set<string>()
+  for (const id of cites) {
+    const r = by.get(id)
+    if (!r || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, title: resultTitle(r) })
+  }
+  return out
+}
+
+/** WHETHER A RECORDED ANSWER IS A WRITTEN DOCUMENT rather than one statement
+ *  per line, decided from the characters themselves.
+ *
+ *  The Python synthesis writes consecutive single-line statements, which read
+ *  as one paragraph, so `isStructured` is false for it and it keeps its
+ *  statement-and-quotation layout -- the layout that makes its citations
+ *  pressable. A briefing written as Markdown (headings, paragraphs, lists,
+ *  pipe tables) is structured, and is rendered as the document it is by the
+ *  renderer Fluid already has. */
+export const isWrittenBriefing = (words: string): boolean => isStructured(words)
+
+export const WRITTEN_FROM = 'Written from'
+/** What a change to a WRITTEN answer is worth saying. Its lines are not its
+ *  statements, so they are not listed as if each were a thing it now says. */
+export const BRIEFING_REWRITTEN = 'This answer is written as a document, and was rewritten from the collection shown. It is read whole above; the answer it superseded is kept under this Magnet’s standing question.'
+
+/** The collected records one statement was written from, each a press that
+ *  opens the captured copy inside this card. */
+function Cites({ resource, cites }: { resource: MagnetResource; cites: string[] }) {
+  const rows = citedRows(cites, resource.snapshot().results)
+  if (!rows.length) return null
+  return <p className="mgd-subtle">{WRITTEN_FROM}{' '}
+    {rows.map((c, i) => <span key={c.id}>{i ? ' · ' : ''}
+      <button type="button" className="mgd-link mgd-small" id={`cite-${c.id}`}
+        onClick={() => inspect(resource, c.id, `cite-${c.id}`)}>{c.title}</button></span>)}</p>
+}
+
+/** THE ANSWER, PRESENTED AS WHAT IT IS.
+ *
+ *  A written briefing is prose: `Prose` draws its headings, paragraphs, lists
+ *  and pipe tables, and in a browser the marked `timeline`/`chart` blocks of
+ *  the registry it already reads. A statement-per-line synthesis keeps the
+ *  layout that suits it -- the statement, the record's own words under it
+ *  (`AnswerStatement`, `links.tsx`), and the records it was written from as
+ *  presses. Either way the recorded characters are the recorded ones. */
+export function Briefing({ resource, answer }: { resource: MagnetResource; answer: InquiryEvent | null }) {
+  const words = answerText(answer)
+  if (!words) return null
+  if (isWrittenBriefing(words))
+    return <div className="q2-prose"><Prose src={words} scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
+  return <>{answerLines(answer).map((line, i) => <div key={`answer-${i}`}>
+    <AnswerStatement line={line.text} lead={!i} />
+    <Cites resource={resource} cites={line.cites} />
+  </div>)}</>
+}
+
 /** WHAT AN ANSWER WAS GROUNDED IN, beside the answer itself.
  *
  *  Three distinct statements, never a blend (Part A's contract, its field names
@@ -635,11 +921,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
       .finally(() => setAnswering(false))
   }
   const answered = answerText(summary?.current)
+  const writtenBriefing = !!answered && isWrittenBriefing(answered)
   const change: AnswerChange | null = answerDiff(summary?.current, summary?.superseded[0])
 
-  const lead = collectionLead(resource.saved, s)
-  const detail = collectionDetail(resource.saved, s)
+  const lead = materialLead(s)
+  const measured = collectionOverview(resource.saved, s)
   const excerpts = collectedExcerpts(s.results)
+  const dated = datedMaterial(s.results)
   const starting = startingAction(resource.saved)
   const questions = offeredQuestions(s, !!comparison)
 
@@ -705,13 +993,15 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
             counted lead is shown instead, saying which of the two it is. */}
         {answered
           ? <section className="q2-magnet-answer" aria-label="What this Magnet has gathered">
-              {/* STATEMENT, THEN WHAT IT QUOTED, THEN AIR (owner
-                  ent-0b4f3f69b836). The recorded characters are unchanged:
-                  `AnswerStatement` lays one statement out and makes the
-                  addresses in it followable. What was grounded in what is said
-                  by `Grounded`, below, exactly as before. */}
-              {statements(answered).map((line, i) =>
-                <AnswerStatement key={`answer-${i}`} line={line} lead={!i} />)}
+              {/* THE ANSWER AS WHAT IT IS (plan Part 5). A written briefing is
+                  drawn as prose by `Prose`; a statement-per-line synthesis
+                  keeps statement, quotation and air (owner ent-0b4f3f69b836),
+                  and each statement now carries the collected records it was
+                  written from as presses -- the `cites` the server has always
+                  recorded and this view used to discard. The recorded
+                  characters are unchanged either way. What was grounded in what
+                  is said by `Grounded`, below, exactly as before. */}
+              <Briefing resource={resource} answer={summary?.current ?? null} />
               <Grounded answer={summary?.current ?? null} />
               {/* Who wrote it is said ONCE, by the grounding statement above
                   ("Written from this Magnet's collected records and nothing
@@ -721,7 +1011,12 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   sentence is on the recorded answer, one press away. */}
               <p className="mgd-subtle">{SUMMARY_IS_A_QUESTION}</p>
             </section>
-          : <><p className="mgd-p mgd-muted q2-magnet-lead">{lead}</p>
+          : <>{/* THE LEAD WITHOUT AN ANSWER IS WHAT THE MATERIAL NAMES, not a
+                   count of it: `materialLead` reads the subjects out of the
+                   rows' own captured words. Every measurement the counted lead
+                   used to open with is written still, in the facts disclosure
+                   below. */}
+              <p className="mgd-p mgd-muted q2-magnet-lead">{lead}</p>
               <p className="mgd-subtle">{answering ? 'Writing an answer from this collection…' : NOT_ANSWERED_YET}</p></>}
         {/* The design's own action row (`03-sources.png`'s "Collect manually"):
             what is true on the left, the press at the far edge. */}
@@ -745,6 +1040,18 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
           </div>
           {excerpts.map((e) => <RecordRow key={e.id} excerpt={e} expanded={here.inspected === e.id}
             onOpen={() => inspect(resource, e.id, `excerpt-${e.id}`)} />)}
+        </section>}
+
+        {/* PRESENTED AS WHAT IT REPRESENTS (owner #1017). Where the collected
+            records record their own publication dates, what they are is a set
+            of dated published things -- so they are drawn as a table, by the
+            renderer that already draws tables, rather than described in a
+            sentence or quoted in a column. A collection whose rows record no
+            such date gets no table: the shape has to be in the material. */}
+        {worthTabulating(dated) && <section aria-label="What this Magnet holds, by date">
+          <h3 className="mgd-h3">What it holds, by date</h3>
+          <div className="q2-prose"><Prose src={datedTable(dated)} scope={`magnet-dated:${resource.saved.id}`} /></div>
+          <p className="mgd-subtle">{DATED_WHY}</p>
         </section>}
 
         <div className="mgd-space" />
@@ -771,9 +1078,22 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                 evolving summary changing means. The batch comparison stays
                 below it, as the measured detail it is. */}
             {!!summary?.current && <>
-              <p className="mgd-p">{changeWords(change)}</p>
-              {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span><Linked text={line} /></p>)}
-              {change?.gone.map((line) => <p className="mgd-item" key={`gone-${line}`}><span className="mgd-subtle">No longer says · </span><Linked text={line} /></p>)}
+              {/* A DOCUMENT'S LINES ARE NOT ITS STATEMENTS. `answerDiff` splits
+                  the recorded text on newlines, which is exactly right for the
+                  synthesis -- it writes one statement per line -- and wrong for
+                  a written briefing, where it listed `|---|---|`, a `**bold**`
+                  fragment and half a sentence as sixteen things the answer "now
+                  says". A written answer is rewritten whole and read whole
+                  above; only a statement-per-line answer lists its statements
+                  here. Nothing is hidden either way: both answers are kept
+                  under this Magnet's standing question. */}
+              {writtenBriefing
+                ? <p className="mgd-p">{BRIEFING_REWRITTEN}</p>
+                : <>
+                  <p className="mgd-p">{changeWords(change)}</p>
+                  {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span><Linked text={line} /></p>)}
+                  {change?.gone.map((line) => <p className="mgd-item" key={`gone-${line}`}><span className="mgd-subtle">No longer says · </span><Linked text={line} /></p>)}
+                </>}
               {!summary.superseded.length && <p className="mgd-subtle">This is the first answer recorded against this Magnet's standing question, so there is nothing before it to differ from.</p>}
               <div className="mgd-divider" />
             </>}
@@ -805,7 +1125,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         <details className="q2-magnet-provenance q2-magnet-disclosure" open={here.history}>
           <summary><span className="mgd-link mgd-small">Limits and dates ▾</span></summary>
           <div className="q2-magnet-facts">
-            {detail.map((line, i) => <p key={`measured-${i}`}>{line}</p>)}
+            {/* EVERY MEASUREMENT, INCLUDING THE TWO THAT USED TO LEAD. The
+                counted overview is written whole here now -- what was
+                collected, from how many sources, when, over what span, how
+                much text -- so demoting the counted lead took nothing away
+                from the reader; it moved it to where the owner kept the rest
+                of the measurements. */}
+            {measured.map((line, i) => <p key={`measured-${i}`}>{line}</p>)}
             {summaryFacts(resource.saved, s).map((line, i) => <p key={i}>{line}</p>)}
           </div>
         </details>

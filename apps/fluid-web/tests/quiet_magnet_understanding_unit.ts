@@ -134,8 +134,18 @@ test('the written overview says what was collected, from where, when and how muc
     'and the per-source breakdown is still stated on demand')
   assert.match(text, /The collected material was written between .+ and .+\./, 'it states the span of the material itself')
   assert.match(text, /Its collected text runs to about \d+ words\./, 'it measures the text it holds')
-  assert.ok(text.includes('bench (4)') && text.includes('calibration (3)'), 'recurring words are counted and named with their counts')
-  assert.ok(/counted/i.test(text), 'the counts say they are counts')
+  // THE COUNTED WORDS ARE A FACT, SAID WHERE THE FACTS ARE (plan Part 5). They
+  // were a sentence of the written overview, so "Most used words, counted: …"
+  // was part of what a reader met before anything the material says -- the
+  // "collection statistics presented as the primary content" the owner asked to
+  // be demoted (#1017 ent-599e68de0893). The same counted line, unchanged, is
+  // now stated in the facts; the overview holds no word count at all.
+  const facts = summaryFacts(r.saved, r.snapshot()).join(' | ')
+  assert.ok(facts.includes('bench (4)') && facts.includes('calibration (3)'),
+    `recurring words are counted and named with their counts, in the facts: ${facts}`)
+  assert.ok(/Most used words, counted/.test(facts), 'and they say they are counts')
+  assert.doesNotMatch(text, /Most used words|counted:/,
+    `the written overview no longer counts words at a reader: ${text}`)
 })
 
 test('nothing in the overview characterises, concludes or summarises the material', async () => {

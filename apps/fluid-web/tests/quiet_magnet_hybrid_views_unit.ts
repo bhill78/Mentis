@@ -222,7 +222,17 @@ test('inspection is inline: inside the Summary section, and beneath the clicked 
   const row = list.indexOf(`id="item-${HELD.id}"`)
   assert.ok(row >= 0 && list.indexOf('id="inspect-title"') > row, 'the inspection renders directly beneath its row')
   assert.equal((list.match(/q2-magnet-evidence-row/g) ?? []).length, 2, 'the other rows stay listed around it')
-  assert.ok(list.includes('Collected file · Held file col-held / nested/calibration.txt'))
+  // WHAT IT IS, NOT WHERE IT IS STORED (owner #1017 `ent-599e68de0893`, plan
+  // Part 5). This line read "Collected file · Held file col-held /
+  // nested/calibration.txt" -- the collection key and the object key, on the
+  // record's resting surface, which is what `plainEvidenceOrigin` exists to
+  // keep off one. The exact key is unchanged and one press away, under "Where
+  // this came from", which is where the owner kept lineage.
+  assert.ok(list.includes('Collected file · Held file · nested/calibration.txt'),
+    'the opened record says what it is, without its collection key')
+  assert.ok(!list.includes('Collected file · Held file col-held /'), 'the raw key is not on the resting surface')
+  assert.ok(list.includes('<dd>Held file col-held / nested/calibration.txt</dd>'),
+    'and the exact captured key is still stated in the provenance disclosure')
 })
 
 test('the provenance disclosure states origin, version, capture and bounds, and keeps its state per place', async () => {

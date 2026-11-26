@@ -7,17 +7,34 @@
  *  finds it exactly as it was left.
  *
  *  Nothing here reads a live source. When a reference is not in the batch shown,
- *  it says so and substitutes nothing. */
+ *  it says so and substitutes nothing.
+ *
+ *  **BY WHAT IT REPRESENTS, NOT BY HOW IT IS STORED** (owner #1017
+ *  `ent-599e68de0893`, plan Part 5). A collected article is prose, and it was
+ *  being shown as a `<pre>` of its captured bytes -- monospaced, unwrapped,
+ *  with its headline and its address run through the top of the block as two
+ *  more lines of text. It is the same bytes either way; what changes is that
+ *  the reader can read them. So the record's own headline is a heading, its
+ *  recorded address is a link, and its material is drawn by the renderer Fluid
+ *  already has for written material (`Prose`, `src/prose.tsx`) -- in `untrusted`
+ *  mode for anything acquired from the web, which is text nobody in this Brain
+ *  wrote: its fences are shown as their own source and no marked block or HTML
+ *  preview is drawn from them. Images, video, audio and PDF keep the viewer
+ *  they already had (`ViewerBody`, `PdfView`), which is the same principle
+ *  applied before this part existed.
+ *
+ *  No renderer is edited and none is written: this file imports two that exist. */
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { CLIENT_HEADERS, type Part } from '../../api'
+import { Prose } from '../../prose'
 import { ViewerBody } from '../../quiet/media/MediaLayer'
 import { returnedItemOf, type HeldBytes } from '../../quiet/media/view'
 import { PDF_START, type PdfState } from '../viewer/types'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { MAGNET_TABS } from './contract'
 import type { MagnetContext, MagnetPlaceKey, MagnetResource } from './contract'
-import { linkHost, rowHeadline, rowLink } from './links'
+import { SourceLink, heldHeader, linkHost, rowHeadline, rowLink } from './links'
 import { closeInspect, inspect, place, writePlace, placeKeyOf } from './places'
 import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 import './summary.css'
@@ -131,6 +148,38 @@ export function discussEvidence(resource: MagnetResource, r: RouteResult) {
   resource.update({ context: { ref: r.id, kind, label }, contextSuppressed: false })
 }
 
+/** THE CAPTURED WORDS OF ONE RECORD, PRESENTED AS WHAT THEY ARE.
+ *
+ *  Where a record recorded a header of its own -- its headline, a blank line,
+ *  its permalink (`mentis/sources/webpages.py::_page_body`,
+ *  `mentis/sources/feeds.py::_entry_body`, read back by `links.tsx::heldHeader`
+ *  out of the row's already-verified bytes) -- that header is drawn as a
+ *  heading and a link, and what is under it is drawn as prose. Where it
+ *  recorded none, the whole captured text is the prose.
+ *
+ *  `acquired` says whether these words came from outside this Brain. They go
+ *  to `Prose` as `untrusted` when they did, so a fence in an acquired page is
+ *  shown as its own source and nothing is drawn from it.
+ *
+ *  A record whose captured text holds no prose at all -- a feed entry that
+ *  recorded a headline and an address and nothing else -- says that, rather
+ *  than drawing an empty column where its words would be. */
+export const NOTHING_BUT_A_HEADER = 'This record captured its headline and its address and no further words. Nothing was fetched to fill it in.'
+export function CapturedWords({ text, acquired, scope }: { text: string; acquired: boolean; scope: string }) {
+  // `heldHeader` is `links.tsx`'s own reader of those recorded bytes, used here
+  // on the captured text directly rather than on a row: this component is given
+  // the text, and a header is a property of the text.
+  const header = heldHeader(text)
+  const body = header.body.trim()
+  return <div>
+    {!!header.headline && <h4 className="mgd-h3">{header.headline}</h4>}
+    {!!header.link && <SourceLink url={header.link} />}
+    {body
+      ? <div className="q2-prose"><Prose src={body} scope={scope} untrusted={acquired} /></div>
+      : <p className="mgd-subtle">{header.link ? NOTHING_BUT_A_HEADER : 'No readable text was collected for this record. No live source content was substituted.'}</p>}
+  </div>
+}
+
 function HeldFile({ refId }: { refId: string }) {
   const [bytes, setBytes] = useState<HeldBytes | null>(null), [error, setError] = useState('')
   const [pdf, setPdf] = useState<PdfState>(PDF_START)
@@ -212,16 +261,41 @@ export default function Inspection({ resource, refId, source, back }: Inspection
       <h3 id="inspect-title" className="mgd-h3 mgd-grow" tabIndex={-1}>{batch ? 'Collected information' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Not in this collection'}</h3>
       <button type="button" className="q2-magnet-icon" aria-label="Close this record" title="Close this record" onClick={close}>×</button>
     </div>
-    {result && !batch && <p className="mgd-subtle">Collected {result.kind === 'post' ? 'post' : 'file'} · {evidenceOrigin(result)}</p>}
+    {/* WHERE IT CAME FROM, WITHOUT A STORAGE IDENTITY ON THE RESTING SURFACE.
+        This said `evidenceOrigin`, which keeps the exact captured key by
+        design -- so the line under the heading read "Collected file · Held file
+        col-astronomy / space-missions/aaa111111111", the collection key and
+        object key the owner asked to be rid of, directly above the record's own
+        headline. For a row that recorded an address the site is what a reader
+        recognises; otherwise `plainEvidenceOrigin`, which is the clean one this
+        file already exports for resting surfaces. The exact key is unchanged
+        and one press away, under "Where this came from". */}
+    {result && !batch && <p className="mgd-subtle">Collected {result.kind === 'post' ? 'post' : 'file'} · {linkHost(rowLink(result)) ?? plainEvidenceOrigin(result)}</p>}
     {batch ? <><p className="mgd-p">This is {s.batchSelection ? 'the collection as it was' : 'what this Magnet has collected'}, recorded {when(s.activation?.at)}.</p>
       <p className="mgd-subtle">{refId} · {s.activation?.artifact.digest}</p>
-      {s.results.map((r) => <div className="mgd-item" key={`${r.kind}:${r.id}`}><button type="button" className="mgd-link mgd-small" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></div>)}</>
+      {/* EACH ROW BY ITS OWN WORDS. This list led with the raw storage object
+          key for every held row (`value.path`:
+          "space-missions-and-astronomy-what-launch/a733ec1ec5e51a4b"), which is
+          where the record is stored and not what it is. Its own recorded
+          headline is what it is; the key is still in the provenance disclosure
+          of the record itself. */}
+      {s.results.map((r) => <div className="mgd-item" key={`${r.kind}:${r.id}`}><button type="button" className="mgd-link mgd-small" onClick={() => inspect(resource, r.id)}>{rowHeadline(r) || (r.kind === 'post' ? `Post ${r.number ?? ''}` : 'Collected file')} · {heldHeader(capturedText(r)).body.replace(/\s+/g, ' ').trim().slice(0, 90) || 'Captured content unavailable'}</button></div>)}</>
       : result ? <>
         {result.kind === 'post' ? <>
-          {result.deleted ? <p className="mgd-p">This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p className="mgd-p">No readable text was collected for this post. No live source content was substituted.</p>}
+          {/* A COLLECTED POST IS WRITTEN MATERIAL, so it is drawn as prose by
+              the same renderer that draws a post everywhere else in Fluid --
+              not as a monospaced byte block. Written in this Brain, so it is
+              trusted text, exactly as `quiet2/Post.tsx` treats it. */}
+          {result.deleted ? <p className="mgd-p">This post was deleted at collection time.</p> : capturedText(result) ? <CapturedWords text={capturedText(result)} acquired={false} scope={`magnet-record:${result.id}`} /> : <p className="mgd-p">No readable text was collected for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p className="mgd-subtle" role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
           {retainedFiles([result]).map((f) => <div className="mgd-item" key={f.id}><button type="button" className="mgd-link mgd-small" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'View the attachment'}</button></div>)}
-        </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre>{heldValue.shortened && <p className="mgd-subtle" role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
+        </> : heldValue ? <>{/* ACQUIRED MATERIAL: its recorded headline and
+              address are drawn as a heading and a link, its words as prose,
+              and because nobody in this Brain wrote them they go to `Prose`
+              as untrusted -- no marked block and no HTML preview from a page
+              Mentis fetched. */}
+          <CapturedWords text={typeof heldValue.text === 'string' ? heldValue.text : ''} acquired scope={`magnet-record:${result.id}`} />
+          {heldValue.shortened && <p className="mgd-subtle" role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
           : artifact ? <HeldFile refId={artifact} /> : <p className="mgd-p">This collected record has no file this card can show. Where it came from is kept; no live file was substituted.</p>}
         <details className="q2-magnet-provenance q2-magnet-disclosure" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
           <summary><span className="mgd-link mgd-small">Where this came from ▾</span></summary>
