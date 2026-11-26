@@ -22,6 +22,15 @@ from pathlib import Path
 
 import pytest
 
+# THE WORLD THE DOOR ORACLE BELOW NEEDS: the same fixture Magnet, real grant
+# and real `/api/worker` call the rest of Part A is checked with. Imported
+# rather than rebuilt, so this file's claim about the door is the door's.
+from tests.test_magnet_activation import (MAGNET, built, world,  # noqa: F401
+                                          artifact_of, define_from, ask_commit)
+from tests.test_magnet_scope import (magnet, exchange, granted,  # noqa: F401
+                                     refused, elsewhere)
+from tests.decision_descriptors import question
+
 VECTORS = (Path(__file__).parents[1] / "apps" / "fluid-web" / "tests"
            / "fixtures" / "magnet_boundary_vectors.json")
 
@@ -242,7 +251,14 @@ def test_the_retained_content_gate_is_open_because_the_scope_is_enforced():
     confined = scope.parsed(scope.scope_name("mag-oracle"))
     assert confined is not None and confined.magnet == "mag-oracle"
     may = set(permitted(scope.scope_name("mag-oracle"), ["respond"]))
-    assert "respond" in may                      # it can still answer the owner
+    # ADMITTED BY THE TABLE, WHICH ON ITS OWN PROVES NOTHING about what the
+    # door answers. This line used to be the whole claim, commented "it can
+    # still answer the owner" -- and `respond` was 403 at the door for every
+    # Magnet-scoped run, because `why_not` had no branch for it (A+B security
+    # review, blocking finding 1, Turn `ent-77ca0fefb4fe`). The oracle that
+    # holds the capability is `test_every_operation_the_table_admits_is_
+    # reachable_at_the_real_door` below: it CALLS each one.
+    assert "respond" in may
     for brain_wide in ("find", "recall", "governed", "work_overview", "brief",
                        "delegate", "owner_decisions"):
         assert brain_wide not in may, brain_wide
@@ -264,6 +280,206 @@ def test_the_retained_content_gate_is_open_because_the_scope_is_enforced():
             perspectives.require_grounded()
     assert got.value.refusal["code"] == "grounded-answers-blocked"
     assert got.value.refusal["refused"] is True
+
+
+#: The fail-closed tail's own words. An operation that reaches them was
+#: admitted by `MAY_CALL` and decided by nothing, which is the defect.
+FELL_THROUGH = "has no Magnet-scoped reading"
+
+def _at_door(w, capability, op, args):
+    """One call at the real `/api/worker` door, with the arguments as a dict.
+
+    `test_magnet_scope.door` takes them as keywords, and a reaction's own
+    `token` argument collides with the capability's there. Same request.
+    """
+    from mentis.worker import CAPABILITY_HEADER
+    from tests.test_magnet_activation import send
+    got = send(w.alone, "/api/worker",
+               [["Content-Type", "application/json"],
+                [CAPABILITY_HEADER, capability]],
+               json.dumps({"corpus": w.state.path, "op": op,
+                           "args": args}).encode("utf-8"), owner=False)
+    return got["status"], json.loads(got["body"] or b"{}")
+
+
+def _exchange_calls(version, anchor):
+    """THE EIGHT WRITES `MAY_CALL` ADMITS, with the arguments a real run sends.
+
+    `version` is a Turn of the Magnet's own Conversation and `anchor` an anchor
+    in it, so the two that name a record name one inside the scope: what is
+    being asked here is whether the gate lets them through, not whether it
+    narrows (the narrowing is asserted separately, with a record that is
+    outside).
+    """
+    return (
+        ("respond", {"text": "what the collection actually held"}),
+        ("record_discovered_work", {"work": "a source stopped updating"}),
+        ("return_artifact", {"name": "note.txt", "media_type": "text/plain",
+                             "bytes_b64": "aGVsbG8="}),
+        ("request_decision",
+         {"questions": [question("Which source should this Magnet keep?")]}),
+        ("request_input", {"question": "which year?"}),
+        ("answer", {"field": "year", "value": "2026"}),
+        ("anchor", {"version": version, "type": "version"}),
+        ("react", {"anchor": anchor, "token": "ack"}),
+    )
+
+
+def _anchored(w, turn) -> str:
+    """An anchor on a Turn of the Magnet's own Conversation, written by the
+    owner: what a run's `react` has to be able to name."""
+    from mentis.conversation import anchors
+    return anchors.create_anchor(w.cv, {"version": turn, "type": "version"},
+                                 by=w.owner)["anchor"]
+
+
+def test_every_operation_the_table_admits_is_reachable_at_the_real_door(magnet):
+    """THE ORACLE THE WEAK ONE ABOVE SHOULD ALWAYS HAVE BEEN. It calls.
+
+    `MAY_CALL` admitting an operation and the door serving it are two
+    different facts, and for eight operations they disagreed: `why_not` had no
+    branch for `respond`, `request_decision`, `request_input`, `answer`,
+    `react`, `anchor`, `record_discovered_work` or `return_artifact`, so each
+    fell through to the fail-closed tail and was 403. Nothing failed visibly,
+    because dispatch's completion fallback still delivered an answer -- which
+    is exactly why only a test that asks the door can hold this.
+
+    Three things are asserted, at the real `/api/worker` door under a real
+    grant minted by the real Authority:
+
+      (i)   NO operation `MAY_CALL` admits reaches the fail-closed tail. Total
+            over the table, so an operation added to `MAY_CALL` without a
+            branch in `why_not` fails here rather than in production.
+      (ii)  The writes an exchange needs are SERVED, not merely reached.
+      (iii) The tail still refuses what the table does not admit, and the new
+            branches still narrow: a record of another Conversation, named by
+            one of those writes, is refused.
+    """
+    from mentis.magnet import scope as S
+    w = magnet
+    ex = exchange(w)
+    scope_name = S.scope_name(MAGNET)
+    _, token = granted(w, ex, scope=scope_name,
+                       operations=list(S.MAY_CALL) + list(S.OUTSIDE_READS))
+
+    # (i) TOTAL OVER THE AUTHORITY TABLE. The tail fires before any handler
+    # check, so minimal arguments are enough to tell "decided" from "fell
+    # through": a reached operation refuses for its own reasons or succeeds.
+    fell = {}
+    for op in S.MAY_CALL + S.OUTSIDE_READS:
+        status, got = _at_door(w, token, op, {})
+        words = str(got.get("error") or "")
+        if FELL_THROUGH in words:
+            fell[op] = (status, words[:120])
+    assert not fell, f"admitted by MAY_CALL, decided by nothing: {fell}"
+
+    # (ii) WITH THE ARGUMENTS A REAL RUN SENDS, each of the eight is still
+    # decided by the operation and not by the gate. That they are SERVED is
+    # the next test, which dispatches a run for real: this grant is minted
+    # directly, so `respond` answers an execution identity check of its own
+    # before it ever reaches the exchange.
+    served = {}
+    for op, args in _exchange_calls(ex["turn"], _anchored(w, ex["turn"])):
+        status, got = _at_door(w, token, op, args)
+        served[op] = (status, str(got.get("error") or "")[:200])
+        assert FELL_THROUGH not in served[op][1], (op, served[op])
+        assert "collection scope" not in served[op][1], (op, served[op])
+
+    # (iii) THE TAIL IS STILL THERE for what the table does not admit, and the
+    # new branches NARROW: a record of another Conversation, or an anchor that
+    # cannot be read at all, is refused by the gate exactly as before.
+    outside = elsewhere(w)
+    for op, args in (("record_discovered_work",
+                      {"work": "x", "regarding": [outside["post"]]}),
+                     ("respond", {"text": "x", "results": [outside["post"]]}),
+                     ("respond", {"text": "x",
+                                  "parts": [{"type": "turn",
+                                             "ref": outside["post"]}]}),
+                     ("react", {"anchor": _anchored(w, outside["post"]),
+                                "token": "ack"}),
+                     ("react", {"anchor": "anc-nothing", "token": "ack"}),
+                     ("anchor", {"version": outside["post"],
+                                 "type": "version"})):
+        status, got = _at_door(w, token, op, args)
+        assert status == 403, (op, status, got)
+        assert "collection scope" in refused(got), (op, got)
+    for not_admitted in ("find", "recall", "delegate", "brief"):
+        status, got = _at_door(w, token, not_admitted, {})
+        assert status == 403, (not_admitted, status, got)
+
+
+def test_a_real_dispatched_magnet_run_can_answer_and_ask_the_owner(magnet,
+                                                                   monkeypatch):
+    """SERVED, not merely reached: a real dispatched Magnet-scoped run, calling
+    the door from inside itself under the grant dispatch minted for it.
+
+    This is the half that cannot be faked by a table. The owner requires that
+    a Magnet's agent can answer them, ask them, keep what it found and hand
+    back a file; each of those was 403 before this correction, and the loss was
+    invisible from outside because dispatch's completion fallback still posted
+    a reply -- an answer that had lost `respond`'s rendering check and its
+    decision form.
+    """
+    import time
+    import mentis.web as web
+    from mentis.execution import RunResult
+    from mentis.web import dispatch as D
+    w = magnet
+    svc = w.state.agents
+    seen = {}
+
+    def ask(grant, op, **args):
+        """The door's own entry points, in process: the HTTP route admits the
+        token and then calls exactly these (`worker._api`)."""
+        from mentis import worker
+        from mentis.web import _surface
+        surface = _surface(w.state)
+        try:
+            if op == "resolve":
+                return 200, worker._result(surface, op, args, grant=grant,
+                                           participant=grant.get("participant"))
+            return 200, worker._operate(surface, op, args, grant)
+        except worker.NotPermitted as exc:
+            return 403, {"error": str(exc)}
+        except Exception as exc:                              # noqa: BLE001
+            return 500, {"error": f"{type(exc).__name__}: {exc}"}
+
+    def perform(spec):
+        grant = svc.authority.grant_for(svc.authority.grant_of(spec.run_id),
+                                        w.state.path)
+        seen["scope"] = grant["scope"]
+        seen["read own batch"] = ask(grant, "read_artifact",
+                                     ref=w.batch["ref"])
+        turn = w.cv.asked_on(w.cv._act(grant["expectation"]))
+        for op, args in _exchange_calls(turn, _anchored(w, turn)):
+            seen[op] = ask(grant, op, **args)
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         text="answered", stop_reason="end_turn",
+                         started_at=now, finished_at=now,
+                         timing={"prompt_sent": 1.0})
+
+    for backend in svc.execution.backends():
+        svc.execution.script = {**(svc.execution.script or {}),
+                                backend["id"]: perform}
+    monkeypatch.setattr(web, "dispatch_soon",
+                        lambda st, **kw: D.dispatch(w.state, **kw))
+    ex = exchange(w)
+
+    assert seen.get("scope") == "magnet:" + MAGNET, seen
+    assert seen["read own batch"][0] == 200, seen["read own batch"]
+    for op, _ in _exchange_calls(ex["turn"], "anc-x"):
+        status, got = seen[op]
+        words = str(got.get("error") or "")
+        assert FELL_THROUGH not in words, (op, status, words[:200])
+        assert "collection scope" not in words, (op, status, words[:200])
+    # SERVED, for the ones whose own arguments are complete here. `request_
+    # input` and `answer` name a block this exchange has none of, so they
+    # answer for that reason -- which the loop above has already distinguished
+    # from the gate answering for them.
+    for op in ("respond", "record_discovered_work", "return_artifact",
+               "request_decision", "anchor", "react"):
+        assert seen[op][0] == 200, (op, seen[op])
 
 
 def test_the_disclosure_no_longer_claims_the_boundary_is_missing():

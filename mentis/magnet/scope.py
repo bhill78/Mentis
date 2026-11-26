@@ -21,7 +21,9 @@ asked for. It decides two things and nothing else:
     recorded collection batches, the posts of its own Conversation, the
     references the owner explicitly selected for this exchange, and -- for a
     conversation exchange only -- the acquired collections the Magnet's
-    definition configures. Nothing else.
+    definition configures. Nothing else. The same function decides the WRITES
+    of the exchange (`EXCHANGE_WRITES`): they reach no record of their own, so
+    what it confines there is any record they NAME.
 
 ONE DOOR, NO SIDE ROUTE (AGENTS.md). Nothing here is reachable except through
 `/api/worker` -> `mentis.worker.permitted` / `_result` / `_operation`. It reads
@@ -92,6 +94,41 @@ MAY_CALL = (
     # Shared resources: names and leases, no record content.
     "claim_resource", "release_resource", "resources",
 )
+
+#: WHAT A MAGNET-SCOPED EXECUTION DOES BESIDES READ: the writes of this one
+#: exchange -- answering the owner, asking them, and keeping what this run
+#: found. `MAY_CALL` admits them, so `why_not` must decide them too, or they
+#: fall through to the fail-closed tail and an operation the authority table
+#: admits is 403 at the door (the A+B review's blocking finding, Turn
+#: ent-77ca0fefb4fe; it was invisible from outside because dispatch's
+#: completion fallback still delivered an answer).
+#:
+#: NONE OF THEM NAMES A RECORD TO READ. Their place is the Conversation this
+#: execution was dispatched into, which `worker._where` checks in the handler,
+#: and every ordinary check of each write still runs after this gate is
+#: silent. What this gate adds is the Magnet's own half: a record such a call
+#: NAMES is confined to this Magnet's scope, read from the Magnet's definition
+#: rather than from the grant's claim about itself.
+EXCHANGE_WRITES = ("respond", "request_decision", "request_input", "answer",
+                   "react", "anchor", "record_discovered_work",
+                   "return_artifact")
+
+#: The arguments of those writes that NAME A RECORD, by operation. An argument
+#: absent here names none: prose, a block's name, a reaction token, the bytes
+#: of a returned file. `react` is not here because an anchor id is not an
+#: entry; `_anchor_in_scope` reads the Turn it is anchored in instead.
+#: `return_artifact` is not here because it names nothing -- bytes arrive, a
+#: path never does. `answer`'s `replaces` is not here either: it names answers
+#: IN THE SAME RESPONSE SET, which `responses.answer` already refuses outside,
+#: and that is narrower than anything this gate could add.
+NAMES_RECORDS = {
+    "respond": ("results",),
+    "request_decision": ("on",),
+    "request_input": ("post",),
+    "answer": ("post",),
+    "anchor": ("version",),
+    "record_discovered_work": ("regarding",),
+}
 
 #: THE SOURCE READS, WHICH ONLY A CONVERSATION EXCHANGE HOLDS. A synthesis run
 #: is grounded in the collected rows, so it reads no live collection -- not even
@@ -283,9 +320,20 @@ def authorize(st, mid: str, *, turn: str, opens, by: str, op: str,
     """Record the owner's authorization of ONE exchange to reach wider.
 
     The owner's own explicit act, and never an agent's: `by` must be the
-    recorded owner, the act is written on the asking Turn of that one exchange,
-    and a synthesis exchange is refused outright. Nothing here changes a grant;
-    the door reads this act for that exchange's execution and nothing else.
+    recorded owner, and the act is written on the asking Turn of that one
+    exchange. Nothing here changes a grant; the door reads this act for that
+    exchange's execution and nothing else.
+
+    IT DOES NOT REFUSE A SYNTHESIS EXCHANGE, and this docstring used to say it
+    did (A+B security review, finding 2, Turn `ent-77ca0fefb4fe`). Such an
+    authorization is recorded and answered 200, and it OPENS NOTHING: a
+    synthesis execution's operation set holds no source read (`narrowed`),
+    `authorization` reads nothing for a synthesis confinement whatever the
+    record holds, and `Reach.outside` is empty for it -- three independent
+    refusals downstream, which the review measured. What the record then
+    carries is an authorization that reaches nowhere, not a widening. Refusing
+    it here would need this door to decide whether a Turn is a synthesis
+    exchange, which is a change to its contract and not a correction.
     """
     from mentis.conversation import anchors
     from mentis.conversation.owner import _owner
@@ -496,6 +544,57 @@ def _artifact_in_scope(surface, reach_: Reach, grant, ref: str):
     return (reason is not None), None
 
 
+def _anchor_in_scope(surface, reach_: Reach, aid: str) -> bool:
+    """Whether this anchor is in a Turn of the Magnet's own Conversation.
+
+    An anchor id is not an entry, so `_entry_in_scope` cannot read it. Read the
+    Turn it is anchored in, as `anchors.react` itself does. Unreadable refuses.
+    """
+    from mentis.conversation.anchors import _anchored_conversation
+    try:
+        return _anchored_conversation(surface.corpus, aid)[1] == \
+            reach_.conversation
+    except Exception:                                         # noqa: BLE001
+        return False
+
+
+def _named_refs(name: str, args: dict) -> tuple:
+    """Every record identity one of `EXCHANGE_WRITES` names, de-duplicated."""
+    out = []
+    for key in NAMES_RECORDS.get(name, ()):
+        value = args.get(key)
+        if isinstance(value, str):
+            out.append(value)
+        elif isinstance(value, (list, tuple)):
+            out.extend(v for v in value if isinstance(v, str))
+    if name == "respond":
+        # A reply's parts name what it rests on: a Turn, or an artifact.
+        for part in args.get("parts") or ():
+            if isinstance(part, dict) and isinstance(part.get("ref"), str):
+                out.append(part["ref"])
+    return tuple(dict.fromkeys(r.strip() for r in out if r.strip()))
+
+
+def _named_in_scope(surface, reach_: Reach, grant, ref: str):
+    """`(ok, outside)` for a record one of these writes NAMES."""
+    if ref in (reach_.conversation, reach_.turn) or ref in reach_.selected:
+        return True, None
+    if ref in ((grant or {}).get("expectation"), (grant or {}).get("run")):
+        return True, None            # the work this execution is carrying
+    if ref.startswith("adm-"):
+        return _artifact_in_scope(surface, reach_, grant, ref)
+    if ref.startswith("opr-"):
+        # An expectation or outcome claim, which is an act and not an entry:
+        # the act's own Conversation decides, and an unreadable one refuses.
+        try:
+            act = surface.cv._act(ref)
+        except Exception:                                     # noqa: BLE001
+            return False, None
+        return bool(act) and act.get("conversation") == reach_.conversation, \
+            None
+    return _entry_in_scope(surface, reach_, ref), None
+
+
 def _collection_named(args) -> str | None:
     got = args.get("collection")
     return got.strip() if isinstance(got, str) and got.strip() else None
@@ -590,6 +689,23 @@ def why_not(surface, confined: Confinement, grant: dict, name: str,
                               {"what": name, "collection": col})
             return None
         return _collection_outside(reach_, col)
+    if name in EXCHANGE_WRITES:
+        # THE WRITES OF THIS ONE EXCHANGE. Reachable, and confined to what they
+        # name: the place is `worker._where`'s and every other check is the
+        # write's own, so silence here restores the ordinary door rather than
+        # widening it.
+        if name == "react":
+            aid = args.get("anchor")
+            if isinstance(aid, str) and aid.strip() and not _anchor_in_scope(
+                    surface, reach_, aid.strip()):
+                return _outside_scope(reach_, repr(aid.strip()))
+        for ref in _named_refs(name, args):
+            ok, outside = _named_in_scope(surface, reach_, grant, ref)
+            if not ok:
+                return _outside_scope(reach_, repr(ref))
+            if outside:
+                note_outside_read(surface, grant, reach_, outside)
+        return None
     # FAILS CLOSED. An operation `narrowed` admits and this does not know is
     # refused rather than served: a new read is confined deliberately or not
     # at all.
