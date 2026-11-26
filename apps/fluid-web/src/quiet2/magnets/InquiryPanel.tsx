@@ -45,12 +45,20 @@
  *  behind `Past questions ▾`, which is where the owner asked history and
  *  provenance to live.
  *
- *  **Grounded synthesis stays refused.** Nothing here implies an agent read the
- *  collected material. The supporting items carry the `FUTURE CONCEPT` mark and
- *  say in their own block that choosing and citing support is part of grounded
- *  answering, which does not work yet; the question surface carries one hint
- *  saying so once. The disabled affordance keeps the server's own reason
- *  (`PERSPECTIVE_BLOCK_REASON`).
+ *  **A QUESTION GETS A REAL ANSWER NOW** (plan §3 Part F). Asking records an
+ *  answer written from this Magnet's collected rows, kept against the question
+ *  and superseding -- never overwriting -- the one before it. So the mockups'
+ *  `FUTURE CONCEPT` mark is gone from the supporting items, the hint that said
+ *  answering was not available is gone, and so is the permanently disabled
+ *  "Answer from selected evidence" press and the server reason it carried: the
+ *  owner's correction `ent-d85254fe5e1b` is enforced at the one door (Part A,
+ *  `mentis/magnet/scope.py`), the gate is open, and a panel still saying it was
+ *  shut would be the interface claiming something untrue.
+ *
+ *  What every answer DOES still say is what it was grounded in. Grounded in
+ *  this collection and explored outside it are rendered as different things,
+ *  from Part A's own `explored_outside` field, and an answer that cannot state
+ *  what it reached is not shown as grounded.
  *
  *  Selection is durable -- a `selected` event, not UI state -- and `canWrite` is
  *  passed through exactly as it is given: no box, press or editor here offers a
@@ -58,12 +66,13 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { MagnetResource } from './contract'
 import {
-  answerHistory, derivedPerspectiveName, pastQuestions, perspectivesOf, questionSubtitle,
-  recordedUnderstanding, stampAttachedQuestion, CHECKED_NEW, CHECKED_SAME,
-  COLLECTION_MOVED, EVENT_WORDS, FUTURE_CONCEPT, GROUNDED_NOT_YET,
-  NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON,
-  SUPPORTING_WHY, type InquiryEvent, type PerspectiveStore,
+  answerHistory, answerText, derivedPerspectiveName, grounding, pastQuestions, perspectivesOf,
+  provenanceOf, questionSubtitle, recordedUnderstanding, stampAttachedQuestion, statements,
+  ANSWER_FROM_COLLECTION, CHECKED_NEW, CHECKED_SAME, COLLECTION_MOVED, EVENT_WORDS,
+  NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, SUPPORTING_WHY, WRITTEN_BY_MENTIS,
+  type InquiryEvent, type PerspectiveStore,
 } from './perspectives'
+import { offeredQuestions } from './Summary'
 import { retainedItems, resultPreview, resultTitle, rowByline, usePeople } from './EvidenceViews'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { goTab, setOpen } from './places'
@@ -76,28 +85,66 @@ import './configuration.css'
 import './summary.css'
 import './perspectives.css'
 
-/** Discussing a saved question is ordinary discussion of the question. While a
- *  Perspective is selected the Composer keeps the reading choice ordinary, so
- *  say that here rather than let the owner infer the collection was read. */
-export const DISCUSS_IS_ORDINARY = 'Ordinary discussion of the saved question. The collected records are not read to answer it: grounded Perspective answering is unavailable.'
+/** Discussing a saved question is ordinary discussion of the question: the
+ *  answer kept against it is written from the collection, and what is said in
+ *  the Conversation is said by whoever says it. */
+export const DISCUSS_IS_ORDINARY = 'Ordinary discussion of the saved question, in this Magnet’s own Conversation. The answer kept against the question is the one grounded in the collected records.'
 
 /** The one sentence about what discussion reads, said once on the resting
  *  surface and nowhere else (owner: not three times). */
-export const DISCUSSION_READS = 'Discussion does not read your collected items.'
+export const DISCUSSION_READS = 'Asking keeps an answer written from your collected records; discussing it is ordinary conversation.'
 /** The chips, where the mockups put them. */
 export const AVAILABLE_NOW = 'AVAILABLE NOW', CURRENT_MODE = 'CURRENT MODE'
 export const ORDINARY_CONVERSATION = 'Ordinary Conversation', ORDINARY_DISCUSSION = 'Ordinary discussion'
 /** `09-current-help`: the one "what can I do today" panel, opened by a link. */
 export const HELP_TITLE = 'What can I do today?'
 export const HELP_WORDS = 'You can discuss a question now, or browse collected items yourself. Discussion does not read those items to form its answer.'
-/** `02-compact-current`: something to ask when nothing has been asked. */
-export const TRY_ASKING = 'What might be slowing our releases?'
+/** `02-compact-current`: something to ask when nothing has been asked. It is
+ *  no longer one hardcoded demonstration sentence about releases -- which was a
+ *  made-up question about a subject no Magnet necessarily holds -- but a
+ *  question built out of what THIS Magnet has actually collected, through the
+ *  same `offeredQuestions` the Summary offers. With nothing collected it is
+ *  that function's own empty-collection question, which is about getting
+ *  started rather than about anything the record does not hold. */
+export const tryAsking = (resource: MagnetResource): string =>
+  offeredQuestions(resource.snapshot())[0] ?? 'What can this Magnet collect at the moment?'
 /** The manual half of refreshing a kept question (owner ent-901ef1a816bb:
  *  "support manual or automatic refresh"). It reads the record again; it forms
  *  no answer, which is why it is worded as a read. */
 export const READ_AGAIN = 'Read this question again'
 /** The heading the kept answer and the ones before it live under. */
 export const EARLIER_ANSWERS = 'Earlier answers'
+/** ONE PRESS FROM A QUESTION INTO THE MAGNET'S CONVERSATION (owner
+ *  `opr-85178afc5f3a`), folded in here rather than left as separate polish.
+ *  The question being viewed is made the active one if it is not already --
+ *  one durable write, because the owner pressed for it -- and then its own
+ *  saved words are copied into the Conversation's Composer, with the chip
+ *  stamped at the exact version this card is showing. */
+export const TAKE_TO_CONVERSATION = 'Discuss this in the Conversation'
+export async function takeToConversation(resource: MagnetResource, store: PerspectiveStore) {
+  const s = store.snapshot()
+  const viewed = s.viewed ?? s.selected
+  if (!viewed) throw new Error('Open a question before taking it into the Conversation.')
+  if (s.selected !== viewed) await store.select(viewed)
+  return discussSelectedQuestion(resource, store)
+}
+/** What the answer block says about who wrote the answer standing now. */
+export const ANSWER_WRITTEN_BY = (e: InquiryEvent | null): string =>
+  typeof e?.data?.written_by === 'string' ? e.data.written_by : WRITTEN_BY_MENTIS
+
+/** WHAT AN ANSWER WAS GROUNDED IN (Part A's `explored_outside`, unchanged).
+ *  Grounded-in-the-collection and explored-outside are rendered as different
+ *  things, and an answer that records neither is shown as neither. */
+export function AnswerGrounding({ answer }: { answer: InquiryEvent | null }) {
+  const g = grounding(provenanceOf(answer))
+  if (!answer) return null
+  return <div className={`q2p-grounding${g.outside ? ' q2p-outside' : ''}`}>
+    <span className={g.outside ? 'mgd-future' : 'mgd-today'}>{g.label.toUpperCase()}</span>
+    <span className="mgd-small mgd-muted">{g.detail}</span>
+    {!!g.reached.length && <ul className="q2-magnet-items" aria-label="What this answer reached outside the collection">
+      {g.reached.map((what) => <li key={what}>{what}</li>)}</ul>}
+  </div>
+}
 
 /** THE COLLECTION THIS MAGNET NOW HOLDS, watched for change, because that
  *  change is the only thing that can alter what is understood of a kept
@@ -152,10 +199,11 @@ function useAction() {
   return { message, setMessage, busy, run }
 }
 
-/** THE SUPPORTING ITEMS (`06-future-support`). The Magnet's own collected
- *  records, listed against the question so the owner can read them THEMSELVES.
- *  The `FUTURE CONCEPT` mark and the closing block say what this is not: no
- *  agent chose these, and nothing read them to answer anything. */
+/** THE SUPPORTING ITEMS (`06-future-support`, which is not a future any more).
+ *  The Magnet's own collected records, listed against the question so the owner
+ *  can read them THEMSELVES. The answer standing against the question names
+ *  the records it was written from; these are all of them, and the closing
+ *  block says which is which. */
 export function SupportingItems({ resource, question, onOpen, onBack }: {
   resource: MagnetResource
   /** The question these are offered against, in its own saved words. */
@@ -170,7 +218,6 @@ export function SupportingItems({ resource, question, onOpen, onBack }: {
   return <section className="q2p-supporting" aria-label="Supporting items">
     <div className="mgd-row mgd-spread">
       <button type="button" className="mgd-link mgd-small" onClick={onBack}>← Back to answer</button>
-      <span className="mgd-future">{FUTURE_CONCEPT.toUpperCase()}</span>
     </div>
     <h3 className="mgd-h2">Supporting items</h3>
     <p className="mgd-p mgd-muted">{question ? <>For “{question}”</> : 'For the question being explored'}</p>
@@ -283,12 +330,13 @@ export function PastQuestions({ resource, canWrite, onEvidence, onNew, onOpened 
       {!s.next && s.historyComplete && <p className="mgd-muted">All recorded wording for this Perspective is shown.</p>}
     </details>
 
-    <details className="q2-magnet-secondary-actions q2-magnet-config" aria-label="What this cannot do yet">
-      <summary>What this cannot do yet</summary>
-      <div className="q2-magnet-grounding">
-        <button type="button" className="mgd-button mgd-secondary" disabled aria-describedby="inquiry-grounded-status">Answer from selected evidence</button>
-        <span id="inquiry-grounded-status" className="mgd-muted" role="status">{PERSPECTIVE_BLOCK_REASON}</span>
-      </div>
+    {/* THE PERMANENTLY DISABLED "Answer from selected evidence" PRESS IS GONE,
+        with the server reason it carried. Answering works, and the press that
+        does it sits beside the question it answers. What remains here is the
+        disclosure: what an answer is grounded in, and what a recorded answer
+        is not. */}
+    <details className="q2-magnet-secondary-actions q2-magnet-config" aria-label="What an answer here is grounded in">
+      <summary>What an answer here is grounded in</summary>
       <p className="mgd-muted">{PERSPECTIVE_DISCLOSURE}</p>
       <p className="mgd-muted">Earlier wordings and recorded answers have no automatic knowledge standing.</p>
     </details>
@@ -306,6 +354,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   const [helping, setHelping] = useState(false)
   const ask = useRef<HTMLTextAreaElement>(null)
   const suggested = derivedPerspectiveName(drafts.question)
+  const suggestion = tryAsking(resource)
   // The list is what makes `Past questions ▾` offerable at all, so this view
   // asks for it itself rather than depending on a control that may not be open.
   useEffect(() => { void store.read() }, [store])
@@ -350,13 +399,30 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
     // state here would read again for reasons that are not new evidence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collected])
-  /** The one press that asks: record the question, then carry its own saved
-   *  words into the Conversation, which is where discussion happens. */
+  /** THE ONE PRESS THAT ASKS, AND GETS AN ANSWER.
+   *
+   *  It records the question against the kept Perspective -- created, or
+   *  branched from the one being explored, exactly as before -- and then asks
+   *  it of this Magnet's collection, which records a real answer grounded in
+   *  the collected rows. Asking the same thing again later appends another
+   *  answer and leaves this one readable: it supersedes, it never overwrites.
+   *
+   *  An answer is not a conversation: taking the question into the Magnet's
+   *  own Conversation is the separate single press beside the answer
+   *  (`TAKE_TO_CONVERSATION`, owner `opr-85178afc5f3a`), so asking no longer
+   *  silently moves the owner to another tab. */
   const sendAsk = () => void run(async () => {
+    const words = drafts.question
     await record()
     if (store.snapshot().pending) return
     clearQuestionDraft(at)
-    await discussSelectedQuestion(resource, store)
+    await store.ask(words)
+    setMessage(store.snapshot().error ?? 'Answered from this collection, and kept with the question.')
+  })
+  /** Ask the saved question of the collection again, without revising it. */
+  const answerAgain = () => void run(async () => {
+    await store.ask()
+    setMessage(store.snapshot().error ?? 'Answered from this collection again. The earlier answer is kept.')
   })
 
   /* `q2p-open-past` is the hook the wide layout drops this on: once the aside
@@ -418,7 +484,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
     <div className="mgd-space" />
     <button type="button" className="mgd-link mgd-small" onClick={toAsk}>＋ Ask something new</button>
     <div className="mgd-divider" />
-    <span className="mgd-subtle">{GROUNDED_NOT_YET}</span>
+    <span className="mgd-subtle">{DISCUSSION_READS}</span>
   </aside>
 
   /* 02 / 05 / 09 / 10 -- THE CURRENT QUESTION, or the invitation to ask one. */
@@ -439,11 +505,19 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
           <div className="mgd-answer">
             {answers.current || told.challenges.length ? <>
               {answers.current && <>
-                <p>{wordingOf(answers.current) ?? 'An answer is recorded against this question.'}
+                {/* THE ANSWER STANDING NOW, statement by statement as it was
+                    recorded, then what it was grounded in. */}
+                {statements(answerText(answers.current) || 'An answer is recorded against this question.')
+                  .map((line, i) => <p key={`now-${i}`}>{line}</p>)}
+                <AnswerGrounding answer={answers.current} />
+                <p className="mgd-small mgd-muted">{ANSWER_WRITTEN_BY(answers.current)}
                   {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
               </>}
               {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span>{wordingOf(e) ?? ''}</p>)}
-            </> : <p>{NOTHING_RECORDED_YET}</p>}
+            </> : <>
+              <p>{NOTHING_RECORDED_YET}</p>
+              <button type="button" className="mgd-button" disabled={!mayWrite} onClick={answerAgain}>{ANSWER_FROM_COLLECTION}</button>
+            </>}
             {answers.superseded.length > 0 && <details className="q2p-answer-history">
               <summary>{EARLIER_ANSWERS} ({answers.superseded.length})</summary>
               <ol className="q2p-answers">{answers.superseded.map((e, i) => <li key={`s:${e.post}`}>
@@ -454,15 +528,23 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             </details>}
             <div className="mgd-row mgd-spread q2p-answer-foot">
               <button type="button" className="mgd-link mgd-small" onClick={() => setPlace('support')}>Explore supporting items ↗</button>
+              {/* Asking the saved question of the collection again, beside the
+                  answer it would supersede. */}
+              {!!answers.current && <button type="button" className="mgd-link mgd-small" disabled={!mayWrite} onClick={answerAgain}>Answer again from this collection</button>}
               {/* The manual half of refresh, beside the answer it refreshes. */}
               <button type="button" className="mgd-link mgd-small" disabled={busy} onClick={() => void run(() => reread())}>{READ_AGAIN}</button>
             </div>
             {readAgain && <p className="mgd-small mgd-muted" role="status">{readAgain}</p>}
           </div>
-          <button type="button" className="mgd-link mgd-small" disabled={busy || !mayWrite} onClick={() => void run(() => discussSelectedQuestion(resource, store))}>Discuss this question</button>
+          {/* ONE PRESS FROM THIS QUESTION INTO THE MAGNET'S CONVERSATION
+              (owner `opr-85178afc5f3a`), folded into the question surface
+              rather than left as separate polish: it makes this question the
+              active one if it is not, and copies its own saved words into the
+              Conversation's Composer at the version this card is showing. */}
+          <button type="button" className="mgd-button mgd-secondary" disabled={busy || !mayWrite} onClick={() => void run(() => takeToConversation(resource, store))}>{TAKE_TO_CONVERSATION} →</button>
           <div className="mgd-space" />
           {compose}
-          <p className="mgd-hint">{GROUNDED_NOT_YET}</p>
+          <p className="mgd-hint">{DISCUSSION_READS}</p>
         </> : <>
           {/* 02 / 09: nothing asked yet. */}
           <div className="mgd-row mgd-spread q2p-head">
@@ -486,7 +568,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             </div>
             : <>
               <div className="mgd-subtle">TRY ASKING</div>
-              <p className="mgd-example">{TRY_ASKING} <button type="button" className="mgd-link" aria-label={`Ask: ${TRY_ASKING}`} disabled={!mayWrite} onClick={() => { setQuestionDraft(at, TRY_ASKING); setTimeout(() => ask.current?.focus(), 0) }}>↗</button></p>
+              <p className="mgd-example">{suggestion} <button type="button" className="mgd-link" aria-label={`Ask: ${suggestion}`} disabled={!mayWrite} onClick={() => { setQuestionDraft(at, suggestion); setTimeout(() => ask.current?.focus(), 0) }}>↗</button></p>
               <div className="mgd-divider" />
               <div className="mgd-row">
                 <span className="mgd-today">{AVAILABLE_NOW}</span>

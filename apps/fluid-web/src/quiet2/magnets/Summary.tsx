@@ -11,16 +11,24 @@
  *  batch to compare against. Neither is a live source; neither happens on its
  *  own.
  *
- *  **Nothing here is synthesis.** The written overview is counted and measured
- *  facts about the collection; the excerpts are the collected records' own words,
- *  word for word, each one linked to the record it came from; the offered
- *  questions are questions, marked as questions. No sentence characterises what
- *  the material means. The four kinds are kept apart on the screen and are
- *  labelled: collection facts, the records' own words, questions and
- *  hypotheses, and interpretations somebody recorded. Evidence-grounded
- *  answering stays refused server-side and its affordance is rendered disabled,
- *  carrying the refusal's own reason. */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+ *  **THE LEAD IS AN ANSWER NOW** (plan §3 Part F). What this view opens with is
+ *  the current answer of this Magnet's standing Perspective -- "What is the
+ *  state of what this Magnet has gathered?" -- written by Mentis from the
+ *  collected rows and recorded against that question, with "what changed" being
+ *  the difference between it and the answer it superseded. It is one mechanism
+ *  with Perspectives, not a second one: the same `answered` events, the same
+ *  history, the same provenance.
+ *
+ *  The counted and measured facts STAY, as the owner asked, as secondary
+ *  detail behind the disclosure that already carried them: they are honest and
+ *  the counts remain available. The excerpts are still the records' own words.
+ *  What went is the claim that answering from the collected records is
+ *  unavailable, and the permanently disabled press that said so: the server's
+ *  gate is open (Part A, `GROUNDED_ANSWERS_ENABLED`), so a Summary that still
+ *  said it was shut would be the interface claiming something untrue. Every
+ *  answer shown here states what it was grounded in, and an answer that
+ *  explored outside the collection is rendered as a different thing. */
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
@@ -32,34 +40,24 @@ import { collectionRows } from './collectionRows'
 import { supportsManualCollection } from './configuration'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { setQuestionDraft, panelAt } from './panelDrafts'
-import { perspectivesOf, PERSPECTIVE_BLOCK_REASON, type InquiryEvent, type Perspective } from './perspectives'
+import {
+  answerDiff, answerText, changeWords, grounding, perspectivesOf, provenanceOf, statements,
+  NOTHING_NEW_CODE, WRITTEN_BY_MENTIS,
+  type AnswerChange, type InquiryEvent, type Perspective, type StandingSummary,
+} from './perspectives'
 import './summary.css'
 
-/** The reason comes from the gate itself, not from a sentence written here:
- *  `PERSPECTIVE_BLOCK_REASON` is the client's statement of the server's
- *  `grounded_answers: false` refusal (`perspectives.py` GROUNDED_ANSWERS_ENABLED,
- *  DISCLOSURE). See the Turn's discrepancy note: the server's own
- *  `grounded_answers`/`disclosure` fields are not kept in H5's `InquirySnapshot`,
- *  and Summary may not make a request to read them. */
-export const GROUNDED_UNAVAILABLE = `Unavailable · ${PERSPECTIVE_BLOCK_REASON}`
-
-/** What the written overview says about itself, so no reader has to guess
- *  whether an agent wrote it. */
+/** What the counted lines say about themselves, where they are shown as the
+ *  secondary detail they now are. */
 export const EXTRACTIVE_LABEL = 'Counts and quotations from this collection.'
-/** Per-record support and contradiction belong to grounded Perspective work,
- *  which is refused: say so rather than show an empty frame as if it worked. */
-export const SUPPORT_UNRECORDED = 'Evidence links are unavailable while grounded answers are disabled.'
 export const NO_COMPARISON = 'No comparison with an earlier collection. Nothing here claims anything changed.'
-/** ANSWERING FROM THE COLLECTED RECORDS IS NOT OFFERED HERE, by any control.
- *  Supplying the retained batch to an agent to answer from is the retained-content
- *  path, which the revised boundary contract (adm-c5c73679ac1e §2) requires to
- *  refuse everywhere until configured-source read enforcement and session
- *  exposure are independently verified. So this view offers no press that
- *  attaches the collection or asks for an answer from it -- not for one record
- *  and not for the collection as a whole -- and says so where such an offer
- *  would otherwise sit. What stays is what is already true: counted and quoted
- *  facts above, and ordinary conversation that reads no collected material. */
-export const COLLECTION_NOT_ANSWERABLE = 'Answering from collected records is unavailable until configured-source access is enforced.'
+/** Said where the lead would be before any answer has been written: the
+ *  counted facts are shown instead, and the view says which of the two it is
+ *  showing rather than letting a measurement read as an answer. */
+export const NOT_ANSWERED_YET = 'No answer is recorded for this collection yet. What follows is counted, not answered.'
+/** Said beside the one press that writes the evolving summary. */
+export const ANSWER_THIS_COLLECTION = 'Answer from this collection'
+export const SUMMARY_IS_A_QUESTION = 'This is the answer standing against one kept question — “What is the state of what this Magnet has gathered?” — and its earlier answers are kept under it in Perspectives.'
 
 const when = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleString() : null
 const day = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleDateString() : null
@@ -475,6 +473,24 @@ export async function compareWithPrevious(resource: MagnetResource, signal?: Abo
   return { words: comparisonWords(c), added: c.added, at: got.at, comparable: c.comparable }
 }
 
+/** WHAT AN ANSWER WAS GROUNDED IN, beside the answer itself.
+ *
+ *  Three distinct statements, never a blend (Part A's contract, its field names
+ *  unchanged): grounded in this collection, allowed to look outside and did
+ *  not, and explored outside -- which is rendered as a visibly different thing,
+ *  with what it reached named. An answer whose provenance was not recorded says
+ *  that, and is not shown as grounded. */
+export function Grounded({ answer }: { answer: InquiryEvent | null }) {
+  const g = grounding(provenanceOf(answer))
+  if (!answer) return null
+  return <div className={`q2-magnet-grounding${g.outside ? ' q2-magnet-outside' : ''}`}>
+    <span className={g.outside ? 'mgd-future' : 'mgd-today'}>{g.label.toUpperCase()}</span>
+    <span className="mgd-subtle">{g.detail}</span>
+    {!!g.reached.length && <ul className="q2-magnet-items" aria-label="What this answer reached outside the collection">
+      {g.reached.map((what) => <li key={what}>{what}</li>)}</ul>}
+  </div>
+}
+
 /** A ROW THE READER PRESSES, in the approved design's own shape: the ruled
  *  record row of `04-browse.png` (`mgd-item`) with the whole row as the control.
  *  The rule, the title weight, the quoted paragraph and the byline are the
@@ -559,8 +575,41 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
   /** Whether the recorded questions have been read at all. Rows that arrived
    *  because the Perspectives view read them count; so does this view asking. */
   const [askedForQuestions, setAskedForQuestions] = useState(false)
+  const [answering, setAnswering] = useState(false)
   /** A batch change invalidates a comparison taken against the previous one. */
   useEffect(() => { setComparison(null); setMessage('') }, [batch])
+
+  /* THE EVOLVING SUMMARY, READ AND -- ONCE PER COLLECTION -- WRITTEN.
+     The lead is the current answer of this Magnet's standing Perspective. This
+     view reads it, and where the record holds no answer for the collection in
+     hand it asks for one: ONE write per observed collection, keyed by that
+     batch, so a replay or a second surface records nothing further. There is no
+     timer, no poll and no retry -- a refusal is said in words and never tried
+     again -- and the server decides whether there is anything new to answer
+     from Part E's own new-item count, refusing `nothing-new` when there is
+     not. Collecting is still only ever the owner's press. */
+  const summary: StandingSummary | null | undefined = lens.summary
+  const asked = useRef<string | null>(null)
+  useEffect(() => {
+    if (!batch || asked.current === batch) return
+    asked.current = batch
+    setAnswering(true)
+    void inquiries.readSummary()
+      .then((got) => got?.batch === batch ? got : inquiries.summarise(batch))
+      .catch((e: Error) => { if ((e as { details?: { code?: string } }).details?.code !== NOTHING_NEW_CODE) setMessage(`No answer was written from this collection: ${e.message}`) })
+      .finally(() => setAnswering(false))
+    // Only the collected batch may start this: nothing else here is new evidence.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch])
+  const answerNow = () => {
+    if (!batch || answering) return
+    setAnswering(true); setMessage('')
+    void inquiries.summarise(batch)
+      .catch((e: Error) => setMessage(e.message))
+      .finally(() => setAnswering(false))
+  }
+  const answered = answerText(summary?.current)
+  const change: AnswerChange | null = answerDiff(summary?.current, summary?.superseded[0])
 
   const lead = collectionLead(resource.saved, s)
   const detail = collectionDetail(resource.saved, s)
@@ -624,15 +673,25 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
             the collection, so nothing below is claimed: the facts line says it
             has not been read, and that is the whole of it. */}
         {!!s.activation && <>
-        {/* WHAT IS TRUE NOW, STATED ONCE: what was collected, when, and from how
-            many sources. The remaining measured lines are detail about the
-            collection and are behind `Limits and dates ▾` with the facts, which
-            is where the owner kept provenance. */}
-        <p className="mgd-p mgd-muted q2-magnet-lead">{lead}</p>
+        {/* THE LEAD IS THE ANSWER. The current answer of this Magnet's standing
+            Perspective, statement by statement as it was recorded, with what it
+            was grounded in stated beside it. Before any answer exists the
+            counted lead is shown instead, saying which of the two it is. */}
+        {answered
+          ? <section className="q2-magnet-answer" aria-label="What this Magnet has gathered">
+              {statements(answered).map((line, i) =>
+                <p className={`mgd-p${i ? '' : ' q2-magnet-lead'}`} key={`answer-${i}`}>{line}</p>)}
+              <Grounded answer={summary?.current ?? null} />
+              <p className="mgd-subtle">{typeof summary?.current?.data?.written_by === 'string' ? summary.current.data.written_by : WRITTEN_BY_MENTIS} {SUMMARY_IS_A_QUESTION}</p>
+            </section>
+          : <><p className="mgd-p mgd-muted q2-magnet-lead">{lead}</p>
+              <p className="mgd-subtle">{answering ? 'Writing an answer from this collection…' : NOT_ANSWERED_YET}</p></>}
         {/* The design's own action row (`03-sources.png`'s "Collect manually"):
             what is true on the left, the press at the far edge. */}
         <div className="mgd-row mgd-spread q2-magnet-lead-action">
           <span className="mgd-subtle mgd-grow">{starting.note}</span>
+          <button type="button" className="mgd-button mgd-secondary" disabled={answering || !batch} onClick={answerNow}>
+            {answering ? 'Answering…' : answered ? 'Answer again from this collection' : ANSWER_THIS_COLLECTION}</button>
           <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
         </div>
         <div className="mgd-divider" />
@@ -652,9 +711,14 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         </section>}
 
         <div className="mgd-space" />
+        {/* AN OFFERED QUESTION NOW LEADS TO AN ANSWER. With a collection in
+            hand, pressing one carries it into Perspectives, where asking it
+            records a real answer grounded in these rows. The ordinary
+            source-free route stays exactly where it was useful -- the empty
+            state below, which has nothing to answer from. */}
         <section aria-label="Questions to explore">
           <div className="mgd-eyebrow">Questions to explore</div>
-          {questions.map((q) => <QuestionRow key={q} question={q} onTake={() => askOrdinary(q)} />)}
+          {questions.map((q) => <QuestionRow key={q} question={q} onTake={() => exploreQuestion(resource, q)} />)}
         </section>
 
         <div className="mgd-divider" />
@@ -662,9 +726,20 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
             own idiom (`Limits and dates ▾`, `Past questions ▾`). Comparing two
             collections opens itself once a comparison has been made, because
             then it has something to say. */}
-        <details className="q2-magnet-provenance q2-magnet-disclosure" open={!!comparison}>
+        <details className="q2-magnet-provenance q2-magnet-disclosure" open={!!comparison || !!change?.added.length}>
           <summary><span className="mgd-link mgd-small">What changed ▾</span></summary>
           <div aria-label="Changes since the previous collection">
+            {/* WHAT CHANGED IS THE DIFFERENCE BETWEEN TWO ANSWERS. The answer
+                standing now against the answer it superseded: that is what the
+                evolving summary changing means. The batch comparison stays
+                below it, as the measured detail it is. */}
+            {!!summary?.current && <>
+              <p className="mgd-p">{changeWords(change)}</p>
+              {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span>{line}</p>)}
+              {change?.gone.map((line) => <p className="mgd-item" key={`gone-${line}`}><span className="mgd-subtle">No longer says · </span>{line}</p>)}
+              {!summary.superseded.length && <p className="mgd-subtle">This is the first answer recorded against this Magnet's standing question, so there is nothing before it to differ from.</p>}
+              <div className="mgd-divider" />
+            </>}
             {comparison
               ? <><p className="mgd-p">{comparison.words}</p>
                 {comparison.added.map((e) => <div className="mgd-item" key={e.id}>
@@ -700,9 +775,12 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
     {message && <p className="mgd-subtle" role="status">{message}</p>}
     {/* Inline, inside the Summary section: never a separate screen. */}
     {here.inspected && <Inspection resource={resource} refId={here.inspected} source={onPost} />}
-    <div className="mgd-row q2-magnet-grounding">
-      <button type="button" className="mgd-button mgd-secondary" disabled aria-describedby="grounded-status">Draft an answer from selected records</button>
-      <span id="grounded-status" className="mgd-subtle">{GROUNDED_UNAVAILABLE}</span>
-    </div>
+    {/* THE PERMANENTLY DISABLED "Draft an answer from selected records" PRESS
+        IS GONE, with the sentence that said answering was unavailable until
+        configured-source access was enforced. It is enforced (Part A,
+        `mentis/magnet/scope.py`), the gate is open, and the press that writes
+        an answer from this collection is in the action row above, beside what
+        it answers. Nothing here claims a grounding it does not have: every
+        answer states what it was grounded in. */}
   </section>
 }

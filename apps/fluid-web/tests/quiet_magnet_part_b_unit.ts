@@ -4,7 +4,7 @@ import { collectionRows } from '../src/quiet2/magnets/collectionRows'
 import { collectionChange, exactFileIssue, supportsManualCollection } from '../src/quiet2/magnets/configuration'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
-import { PerspectiveStore, perspectiveRequest, PERSPECTIVE_ANSWERS_ENABLED, PERSPECTIVE_BLOCK_REASON, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
+import { PerspectiveStore, perspectiveRequest, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
 import { composerRequest } from '../src/quiet2/magnets/evidence'
 import { page as brain } from '../src/brainBinding'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
@@ -18,9 +18,15 @@ const prepared: PreparedInquiry = { intent: 'ent-intent111111', perspective: 'en
 function resource() {
   return createMagnetResource({ id: 'qm-partb', brainKey: 'origin|fixture|brain-a', saved: { id: config.id, name: 'Inquiry', config }, get: async () => ({ status: 200, body: { magnet: config.id, config, activation: null, page: null } }) })
 }
-test('grounded Perspective enabling remains blocked pending the missing execution boundary', () => {
-  assert.equal(PERSPECTIVE_ANSWERS_ENABLED, false)
-  assert.match(PERSPECTIVE_BLOCK_REASON, /do not enforce/)
+/* Part F revised this file's one gate oracle, as Part A revised the Python
+   ones that pinned the same gate shut: the client constants it asserted
+   (`PERSPECTIVE_ANSWERS_ENABLED`, `PERSPECTIVE_BLOCK_REASON`) are deleted,
+   because the boundary they waited on is enforced (`mentis/magnet/scope.py`).
+   Nothing else in this file is Part F's. */
+test('the client carries no gate constant of its own now that the boundary is enforced', async () => {
+  const source = await import('node:fs').then((fs) => fs.readFileSync(new URL('../src/quiet2/magnets/perspectives.ts', import.meta.url), 'utf8'))
+  assert.ok(!/export const PERSPECTIVE_ANSWERS_ENABLED/.test(source))
+  assert.ok(!/export const PERSPECTIVE_BLOCK_REASON/.test(source))
 })
 test('multi-source captured rows preserve held-file byte ranges and original Conversation versions', () => {
   const got = collectionRows(page())
@@ -128,13 +134,20 @@ test('an explicit historical batch read refuses a substituted latest artifact', 
   const calls: string[] = [], r = createMagnetResource({ id: 'history', brainKey: 'origin|fixture|brain-a', saved: { id: config.id, name: 'History', config }, get: async (path) => { calls.push(path); return { status: 200, body: { magnet: config.id, config, activation: { post: 'ent-captured111111', artifact: { ref: 'adm-other111111', digest } }, page: page() } } } })
   await r.selectBatch!({ ref: 'adm-batch111111', digest }); assert.match(calls[0], /batch=adm-batch111111/); assert.match(r.snapshot().error!, /did not return the collection that was asked for/); assert.equal(r.snapshot().activation, null)
 })
-test('grounded helpers refuse even preserved packages before any read or write', async () => {
+/* Part F revised this oracle with the gate it pinned shut. The grounded
+   helpers no longer refuse up front -- the boundary they waited on is enforced
+   (`mentis/magnet/scope.py`) -- so what they do now is the ordinary thing:
+   prepare refuses because no Perspective is chosen, and `perspectiveRequest`
+   composes the request it always composed. */
+test('grounded helpers no longer refuse up front, and preserve the request they compose', async () => {
   brain.saw('brain-a@instance-one')
   const store = new PerspectiveStore(resource())
   store.get = store.write = async () => { throw new Error('must not touch grounded records') }
-  await assert.rejects(store.prepare('Question', 'key'), /Grounded Perspective answers are blocked/)
-  await assert.rejects(store.reconcile(prepared, 'display'), /Grounded Perspective answers are blocked/)
-  assert.throws(() => perspectiveRequest({}, prepared), /Grounded Perspective answers are blocked/)
+  await assert.rejects(store.prepare('Question', 'key'), /Choose a Perspective/)
+  const composed = perspectiveRequest({ topics: ['ent-other111111'] }, prepared)
+  assert.equal(composed.text, prepared.text)
+  assert.deepEqual(composed.topics, ['ent-other111111', prepared.perspective])
+  assert.ok(composed.parts.some((part) => part.type === 'file' && part.ref === 'adm-manifest111111'))
 })
 
 test('Perspective store refuses a late response after Brain replacement', async () => {

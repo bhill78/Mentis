@@ -5,25 +5,86 @@ import { matchesBinding } from './managementApi'
 import type { MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
 import { remember, setOpen } from './places'
 
-export const PERSPECTIVE_ANSWERS_ENABLED = false
-export const PERSPECTIVE_BLOCK_REASON = 'Grounded Perspective answers are blocked: existing execution controls do not enforce use of only the Magnet’s configured and selected evidence.'
-export const PERSPECTIVE_DISCLOSURE = 'Selected collection evidence is recorded separately from agent access. Accessible unrelated Brain records and acquired files are outside this Magnet’s collection scope.'
-
-/** MARKING WHAT DOES NOT WORK YET (approved mockup round 3, ent-1c71c6d681ea).
+/** THE GATE IS OPEN, so nothing here mirrors a shut one any more.
  *
- *  The mockups show a future state in which a question is answered from what
- *  the Magnet collected, and they mark every such picture "future concept".
- *  Answering that way is refused server-side and stays refused
- *  (`PERSPECTIVE_ANSWERS_ENABLED`), so where this panel shows the shape of that
- *  future it carries the same mark and says plainly that it does not work
- *  today. Nothing here is an illustrative answer: the panel shows only what the
- *  record actually holds, and the mark is on the absence. */
-export const FUTURE_CONCEPT = 'Future concept'
-export const GROUNDED_NOT_YET = 'Answering a question from what this Magnet collected is not available yet.'
-/** Said where the collected items a question could be explored against are
- *  listed, so the list is never read as an answer's chosen support. */
-export const SUPPORTING_WHY = 'These are the items this Magnet has collected. Nothing read them to answer your question: choosing and citing the items that support an answer is part of grounded answering, which is not available yet.'
-export const NOTHING_RECORDED_YET = 'Nothing is recorded against this question yet. Discussing it keeps what is said with the question.'
+ *  `PERSPECTIVE_ANSWERS_ENABLED = false`, `PERSPECTIVE_BLOCK_REASON`,
+ *  `FUTURE_CONCEPT` and `GROUNDED_NOT_YET` were this file's statement of the
+ *  server's `grounded-answers-blocked` refusal, and of the mockups' "future
+ *  concept" mark on a picture of answering that did not work. The refusal was
+ *  there because the owner's correction `ent-d85254fe5e1b` was not enforced;
+ *  Part A enforced it (`mentis/magnet/scope.py`, applied at the one door), the
+ *  server's `GROUNDED_ANSWERS_ENABLED` is `True`, and this part makes the
+ *  pictures true. They are deleted rather than flipped: there is no longer
+ *  anything for them to say. The refusal keeps its code server-side for a build
+ *  that shuts the gate again, and this client reads `grounded_answers` from the
+ *  response instead of carrying a constant of its own. */
+export const PERSPECTIVE_DISCLOSURE = 'This Magnet’s answers are grounded in its own collection: a run carrying one of its exchanges reads that Magnet’s recorded collection batches, the posts of its own Conversation and the references the owner selected, and every other Brain record or acquired source is refused at the door. A Perspective answer and an evolving summary are grounded in the collected rows and nothing else; no authorization widens them.'
+
+/** HOW AN ANSWER SAYS WHAT IT REACHED (Part A's published contract,
+ *  `docs/magnets/part-b-perspectives-api.md` §"The provenance field Part F and
+ *  the client render"). The field names are A's exactly, and this part invents
+ *  none of its own: `explored_outside` is THE field to render.
+ *
+ *  Grounded-in-the-collection and explored-outside must never be mistaken for
+ *  each other, so they are three distinct statements and not one scale:
+ *  grounded (nothing outside was opened), allowed-but-did-not (the owner opened
+ *  something and the answer did not reach it), and explored-outside (it did,
+ *  and what it reached is named). For a synthesis -- a Perspective answer or
+ *  the evolving summary -- all of it is empty and false structurally. */
+export interface AnswerProvenance {
+  grounded_in: 'collection'
+  outside_authorized: ({ kind: 'runtime-web-search' } | { kind: 'collection'; collection: string })[]
+  outside_reads: { what: string; collection: string; ref?: string }[]
+  explored_outside: boolean
+}
+export const GROUNDED_IN_COLLECTION = 'Grounded in this collection'
+export const EXPLORED_OUTSIDE = 'Explored outside this collection'
+export const ALLOWED_OUTSIDE_UNUSED = 'Allowed to look outside; did not'
+export const GROUNDED_WHY = 'Written from this Magnet’s collected records and nothing else. No authorization widens a Perspective answer or an evolving summary.'
+export const EXPLORED_WHY = 'This answer reached a source outside this Magnet’s collection, which the owner explicitly opened for that one exchange. It is not grounded in the collection alone.'
+
+/** The provenance an answer event carries, or null when it carries none — and
+ *  null is never read as "grounded": an answer that cannot state what it
+ *  reached says that instead (`UNSTATED_PROVENANCE`). */
+export function provenanceOf(event?: InquiryEvent | null): AnswerProvenance | null {
+  const p = event?.data?.provenance
+  if (!p || typeof p !== 'object' || p.grounded_in !== 'collection' || typeof p.explored_outside !== 'boolean') return null
+  return { grounded_in: 'collection', explored_outside: p.explored_outside,
+    outside_authorized: Array.isArray(p.outside_authorized) ? p.outside_authorized : [],
+    outside_reads: Array.isArray(p.outside_reads) ? p.outside_reads : [] }
+}
+export const UNSTATED_PROVENANCE = 'This answer does not record what it was allowed to reach, so it is not shown as grounded in this collection.'
+export interface Grounding { label: string; detail: string; outside: boolean; stated: boolean; reached: string[] }
+/** What to show beside an answer's citations. One of three statements, never a
+ *  blend of them, and never silence. */
+export function grounding(p: AnswerProvenance | null): Grounding {
+  if (!p) return { label: 'Grounding not recorded', detail: UNSTATED_PROVENANCE, outside: false, stated: false, reached: [] }
+  if (p.explored_outside) return { label: EXPLORED_OUTSIDE, detail: EXPLORED_WHY, outside: true, stated: true,
+    reached: p.outside_reads.map((r) => [r.what, r.collection].filter(Boolean).join(' · ')) }
+  if (p.outside_authorized.length) return { label: ALLOWED_OUTSIDE_UNUSED, outside: false, stated: true,
+    detail: `${GROUNDED_WHY} The owner opened ${p.outside_authorized.length} outside ${p.outside_authorized.length === 1 ? 'source' : 'sources'} for an exchange; this answer reached none of them.`,
+    reached: [] }
+  return { label: GROUNDED_IN_COLLECTION, detail: GROUNDED_WHY, outside: false, stated: true, reached: [] }
+}
+
+/** THE STANDING PERSPECTIVE: one question every Magnet keeps, whose answer is
+ *  the evolving summary. It is created with its deterministic key, so it is
+ *  created exactly once however often this is called. */
+export const STANDING_QUESTION = 'What is the state of what this Magnet has gathered?'
+export const STANDING_NAME = 'What this Magnet has gathered'
+export const standingOp = (magnet: string) => `magnet-standing:${magnet}`
+export const standingAnswerOp = (magnet: string, batch: string) => `magnet-standing-answer:${magnet}:${batch}`
+/** What the answer says about itself, so no reader has to guess who wrote it.
+ *  The server records the same sentence on every answer package it writes
+ *  (`perspectives_work.WRITTEN_BY_MENTIS`); this is the fallback for an answer
+ *  recorded before it carried one. */
+export const WRITTEN_BY_MENTIS = 'Written by Mentis from this Magnet’s collected records alone.'
+/** Said where the collected items are listed beside a question, so the list is
+ *  never read as the answer's own chosen support. */
+export const SUPPORTING_WHY = 'These are the records this Magnet has collected. The answer standing now names the ones it was written from; the rest are here to read yourself.'
+export const NOTHING_RECORDED_YET = 'Nothing is recorded against this question yet. Ask it of the collection, or discuss it to keep what is said with the question.'
+export const ANSWER_FROM_COLLECTION = 'Answer from this collection'
+export const NOTHING_NEW_CODE = 'nothing-new'
 
 /** WHAT THE RECORD HOLDS AS THE CURRENT UNDERSTANDING OF A QUESTION.
  *
@@ -55,6 +116,43 @@ export interface AnswerHistory { current: InquiryEvent | null; superseded: Inqui
 export function answerHistory(events: InquiryEvent[]): AnswerHistory {
   const [current, ...superseded] = recordedUnderstanding(events).answers
   return { current: current ?? null, superseded }
+}
+
+/** The words an answer event stands for, exactly as recorded. */
+export const answerText = (e?: InquiryEvent | null): string =>
+  typeof e?.data?.text === 'string' ? e.data.text : ''
+
+/** An answer's own statements, in the order it recorded them. An answer is
+ *  written as one statement per line, each naming the records it was written
+ *  from, so a reader sees statements rather than a paragraph. */
+export const statements = (words: string): string[] =>
+  String(words).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+
+/** WHAT CHANGED, between the answer standing now and the one it follows.
+ *
+ *  A diff of the recorded answers, not a second comparison of collections:
+ *  the evolving summary is re-answered when a collection brings rows the last
+ *  answer did not read, so the difference between those two answers IS what
+ *  changed. Statement by statement, in the order the newer answer holds them,
+ *  and nothing is inferred: a line is either in both answers or in one. */
+export interface AnswerChange { added: string[]; gone: string[]; same: number }
+export function answerDiff(current?: InquiryEvent | null, previous?: InquiryEvent | null): AnswerChange | null {
+  if (!current) return null
+  const lines = (e?: InquiryEvent | null) => answerText(e).split('\n').map((l) => l.trim()).filter(Boolean)
+  const now = lines(current)
+  if (!previous) return { added: now, gone: [], same: 0 }
+  const before = lines(previous)
+  const was = new Set(before), is = new Set(now)
+  return { added: now.filter((l) => !was.has(l)), gone: before.filter((l) => !is.has(l)),
+    same: now.filter((l) => was.has(l)).length }
+}
+/** The one sentence that difference is worth. */
+export function changeWords(c: AnswerChange | null): string {
+  if (!c) return 'No answer is recorded for this collection yet, so nothing is claimed to have changed.'
+  if (!c.added.length && !c.gone.length) return `This answer says the same as the one before it: all ${c.same} statements are unchanged.`
+  const bits = [c.added.length ? `${c.added.length} new ${c.added.length === 1 ? 'statement' : 'statements'}` : '',
+    c.gone.length ? `${c.gone.length} no longer said` : ''].filter(Boolean)
+  return `Since the previous answer: ${bits.join(', ')}; ${c.same} unchanged.`
 }
 
 /** Said where a kept question is read, so a Perspective is never taken for a
@@ -92,7 +190,15 @@ export interface InquiryEvent { seq: number; post: string; event: string; perspe
 export interface PreparedInquiry { intent: string; perspective: string; brain: string; question: Artifact; manifest: Artifact; records: Artifact; artifacts: Artifact[]; parts: { type: 'file'; ref: string; media_type: string; alt: string }[]; reach: 'work'; request_op: string; text: string; closure: { count: number; bytes: number }; disclosure: string }
 export interface OrdinaryContext { perspective: string; name: string; question: string; revision: string }
 export interface PendingAction { brain: string; magnet: string; kind: string; target: string | null; tail: string; data: Record<string, unknown>; op: string; result?: any; selectOp: string }
-export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Perspective; selectedDetail?: Perspective; rows: Perspective[]; selected: string | null; viewed?: string | null; loading: boolean; error?: string; events: InquiryEvent[]; next: string | null; listNext: string | null; historyComplete: boolean; priors: string[]; continuation: boolean; selections: Record<string, 'supporting' | 'contradicting' | 'context'>; declared: string[]; active?: PreparedInquiry; receipt?: any; answer?: any }
+export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Perspective; selectedDetail?: Perspective; rows: Perspective[]; selected: string | null; viewed?: string | null; loading: boolean; error?: string; events: InquiryEvent[]; next: string | null; listNext: string | null; historyComplete: boolean; priors: string[]; continuation: boolean; selections: Record<string, 'supporting' | 'contradicting' | 'context'>; declared: string[]; active?: PreparedInquiry; receipt?: any; answer?: any
+  /** This Magnet's standing Perspective, as the listing read reports it. */
+  standing?: string | null
+  /** The standing Perspective's recorded answers: the evolving summary and
+   *  the ones it superseded. Read by the Summary, which shows the current one
+   *  as its lead and the difference from the previous one as what changed. */
+  summary?: StandingSummary | null
+}
+export interface StandingSummary { perspective: string; current: InquiryEvent | null; superseded: InquiryEvent[]; batch: string | null }
 const stores = new WeakMap<MagnetResource, PerspectiveStore>()
 const uuid = (kind: string) => `perspective-${kind}-${crypto.randomUUID()}`
 
@@ -278,7 +384,8 @@ export class PerspectiveStore {
       const detail = selected ? this.detail(await this.get(`/${selected}`), selected) : undefined
       if (detail && (detail as any).selected !== selected) throw new Error('The active Perspective changed during refresh.')
       if (mine !== this.version || lens !== this.lensVersion) return
-      this.update({ rows: this.merged(cursor ? [...this.state.rows, ...v.perspectives] : v.perspectives, detail), selected, selectedDetail: detail, listNext: v.next ?? null })
+      this.update({ rows: this.merged(cursor ? [...this.state.rows, ...v.perspectives] : v.perspectives, detail), selected, selectedDetail: detail, listNext: v.next ?? null,
+        ...(typeof v.standing === 'string' || v.standing === null ? { standing: v.standing } : {}) })
     } catch (e) { if (mine === this.version) this.update({ error: (e as Error).message }) }
     finally { if (mine === this.version) this.update({ loading: false }) }
   }
@@ -375,8 +482,9 @@ export class PerspectiveStore {
    *  -- the same guarded durable read, with the same identity and lens checks
    *  -- and says whether the answer standing now is a different recorded event
    *  than the one just shown. It writes nothing, selects nothing and starts no
-   *  agent: a refresh that formed an answer would be grounded answering, which
-   *  stays refused (`PERSPECTIVE_ANSWERS_ENABLED`).
+   *  agent: a refresh that formed an answer would be a write, and this is a
+   *  read -- an answer is formed only where the owner asks for one (`ask`,
+   *  `summarise`).
    *
    *  One read per call, and no caller may turn it into a loop: there is no
    *  timer here and nothing retries. An unresolved write still blocks it, so a
@@ -390,13 +498,84 @@ export class PerspectiveStore {
     if ((this.state.viewed ?? this.state.selected) !== target) return 'none'
     return (answerHistory(this.state.events).current?.post ?? null) === before ? 'unchanged' : 'changed'
   }
+  /** ASK THIS QUESTION OF THE COLLECTION, and keep the answer.
+   *
+   *  One owner action, one appended answer. Asking again later SUPERSEDES
+   *  rather than overwrites: the server records a new `answered` event and
+   *  leaves every earlier one exactly where it was, which is why
+   *  `answerHistory` can name the one standing now and keep the rest. Omitting
+   *  `text` re-answers the question already saved -- which is what the
+   *  evolving summary is -- and the server refuses that when the collection
+   *  holds no record the last answer did not read.
+   *
+   *  It goes through the same frozen, keyed, retryable write every other
+   *  question action uses, so a lost acknowledgement is retried unchanged and
+   *  never asked twice. */
+  async ask(text?: string, op = uuid('answer')) {
+    const target = this.state.viewed ?? this.state.selected
+    if (!target) throw new Error('Open a question before asking it of this collection.')
+    return this.action('answer', text && text.trim() ? { text } : {}, target, op)
+  }
+
+  /** This Magnet's standing Perspective, creating it if the record holds none.
+   *
+   *  The key is derived from the Magnet, so creation happens exactly once
+   *  however many surfaces call this and however many acknowledgements are
+   *  lost -- and the server converges on the first one in the record besides
+   *  (`perspectives.standing`). It does not select it: the owner's active
+   *  question is theirs. */
+  async ensureStanding(): Promise<string> {
+    if (!this.state.standing) await this.read()
+    const known = this.state.standing
+    if (known) return known
+    const v = await this.write('', { name: STANDING_NAME, question: STANDING_QUESTION, standing: true },
+                               standingOp(this.resource.saved.id))
+    if (typeof v.perspective !== 'string') throw new Error('The standing question did not return its identity.')
+    this.update({ standing: v.perspective })
+    return v.perspective
+  }
+
+  /** The standing Perspective's recorded answers. A read: it reads the listing
+   *  and that one Perspective's bounded history and nothing else. */
+  async readSummary(): Promise<StandingSummary | null> {
+    if (!this.state.standing) await this.read()
+    const topic = this.state.standing
+    if (!topic) { this.update({ summary: null }); return null }
+    const seen: InquiryEvent[] = []
+    await walkPages(async (cursor) => {
+      const v = await this.get(`/${topic}/history?` + new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) }))
+      if (v.perspective !== topic) throw new Error('History answered for another Perspective.')
+      if (Array.isArray(v.events)) seen.push(...v.events)
+      return v.next ?? null
+    })
+    const { current, superseded } = answerHistory(seen)
+    const summary: StandingSummary = { perspective: topic, current, superseded,
+      batch: typeof current?.data?.basis?.batch === 'string' ? current.data.basis.batch : null }
+    this.update({ summary })
+    return summary
+  }
+
+  /** RE-ANSWER THE STANDING QUESTION OVER THE COLLECTION NOW HELD.
+   *
+   *  Keyed by the batch, so one collection produces at most one evolving
+   *  summary however often this is pressed or replayed, and a second
+   *  collection produces a new current answer with the previous one in its
+   *  history. The server decides whether there is anything new to answer --
+   *  Part E's own `new_since` count, read there and not trusted from here --
+   *  and refuses `nothing-new` rather than recording a second answer that says
+   *  the same thing. */
+  async summarise(batch: string): Promise<StandingSummary | null> {
+    const topic = await this.ensureStanding()
+    await this.write(`/${topic}/answer`, {}, standingAnswerOp(this.resource.saved.id, batch))
+    return this.readSummary()
+  }
+
   /** Every page is bounded and frozen by the server cursor. Before a new
    * request, inspect durable unresolved intents even when browser state was lost. */
   async completeHistory() {
     await walkPages(async (cursor) => { await this.history(cursor); return this.state.next })
   }
   async prepare(text: string, op: string): Promise<PreparedInquiry> {
-    if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
     const topic = this.state.selected
     if (!topic) throw new Error('Choose a Perspective before preparing a question.')
     const row = this.state.rows.find((p) => p.perspective === topic)
@@ -443,7 +622,6 @@ export class PerspectiveStore {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw))
   }
   async reconcile(prepared: PreparedInquiry, purpose: 'display' | 'resume' | 'reuse' | 'attach', execution?: string) {
-    if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
     const receipt = await this.write(`/${prepared.perspective}/reconcile`, { intent: prepared.intent, purpose, ...(execution ? { execution } : {}), declared_context: this.state.declared })
     this.update({ receipt }); return receipt
   }
@@ -544,7 +722,6 @@ export function perspectiveSource(resource: MagnetResource): SearchSource {
 }
 /** Preserve the shared Composer's addressing, runtime, reply and Work choices. */
 export function perspectiveRequest(post: Record<string, unknown>, prepared: PreparedInquiry) {
-  if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
   return { ...post, text: prepared.text, topics: [...new Set([...(Array.isArray(post.topics) ? post.topics : []), prepared.perspective])],
     parts: [{ type: 'text', text: prepared.text }, ...(Array.isArray(post.parts) ? post.parts.filter((p: any) => p.type !== 'text') : []), ...prepared.parts],
     _magnetPerspective: prepared,

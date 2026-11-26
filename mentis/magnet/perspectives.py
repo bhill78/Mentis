@@ -40,6 +40,15 @@ GROUNDED_ANSWERS_ENABLED = True
 PAGE_MAX = 100
 TEXT_MAX = 65536
 
+#: THE STANDING PERSPECTIVE: the evolving summary and an answered question are
+#: ONE mechanism (plan adm-43ecee5872e9 §3 Part F). A Magnet's evolving summary
+#: is not a second synthesis engine beside Perspectives; it is a Perspective
+#: that is never retired, asking the one question a collection always answers,
+#: re-answered whenever a collection brings rows the last answer did not read.
+#: Its earlier answers become the superseded history the panel already renders.
+STANDING_QUESTION = "What is the state of what this Magnet has gathered?"
+STANDING_NAME = "What this Magnet has gathered"
+
 
 def refuse(code, words, **detail):
     raise Refused({"refused": True, "code": code, "error": words, **detail})
@@ -104,6 +113,20 @@ def _topic(st, mid, topic):
 def selected(st, mid):
     row = _last(st, mid, event="selected")
     return row["data"]["selected"] if row else None
+
+
+def standing(st, mid):
+    """This Magnet's standing Perspective -- the evolving summary -- or None.
+
+    The FIRST one its record holds, so a Magnet has exactly one however many
+    times creation is attempted: the record is append-only, and a second
+    `created` event carrying `standing` never displaces the first.
+    """
+    rows = _rows(st, mid, event="created", limit=PAGE_MAX)
+    for row in rows:
+        if row["data"].get("standing") is True:
+            return row["perspective"]
+    return None
 
 
 def state(st, mid, topic, *, detail=False):
@@ -171,11 +194,24 @@ def _question(st, mid, topic, words, reason, by, written_by):
 def _create(st, mid, body, by, written_by, parent=None):
     name = text(body.get("name"), "name")
     text(body.get("question"), "question")
+    # ONE STANDING PERSPECTIVE PER MAGNET, whatever asks for it and however
+    # often. Creation is idempotent in the record itself, not only in the
+    # operation key: a client that lost its acknowledgement, a second surface,
+    # or a Magnet that predates this part all converge on the same Topic
+    # rather than growing a second evolving summary.
+    if body.get("standing"):
+        already = standing(st, mid)
+        if already:
+            q = _last(st, mid, already, "question")
+            return {"perspective": already, "question": q["snapshot"] if q else None,
+                    "event": _last(st, mid, already), "standing": True, "existing": True}
     topic = st.cv.open_topic(home(st, mid), name, about=f"Perspective of Magnet {mid}",
                              attributed_to=by, written_by=written_by)
     event(st, mid, topic, "created", {"name": name, "parent": parent,
-        "reason": body.get("reason")}, by, written_by=written_by)
-    return _question(st, mid, topic, body["question"], body.get("reason"), by, written_by)
+        "reason": body.get("reason"),
+        **({"standing": True} if body.get("standing") else {})}, by, written_by=written_by)
+    out = _question(st, mid, topic, body["question"], body.get("reason"), by, written_by)
+    return {**out, **({"standing": True} if body.get("standing") else {})}
 
 
 def _limit(value):
@@ -233,13 +269,17 @@ def listing(st, mid, *, limit=20, cursor=None):
     rows = _rows(st, mid, event="created", after=after, through=through, limit=limit + 1)
     return {"magnet": mid, "perspectives": [state(st, mid, r["perspective"]) for r in rows[:limit]],
             "selected": selected(st, mid), "brain": brain_key(st.corpus), "disclosure": DISCLOSURE,
-            "grounded_answers": GROUNDED_ANSWERS_ENABLED,
+            "grounded_answers": GROUNDED_ANSWERS_ENABLED, "standing": standing(st, mid),
             "next": _next(st, mid, None, rows[limit - 1], through, "created") if len(rows) > limit else None}
 
 
 FIELDS = {
-    "create": {"name", "question", "reason"}, "selected": {"perspective"},
+    "create": {"name", "question", "reason", "standing"}, "selected": {"perspective"},
     "rename": {"name"},
+    # The grounded answer written from this Magnet's own collected rows. `text`
+    # is an owner's new question, optional: without one the Perspective's
+    # saved current question is re-answered over the rows that arrived since.
+    "answer": {"text", "reason"},
     "question": {"text", "reason"}, "challenge": {"text", "reason"},
     "retire": {"reason"}, "resume": {"reason"}, "branch": {"name", "question", "reason"},
     "prepare": {"question", "batches", "selections", "priors", "declared_context", "continuation"},
@@ -269,7 +309,7 @@ def command(st, mid, topic, verb, body, *, written_by=None):
         refuse("wrong-brain", "this intent belongs to another Brain instance")
     if verb not in FIELDS or set(body) - (FIELDS[verb] | {"brain", "op"}):
         refuse("invalid-fields", "this Perspective operation carries unsupported fields")
-    if verb in ("prepare", "finalize", "reconcile"):
+    if verb in ("prepare", "finalize", "reconcile", "answer"):
         require_grounded()
     op = body.get("op")
     if not isinstance(op, str) or not op.strip() or len(op) > 160:
@@ -310,7 +350,7 @@ def command(st, mid, topic, verb, body, *, written_by=None):
                 out = {"perspective": topic, "event": row}
             else:
                 from . import perspectives_work as work
-                if verb == "prepare" and current["retired"]:
+                if verb in ("prepare", "answer") and current["retired"]:
                     refuse("retired", "Resume this Perspective before preparing new work")
                 out = getattr(work, verb)(st, mid, topic, body, by, written_by)
         return {**out, "brain": brain_key(st.corpus)}
@@ -325,7 +365,7 @@ def route_read(st, mid, bits, one):
     if len(bits) == 1:
         return {"magnet": mid, **state(st, mid, topic, detail=True), "selected": selected(st, mid),
                 "brain": brain_key(st.corpus), "disclosure": DISCLOSURE,
-                "grounded_answers": GROUNDED_ANSWERS_ENABLED}
+                "grounded_answers": GROUNDED_ANSWERS_ENABLED, "standing": standing(st, mid)}
     if len(bits) == 2 and bits[1] == "history":
         return history(st, mid, topic, limit=one("limit", "20"), cursor=one("cursor"))
     if len(bits) == 3 and bits[1] == "intents":

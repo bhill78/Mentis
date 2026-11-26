@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
-import { answerHistory, derivedPerspectiveName, PerspectiveStore } from '../src/quiet2/magnets/perspectives'
+import { answerHistory, derivedPerspectiveName, PerspectiveStore, STANDING_QUESTION, standingAnswerOp, standingOp } from '../src/quiet2/magnets/perspectives'
 import { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { miniComposerDraft, removeContext, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
@@ -246,6 +246,92 @@ test('reading a kept question again reports a newer answer, reports no change, a
   // An action whose outcome is unknown is resolved before anything is re-read.
   f.store.update({ viewed: A, pending: { kind: 'question' } as any })
   await assert.rejects(f.store.recheck(), /unchanged question action/)
+})
+
+/* --- PART F: a question gets a real persisted answer ------------------------
+   What these prove at the store level, against the plan's Part F done-when:
+   asking writes one keyed, retryable answer; asking again SUPERSEDES rather
+   than overwrites; the standing Perspective is created exactly once with a
+   key derived from the Magnet; and one collection produces at most one
+   evolving summary, keyed by its own batch. */
+
+test('asking a question of the collection is one keyed write, and asking again supersedes', async () => {
+  const f = fixture(), sent: any[] = []
+  f.store.update({ selected: A, viewed: A })
+  f.store.write = async (...args) => { sent.push(args); return { perspective: A, text: 'An answer' } }
+  await f.store.ask('What do the records say about drift?', 'ask-key')
+  assert.deepEqual(sent[0], [`/${A}/answer`, { text: 'What do the records say about drift?' }, 'ask-key'])
+  assert.equal(sent.length, 1, 'asking is one write: it never selects or re-questions')
+  // Asking the saved question again omits the text: the server re-answers the
+  // question already saved, and appends rather than replacing.
+  await f.store.ask(undefined, 'again-key')
+  assert.deepEqual(sent[1], [`/${A}/answer`, {}, 'again-key'])
+  await f.store.ask('   ', 'blank-key')
+  assert.deepEqual(sent[2][1], {}, 'blank words are not a new question')
+  // With no question open there is nothing to ask of the collection.
+  f.store.update({ selected: null, viewed: null })
+  await assert.rejects(f.store.ask('Anything'), /Open a question/)
+})
+
+test('an uncertain ask keeps its original words and key for the unchanged retry', async () => {
+  const f = fixture(), sent: any[] = []
+  f.store.update({ selected: A, viewed: A })
+  f.store.write = async (...args) => { sent.push(args); throw new Error('answer response lost') }
+  await assert.rejects(f.store.ask('Original question', 'ask-key'), /lost/)
+  assert.equal(f.store.snapshot().pending?.kind, 'answer')
+  const reopened = fixture(f.r)
+  reopened.store.update({ selected: B, viewed: B })
+  reopened.store.write = async (...args) => { sent.push(args); return { perspective: A } }
+  await reopened.store.retryPending()
+  assert.deepEqual(sent, [[`/${A}/answer`, { text: 'Original question' }, 'ask-key'],
+                          [`/${A}/answer`, { text: 'Original question' }, 'ask-key']])
+  assert.equal(reopened.store.snapshot().pending, undefined)
+})
+
+test('the standing Perspective is created once, with a key derived from the Magnet', async () => {
+  const f = fixture(), sent: any[] = []
+  f.store.write = async (...args) => { sent.push(args); return { perspective: 'ent-standing1111' } }
+  const topic = await f.store.ensureStanding()
+  assert.equal(topic, 'ent-standing1111')
+  assert.equal(sent[0][0], '', 'it is the ordinary create route')
+  assert.equal(sent[0][1].standing, true, 'marked as the standing one')
+  assert.equal(sent[0][1].question, STANDING_QUESTION)
+  assert.equal(sent[0][2], standingOp(f.r.saved.id), 'with the key derived from the Magnet')
+  assert.equal(sent.length, 1, 'creation never selects it: the active question is the owner’s')
+  // Known already: no second write, however often it is asked for.
+  assert.equal(await f.store.ensureStanding(), 'ent-standing1111')
+  assert.equal(sent.length, 1)
+})
+
+test('one collection produces at most one evolving summary, keyed by that collection', async () => {
+  const f = fixture(), sent: any[] = []
+  const answers: any[] = []
+  f.store.update({ standing: 'ent-standing1111' })
+  f.store.write = async (...args) => { sent.push(args); return { perspective: 'ent-standing1111' } }
+  const base = f.store.get
+  f.store.get = async (tail = '') => tail.includes('/history')
+    ? { magnet: f.r.saved.id, perspective: tail.split('/')[1], events: answers, next: null } : base(tail)
+  answers.push({ seq: 1, post: 'ent-a1', event: 'answered', perspective: 'ent-standing1111',
+    snapshot: { ref: 'adm-s1' }, data: { text: 'First state', basis: { batch: 'adm-batch111111' } } })
+  const got = await f.store.summarise('adm-batch111111')
+  assert.equal(sent[0][0], '/ent-standing1111/answer')
+  assert.deepEqual(sent[0][1], {}, 'the standing question is re-answered, never revised')
+  assert.equal(sent[0][2], standingAnswerOp(f.r.saved.id, 'adm-batch111111'),
+    'keyed by the collection, so a replay records nothing further')
+  assert.equal(got?.current?.data.text, 'First state')
+  assert.equal(got?.batch, 'adm-batch111111')
+  assert.deepEqual(got?.superseded, [])
+  // A second collection: a new current answer, with the previous one kept.
+  answers.push({ seq: 2, post: 'ent-a2', event: 'answered', perspective: 'ent-standing1111',
+    snapshot: { ref: 'adm-s2' }, data: { text: 'Second state', basis: { batch: 'adm-batch222222' } } })
+  const after = await f.store.summarise('adm-batch222222')
+  assert.equal(sent[1][2], standingAnswerOp(f.r.saved.id, 'adm-batch222222'), 'a different collection, a different key')
+  assert.equal(after?.current?.data.text, 'Second state')
+  assert.deepEqual(after?.superseded.map((e) => e.data.text), ['First state'], 'the earlier answer is kept')
+  // Reading the summary writes nothing at all.
+  const before = sent.length
+  await f.store.readSummary()
+  assert.equal(sent.length, before, 'reading the evolving summary is a read')
 })
 
 test('wrong or missing Brain response is refused; pending action never migrates to a replacement Brain', async () => {

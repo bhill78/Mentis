@@ -1021,3 +1021,244 @@ def test_unknown_perspective_write_help_includes_rename(inquiry):
     got = owner_http(w, f"/{topic}/not-a-verb", {})
     assert got["status"] == 405
     assert "/perspectives/<topic>/question, /rename" in json.loads(got["body"])["error"]
+
+# ---------------------------------------------------------------------------
+# PART F: THE EVOLVING SUMMARY AND AN ANSWERED PERSPECTIVE ARE ONE MECHANISM
+# (plan adm-43ecee5872e9 section 3; amendment adm-c38044ee5157 section 3;
+# owner correction ent-d85254fe5e1b and #521 section 7).
+#
+# What these prove: an answer exists, is durable, cites the collected rows it
+# was written from, supersedes rather than overwrites, and is grounded in the
+# collection STRUCTURALLY -- no body field, authorization or grant can point it
+# anywhere else, and `scope.provenance(..., synthesis=True)` is empty and false
+# on every one of them.
+
+
+def standing(w):
+    """This Magnet's standing Perspective, created as it is created with one."""
+    return cmd(w, "create", None, name=P.STANDING_NAME, question=P.STANDING_QUESTION,
+               standing=True)
+
+
+def recollect(w, op, add=None):
+    """A second recorded collection of this Magnet, optionally with a new row."""
+    def change(art):
+        art["page"]["sources"][0]["results"][0].update(
+            value={"parts": [{"type": "text", "text": "Original \u03b1 evidence. A shared observation."}]})
+        if add is not None:
+            art["page"]["sources"][0]["results"].append(add)
+    raw = artifact_of(w, op=op, change=change)
+    return ask_commit(w, raw)["body"]["artifact"]
+
+
+NEW_ROW = {"kind": "post", "id": "ent-00000000000f", "version": "ent-00000000000f",
+           "conversation": "ent-2865e11386f6", "author": "ent-b20d8e47f196",
+           "at": 1795000000.0, "number": 9, "via": "home", "deleted": False,
+           "value": {"parts": [{"type": "text", "text": "A newly arrived record about calibration drift."}]}}
+
+
+def test_one_standing_perspective_per_magnet_however_often_it_is_created(inquiry):
+    w = inquiry
+    assert P.standing(w.state, MAGNET) is None
+    made = standing(w)
+    assert P.standing(w.state, MAGNET) == made["perspective"]
+    assert made.get("standing") is True
+    # A lost acknowledgement, a second surface, a different operation key: all
+    # converge on the first one in the record rather than growing a second
+    # evolving summary. Nothing further is written.
+    before = len(w.corpus.operational(act=P.ACT, limit=10000))
+    again = standing(w)
+    assert again["perspective"] == made["perspective"]
+    assert again["existing"] is True
+    assert len(w.corpus.operational(act=P.ACT, limit=10000)) == before, \
+        "an existing standing Perspective records no further Perspective event"
+    # And the listing says which one it is, so no client has to search for it.
+    assert P.listing(w.state, MAGNET)["standing"] == made["perspective"]
+    assert P.route_read(w.state, MAGNET, [made["perspective"]],
+                        lambda key, default=None: default)["standing"] == made["perspective"]
+    # Creating an ordinary Perspective never makes it the standing one.
+    other = create(w)
+    assert P.standing(w.state, MAGNET) == made["perspective"] != other["perspective"]
+
+
+def test_the_evolving_summary_is_an_answer_grounded_in_the_collection_and_nothing_else(inquiry):
+    w = inquiry
+    topic = standing(w)["perspective"]
+    out = cmd(w, "answer", topic)
+    # IT IS AN ANSWER: words that say what this Magnet has gathered, written
+    # from the rows, with the records it was written from cited.
+    assert "This Magnet has gathered" in out["text"]
+    assert out["support"] == "supported"
+    assert out["basis"]["batch"] == w.batch["ref"]
+    assert out["basis"]["rows"] >= 1
+    assert out["method"] == W.METHOD
+    assert out["written_by"] == W.WRITTEN_BY_MENTIS
+    assert out["standing"] is True
+    # EVERY STATEMENT NAMES THE RECORDS IT WAS WRITTEN FROM.
+    assert out["lines"] and any(line["cites"] for line in out["lines"])
+    rows = {r["id"] for s in json.loads(
+        held.path(w.corpus.root, w.batch["digest"]).read_bytes())["page"]["sources"]
+        for r in s.get("results", [])}
+    for line in out["lines"]:
+        assert set(line["cites"]) <= rows, "a statement cites only this collection's own rows"
+    # GROUNDED STRUCTURALLY: Part A's own provenance, empty and false.
+    assert out["provenance"] == {"grounded_in": "collection", "outside_authorized": [],
+                                 "outside_reads": [], "explored_outside": False}
+    # The immutable answer package holds the same, and names only this batch
+    # and the frozen question as its inputs.
+    package = E.native(w.state, MAGNET, out["answer"]["ref"],
+                       E.bounded_read(w.state, E.descriptor(w.state, out["answer"]["ref"]),
+                                      E.MAX_BYTES), "answer")
+    assert package["provenance"] == out["provenance"]
+    assert package["synthesis"] is True
+    assert package["disclosure"] == P.DISCLOSURE
+    manifest = E.native(w.state, MAGNET, package["manifest"]["ref"],
+                        E.bounded_read(w.state, E.descriptor(w.state, package["manifest"]["ref"]),
+                                       E.MAX_BYTES), "manifest")
+    assert [b["ref"] for b in manifest["batches"]] == [w.batch["ref"]]
+    assert manifest["direct"] == [w.batch["ref"], package["question"]["ref"]]
+    assert manifest["priors"] == [] and manifest["declared_context"] == []
+    assert manifest["originals"], "the exact captured ranges it was written from"
+    for original in manifest["originals"]:
+        for citation in original["citations"]:
+            assert citation["batch"] == w.batch["ref"]
+    # AND NO ARGUMENT CAN POINT IT ANYWHERE ELSE: the operation accepts a
+    # question and a reason, and nothing that names a batch, source or grant.
+    assert P.FIELDS["answer"] == {"text", "reason"}
+    for forged in ({"batches": [w.batch["ref"]]}, {"collection": "col-other"},
+                   {"declared_context": []}, {"priors": []}):
+        with pytest.raises(Refused) as exc:
+            cmd(w, "answer", topic, **forged)
+        assert exc.value.refusal["code"] == "invalid-fields"
+
+
+def test_the_answer_survives_a_reload_and_a_second_collection_supersedes_without_overwriting(inquiry):
+    w = inquiry
+    topic = standing(w)["perspective"]
+    first = cmd(w, "answer", topic)
+    # SURVIVES A RELOAD: the durable history is where it lives, and the read
+    # that serves the client returns it with its provenance and its basis.
+    def answers():
+        return [e for e in P.history(w.state, MAGNET, topic, limit=100)["events"]
+                if e["event"] == "answered"]
+    assert [a["data"]["text"] for a in answers()] == [first["text"]]
+    assert answers()[0]["data"]["provenance"]["explored_outside"] is False
+    # NOTHING NEW IS NOT RE-ANSWERED. Part E's own new-item count decides, read
+    # on the server; the refusal records nothing and leaves the answer standing.
+    before = w.corpus.advance()
+    with pytest.raises(Refused) as exc:
+        cmd(w, "answer", topic)
+    assert exc.value.refusal["code"] == "nothing-new"
+    assert exc.value.refusal["new_count"] == 0
+    assert w.corpus.advance() == before
+    assert len(answers()) == 1
+    # A SECOND COLLECTION WITH A TRUE NEW ROW: a new current answer, and the
+    # previous one exactly where it was recorded. Append-only, not overwritten.
+    second = recollect(w, "part-f-second", add=NEW_ROW)
+    again = cmd(w, "answer", topic)
+    kept = answers()
+    assert len(kept) == 2
+    assert kept[0]["data"]["text"] == first["text"], "the earlier answer is unchanged"
+    assert kept[1]["data"]["text"] == again["text"] != first["text"]
+    assert kept[0]["data"]["answer"]["ref"] != kept[1]["data"]["answer"]["ref"]
+    assert again["basis"]["batch"] == second["ref"]
+    assert again["basis"]["since"] == first["basis"]["batch"]
+    assert again["basis"]["new_count"] >= 1
+    assert NEW_ROW["id"] in again["basis"]["new"]
+    assert "arrived in this collection" in again["text"]
+    assert "calibration drift" in again["text"], "and says what arrived, in its own words"
+
+
+def test_a_question_asked_gets_a_persisted_answer_that_cites_the_collected_rows(inquiry):
+    w = inquiry
+    recollect(w, "part-f-asked", add=NEW_ROW)
+    topic = create(w, words="What is recorded here?")["perspective"]
+    out = cmd(w, "answer", topic, text="What do the records say about calibration drift?")
+    assert "calibration" in out["text"] and "drift" in out["text"]
+    assert "A newly arrived record about calibration drift." in out["text"]
+    assert out["standing"] is False, "an ordinary question is not the evolving summary"
+    assert out["provenance"]["explored_outside"] is False
+    cited = {c["item"] for o in out["lines"] for c in [{"item": i} for i in o["cites"]]}
+    assert NEW_ROW["id"] in cited
+    # The question itself is recorded as an immutable revision, and the answer
+    # names that exact revision -- not whatever is saved later.
+    assert out["question"]["ref"]
+    assert P.state(w.state, MAGNET, topic, detail=True)["current_question"]["text"] == \
+        "What do the records say about calibration drift?"
+    # ASKING AGAIN SUPERSEDES RATHER THAN OVERWRITES, even over the same rows.
+    later = cmd(w, "answer", topic, text="What do the records say about calibration drift?")
+    kept = [e for e in P.history(w.state, MAGNET, topic, limit=100)["events"]
+            if e["event"] == "answered"]
+    assert len(kept) == 2
+    assert kept[0]["data"]["answer"]["ref"] != kept[1]["data"]["answer"]["ref"]
+    assert kept[1]["data"]["answer"]["ref"] == later["answer"]["ref"]
+
+
+def test_an_answer_the_collection_cannot_give_says_so_rather_than_answering(inquiry):
+    w = inquiry
+    topic = create(w, words="Anything")["perspective"]
+    out = cmd(w, "answer", topic, text="What about zygomorphic frobnication of widgets?")
+    assert "None of the" in out["text"] and "records this Magnet has collected mention" in out["text"]
+    assert "Nothing outside this collection was read" in out["text"]
+    assert out["support"] == "unsupported", "no row supports it, and it is not labelled as if one did"
+    assert out["provenance"]["explored_outside"] is False
+    # And a question with nothing to search on is refused in words, not answered.
+    empty = cmd(w, "answer", topic, text="the and that this with")
+    assert "names nothing this Magnet's collected records can be searched on" in empty["text"]
+
+
+def test_answering_needs_a_collection_a_live_perspective_and_the_open_gate(inquiry, monkeypatch):
+    w = inquiry
+    topic = create(w)["perspective"]
+    # A retired Perspective answers nothing until it is resumed.
+    cmd(w, "retire", topic, reason="done")
+    with pytest.raises(Refused) as exc:
+        cmd(w, "answer", topic, text="Anything")
+    assert exc.value.refusal["code"] == "retired"
+    cmd(w, "resume", topic, reason="again")
+    # THE GATE IS A.'S, AND PART F DOES NOT UNDO IT: with it shut, answering is
+    # refused with its existing code, before any keyed write.
+    monkeypatch.setattr(P, "GROUNDED_ANSWERS_ENABLED", False)
+    before = w.corpus.advance()
+    monkeypatch.setattr(P.anchors, "keyed", lambda *a, **kw: pytest.fail("the gate must precede keyed"))
+    with pytest.raises(Refused) as exc:
+        P.command(w.state, MAGNET, topic, "answer", {"brain": brain_key(w.corpus)})
+    assert exc.value.refusal["code"] == "grounded-answers-blocked"
+    assert w.corpus.advance() == before
+
+
+def test_nothing_collected_is_said_rather_than_answered(inquiry, monkeypatch):
+    w = inquiry
+    topic = standing(w)["perspective"]
+    from mentis.magnet import collection as C
+    # A Magnet with no recorded collection: there is nothing to answer FROM,
+    # and the refusal says so rather than writing an answer from anything else.
+    monkeypatch.setattr(C, "read", lambda st, mid, **kw: {
+        "magnet": mid, "config": {}, "activation": None, "page": None, "references": {}})
+    with pytest.raises(Refused) as exc:
+        cmd(w, "answer", topic)
+    assert exc.value.refusal["code"] == "nothing-collected"
+    assert "Collect first" in exc.value.refusal["error"]
+    # An unreadable recorded collection is refused too, never substituted.
+    def unreadable(st, mid, **kw):
+        raise C.UnreadableCollection("the retained collection is missing or invalid")
+    monkeypatch.setattr(C, "read", unreadable)
+    with pytest.raises(Refused) as exc:
+        cmd(w, "answer", topic)
+    assert exc.value.refusal["code"] == "collection-unreadable"
+    assert "no live source was substituted" in exc.value.refusal["error"]
+
+
+def test_the_answer_route_is_reachable_at_the_one_perspective_door(inquiry):
+    w = inquiry
+    topic = standing(w)["perspective"]
+    assert commands.command_of(f"magnets/{MAGNET}/perspectives/{topic}/answer") == \
+        ("magnet-perspective", f"{MAGNET}/perspectives/{topic}/answer")
+    got = owner_http(w, f"/{topic}/answer", {})
+    assert got["status"] == 200, got
+    body = json.loads(got["body"])
+    assert body["provenance"] == {"grounded_in": "collection", "outside_authorized": [],
+                                  "outside_reads": [], "explored_outside": False}
+    assert "This Magnet has gathered" in body["text"]
+    # And the 405 help names it, so no client has to guess.
+    assert "/answer" in json.loads(owner_http(w, f"/{topic}/not-a-verb", {})["body"])["error"]

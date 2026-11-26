@@ -13,7 +13,7 @@ import { guardReload } from '../reloadGuard'
 import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
 import type { MagnetCarried, MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
 import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
-import { PERSPECTIVE_ANSWERS_ENABLED, type PreparedInquiry } from './perspectives'
+import { type PreparedInquiry } from './perspectives'
 import { goTab, remember, route, writePlace } from './places'
 
 /* -- what this seam can truthfully show ------------------------------------ */
@@ -1011,9 +1011,9 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
           }
         }
       }
-      if (perspective && !PERSPECTIVE_ANSWERS_ENABLED) {
-        emit({ sendError: 'This kept Perspective send cannot be sent again. View the original request in the Conversation; it was not sent again.' }); return
-      }
+      /* Part F: the client gate constant this guard read is deleted -- the
+         server's `GROUNDED_ANSWERS_ENABLED` is open (Part A) -- so a kept
+         Perspective send is no longer refused here. */
       const attempt: MiniAttempt = {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
         ...(request ? { request } : {}),

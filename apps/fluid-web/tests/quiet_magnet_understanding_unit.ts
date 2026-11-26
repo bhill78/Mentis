@@ -14,11 +14,14 @@
  *    offered questions are questions, and no synthesis is claimed;
  *  - change is explained only against a valid comparable retained batch, and
  *    refused by name otherwise;
- *  - no control offers or triggers answering from the collected records while
- *    configured-source enforcement is unverified (adm-c5c73679ac1e §§2-3), and
- *    ordinary source-free conversation still works;
- *  - the existing access gate is intact: the grounded affordance stays disabled
- *    with the server's own reason, and Summary reads nothing on its own;
+ *  - PART F: a question asked in the panel gets a real persisted answer, the
+ *    Summary's lead is that answer rather than word counts, what changed is the
+ *    difference between the current answer and the one it superseded, asking
+ *    again supersedes rather than overwrites, and every answer states what it
+ *    was grounded in -- grounded-in-the-collection and explored-outside being
+ *    rendered as different things from Part A's own `explored_outside`;
+ *  - the placeholders that said none of this worked are gone, and nothing in
+ *    the interface claims a grounding it does not have (#521 section 7);
  *  - Perspectives is question-first: the question box comes before every
  *    administrative control, naming is automatic, drafts survive, and every
  *    control the owner reads uses question rather than inquiry wording
@@ -30,19 +33,25 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import Summary, {
-  COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL, GROUNDED_UNAVAILABLE, NO_COMPARISON, SUPPORT_UNRECORDED,
+  ANSWER_THIS_COLLECTION, EXTRACTIVE_LABEL, Grounded, NOT_ANSWERED_YET, NO_COMPARISON, SUMMARY_IS_A_QUESTION,
   askOrdinaryQuestion, capturedKeys, collectedExcerpts, collectedSpan, collectedText, collectionOverview,
   compareCollections, compareWithPrevious, comparisonWords, exploreQuestion,
   frequentWords, itemIdentity, offeredQuestions, recordedChallenges, startingAction, summaryFacts, summarySource,
 } from '../src/quiet2/magnets/Summary'
-import Perspectives, { PastQuestions, SupportingItems, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
+import Perspectives, {
+  AnswerGrounding, DISCUSSION_READS, PastQuestions, SupportingItems, TAKE_TO_CONVERSATION,
+  discussSelectedQuestion, tryAsking,
+} from '../src/quiet2/magnets/InquiryPanel'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { forgetPanelDrafts, panelAt, panelDrafts, setQuestionDraft, setRenameDraft } from '../src/quiet2/magnets/panelDrafts'
 import type { MagnetContext, MagnetResource } from '../src/quiet2/magnets/contract'
 import {
-  derivedPerspectiveName, perspectivesOf, questionVersion, showPerspectiveContext, stampAttachedQuestion,
-  GROUNDED_NOT_YET, NOTHING_RECORDED_YET, PERSPECTIVE_BLOCK_REASON, SUPPORTING_WHY, type Perspective,
+  answerDiff, answerText, changeWords, derivedPerspectiveName, grounding, perspectivesOf, provenanceOf,
+  questionVersion, showPerspectiveContext, stampAttachedQuestion, statements,
+  ALLOWED_OUTSIDE_UNUSED, EXPLORED_OUTSIDE, GROUNDED_IN_COLLECTION, NOTHING_RECORDED_YET,
+  PERSPECTIVE_DISCLOSURE, SUPPORTING_WHY, UNSTATED_PROVENANCE,
+  type AnswerProvenance, type InquiryEvent, type Perspective,
 } from '../src/quiet2/magnets/perspectives'
 import { setOpen } from '../src/quiet2/magnets/places'
 import { emptyDraft } from '../src/composer/draft'
@@ -335,7 +344,7 @@ test('comparing reads the earlier retained batch only, never a live source, and 
   try {
     // Rendering alone asks nothing: the comparison is a press.
     html(createElement(Summary, { resource: r, onPost: () => {} }))
-    assert.deepEqual(calls, [], 'Summary fetches nothing while it renders')
+    assert.equal(calls.length, 0, 'Summary fetches nothing while it renders')
     const got = await compareWithPrevious(r)
     assert.ok(!('bound' in got))
     assert.equal((got as { comparable: boolean }).comparable, true)
@@ -370,15 +379,15 @@ test('comparing reads the earlier retained batch only, never a live source, and 
    the adapter take the retained-content path. Both are gone, and these check
    that no other press here re-creates either half. */
 
-test('no Summary control offers or triggers answering from the collected records', async () => {
+test('the Summary offers one press that answers from the collected records, and attaches nothing', async () => {
   store()
   const { r } = resource('mag-ewhole')
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(rendered.includes(GROUNDED_UNAVAILABLE), 'the single stated limit still covers the whole collection')
-  for (const gone of ['Discuss this whole collection', 'This whole collected batch',
-    'Attaches the collected batch', 'answered from the retained collection']) {
-    assert.ok(!rendered.includes(gone), `${gone} is not offered`)
+  assert.ok(rendered.includes(ANSWER_THIS_COLLECTION), 'the press that writes the answer is offered')
+  for (const gone of ['Draft an answer from selected records', 'aria-describedby="grounded-status"',
+    'is unavailable until configured-source']) {
+    assert.ok(!rendered.includes(gone), `${gone} is gone`)
   }
   // No press in this view reaches the reading choice or attaches a reference.
   const src = code(summarySrc())
@@ -404,7 +413,7 @@ test('the ordinary source-free route is still there, and carries no collection',
   assert.equal(r.snapshot().assistanceMode, undefined, 'an ordinary question stays ordinary')
   assert.equal(r.snapshot().context, null, 'with nothing attached to it')
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(!rendered.includes(COLLECTION_NOT_ANSWERABLE), 'with nothing collected there is no collection to say it about')
+  assert.ok(!rendered.includes(ANSWER_THIS_COLLECTION), 'with nothing collected there is nothing to answer from')
   assert.ok(rendered.includes('Start a conversation'), 'the ordinary route is still offered')
 })
 
@@ -426,8 +435,8 @@ test('an empty Summary offers a useful start and ordinary help, and keeps the ow
   assert.ok(rendered.includes(start.note), 'with its own note beside it')
   assert.ok(rendered.includes('Start a conversation'))
   assert.ok(rendered.includes('How do I configure this Magnet?'), 'ordinary configuration help is offered first')
-  assert.ok(rendered.includes('Draft an answer from selected records') && rendered.includes(PERSPECTIVE_BLOCK_REASON),
-    'the honest grounding statement stays on an empty collection')
+  assert.ok(!rendered.includes(ANSWER_THIS_COLLECTION) && !rendered.includes('Draft an answer from selected records'),
+    'with nothing collected there is nothing to answer from, and no press claims otherwise')
   // A starter question becomes an ordinary message.
   assert.equal(askOrdinaryQuestion(r, 'How do I configure this Magnet?'), '')
   assert.equal(miniComposerDraft(r).text, 'How do I configure this Magnet?')
@@ -446,26 +455,109 @@ test('before the one retained read answers, Summary claims nothing about the col
   assert.ok(rendered.includes('not read yet'), 'the badge says so')
   assert.ok(rendered.includes('This collection has not been read yet.'))
   for (const absent of ['In the records’ own words', 'What changed', 'Questions you could explore',
-    COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL]) {
+    ANSWER_THIS_COLLECTION, EXTRACTIVE_LABEL, SUMMARY_IS_A_QUESTION]) {
     assert.ok(!rendered.includes(absent), `${absent.slice(0, 32)} is not offered before anything was read`)
   }
   assert.deepEqual(collectionOverview(r.saved, r.snapshot()), [], 'there is nothing written to say yet')
-  assert.ok(rendered.includes(GROUNDED_UNAVAILABLE), 'the gate still states itself')
 })
 
 /* --- the access gate -------------------------------------------------------- */
 
-test('the existing access gate is untouched: grounded answering stays disabled with the server’s reason', async () => {
+test('the gate is open and nothing claims a grounding it does not have', async () => {
   store()
   const { r } = resource('mag-egate')
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.match(rendered, /<button[^>]*disabled[^>]*aria-describedby="grounded-status"/)
-  assert.ok(rendered.includes('Draft an answer from selected records'))
-  assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the reason is the server-side gate’s own words')
-  assert.equal(GROUNDED_UNAVAILABLE, `Unavailable · ${PERSPECTIVE_BLOCK_REASON}`)
-  // Nothing here claims the collection was read by an agent.
-  assert.ok(!/\bgrounded (answer|synthesis) (is )?(available|delivered|working)\b/i.test(rendered))
+  // The placeholders that mirrored the shut gate are deleted, not flipped.
+  for (const file of ['../src/quiet2/magnets/perspectives.ts', '../src/quiet2/magnets/Summary.tsx',
+    '../src/quiet2/magnets/InquiryPanel.tsx']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8')
+    for (const gone of ['export const PERSPECTIVE_ANSWERS_ENABLED', 'export const PERSPECTIVE_BLOCK_REASON',
+      'export const FUTURE_CONCEPT', 'export const GROUNDED_NOT_YET', 'export const GROUNDED_UNAVAILABLE',
+      'export const COLLECTION_NOT_ANSWERABLE', 'export const TRY_ASKING'])
+      assert.ok(!source.includes(gone), `${gone} is deleted (${file})`)
+  }
+  // And no sentence anywhere here says answering does not work.
+  for (const source of [code(summarySrc()), code(panelSrc())])
+    assert.doesNotMatch(source, /not available yet|unavailable until|do not enforce/,
+      'no sentence says answering from the collection does not work')
+  // With no answer recorded the lead is the counted line, and it SAYS it is
+  // counted rather than letting a measurement read as an answer.
+  assert.ok(rendered.includes(NOT_ANSWERED_YET), 'and says which of the two it is showing')
+  assert.ok(!rendered.includes(SUMMARY_IS_A_QUESTION), 'the answer block is absent when there is no answer')
+})
+
+/* --- what an answer says it was grounded in (Part A's own field names) ------ */
+
+const provenance = (over: Partial<AnswerProvenance> = {}): AnswerProvenance =>
+  ({ grounded_in: 'collection', outside_authorized: [], outside_reads: [], explored_outside: false, ...over })
+const answerEvent = (text: string, over: Record<string, unknown> = {}): InquiryEvent => ({
+  seq: 1, post: `ent-answer${text.length}1111`, event: 'answered', perspective: 'ent-topicA11111',
+  snapshot: { ref: 'adm-answer111111', digest, size: 10, media_type: 'application/json' },
+  data: { text, answer: { ref: 'adm-recorded11111' }, provenance: provenance(), ...over } })
+
+test('grounded in this collection and explored outside it are rendered as different things', () => {
+  // THE THREE STATEMENTS, never blended, from `explored_outside` and nothing else.
+  assert.equal(grounding(provenance()).label, GROUNDED_IN_COLLECTION)
+  assert.equal(grounding(provenance()).outside, false)
+  const allowed = grounding(provenance({ outside_authorized: [{ kind: 'runtime-web-search' }] }))
+  assert.equal(allowed.label, ALLOWED_OUTSIDE_UNUSED, 'opened but not reached is its own statement')
+  assert.equal(allowed.outside, false)
+  const went = grounding(provenance({ explored_outside: true,
+    outside_authorized: [{ kind: 'runtime-web-search' }],
+    outside_reads: [{ what: 'runtime-web-search', collection: 'the runtime own web search' }] }))
+  assert.equal(went.label, EXPLORED_OUTSIDE)
+  assert.equal(went.outside, true, 'and it is marked as a different kind of answer')
+  assert.deepEqual(went.reached, ['runtime-web-search · the runtime own web search'])
+  // An answer that records no provenance is not shown as grounded.
+  assert.equal(grounding(null).stated, false)
+  assert.equal(grounding(null).detail, UNSTATED_PROVENANCE)
+  assert.deepEqual(provenanceOf(answerEvent('Grounded words')), provenance())
+  assert.equal(provenanceOf({ ...answerEvent('x'), data: { text: 'x' } } as InquiryEvent), null)
+  // Rendered, the two are visibly different: one carries the outside class.
+  const inside = html(createElement(Grounded, { answer: answerEvent('Grounded words') }))
+  assert.ok(inside.includes(GROUNDED_IN_COLLECTION.toUpperCase()) && !inside.includes('q2-magnet-outside'))
+  const outside = html(createElement(Grounded, { answer: answerEvent('Wider words', {
+    provenance: provenance({ explored_outside: true, outside_reads: [{ what: 'collection', collection: 'col-other' }] }) }) }))
+  assert.ok(outside.includes(EXPLORED_OUTSIDE.toUpperCase()) && outside.includes('q2-magnet-outside'))
+  assert.ok(outside.includes('col-other'), 'and names what it reached')
+  // The panel renders the same distinction with the same field.
+  const panel = html(createElement(AnswerGrounding, { answer: answerEvent('Grounded words') }))
+  assert.ok(panel.includes(GROUNDED_IN_COLLECTION.toUpperCase()) && !panel.includes('q2p-outside'))
+})
+
+test('the Summary lead is the recorded answer, and what changed is the difference between two answers', async () => {
+  store()
+  const { r } = resource('mag-elead')
+  await r.read()
+  const earlier = answerEvent('This Magnet has gathered 2 records from 1 source.')
+  const now = answerEvent(['This Magnet has gathered 3 records from 1 source.',
+    '1 of them arrived in this collection.'].join('\n'))
+  perspectivesOf(r).update({ standing: 'ent-topicA11111',
+    summary: { perspective: 'ent-topicA11111', current: now, superseded: [earlier], batch: 'adm-batch111111' } })
+  const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
+  // THE LEAD IS THE ANSWER, statement by statement, not a word count.
+  assert.ok(rendered.includes('This Magnet has gathered 3 records from 1 source.'), 'the answer leads')
+  assert.ok(rendered.includes('1 of them arrived in this collection.'), 'every statement of it is shown')
+  assert.ok(!rendered.includes(NOT_ANSWERED_YET), 'and it is not labelled as counted')
+  assert.ok(rendered.includes(SUMMARY_IS_A_QUESTION), 'it says it is one kept question answer')
+  assert.ok(rendered.includes(GROUNDED_IN_COLLECTION.toUpperCase()), 'with what it was grounded in beside it')
+  // The counted lines STAY, as secondary detail behind the disclosure.
+  assert.ok(rendered.includes('Limits and dates ▾'))
+  assert.ok(collectionOverview(r.saved, r.snapshot()).length > 2, 'the counts are still available')
+  // WHAT CHANGED is the difference between the two answers.
+  const change = answerDiff(now, earlier)
+  assert.deepEqual(change?.added, ['This Magnet has gathered 3 records from 1 source.', '1 of them arrived in this collection.'])
+  assert.deepEqual(change?.gone, ['This Magnet has gathered 2 records from 1 source.'])
+  assert.match(changeWords(change), /2 new statements, 1 no longer said/)
+  assert.ok(rendered.includes('Now says'), 'the new statements are shown under What changed')
+  assert.ok(rendered.includes('No longer says'), 'and so are the ones no longer said')
+  // A first answer has nothing before it, and nothing is claimed to have changed.
+  assert.deepEqual(answerDiff(now, undefined)?.gone, [])
+  assert.equal(answerDiff(null, earlier), null)
+  assert.match(changeWords(null), /nothing is claimed to have changed/)
+  assert.equal(statements(answerText(now)).length, 2)
+  assert.deepEqual(statements(' a \n\n b '), ['a', 'b'])
 })
 
 /* --- question-first Perspectives -------------------------------------------- */
@@ -493,9 +585,15 @@ test('nothing asked yet renders the approved asking surface and no administrativ
   assert.ok(rendered.includes('Past questions ▾'), 'history and provenance are one link away')
   assert.ok(rendered.includes('Question or hypothesis') && rendered.includes('mgd-compose'),
     'the compose box is the design’s, with its subtle label on its footing row')
-  // The sentence about what discussion reads is said ONCE on this surface.
-  assert.equal(rendered.split('Discussion does not read your collected items.').length - 1, 1,
-    'what discussing does, and does not, read is said once, not three times')
+  // The sentence about what asking and discussing do is said once in the body
+  // and once in the aside beside it, and nowhere else: not three times over
+  // one surface, which is what the owner objected to.
+  assert.ok(rendered.split(DISCUSSION_READS).length - 1 <= 2,
+    'what asking keeps and what discussing is, is not repeated over one surface')
+  // TRY ASKING is built from what THIS Magnet collected, not a demo sentence.
+  assert.ok(!rendered.includes('What might be slowing our releases?'), 'the hardcoded demo question is gone')
+  assert.equal(tryAsking(r), offeredQuestions(r.snapshot())[0])
+  assert.ok(rendered.includes(tryAsking(r)), 'the suggestion offered is the one this collection makes askable')
   assert.ok(rendered.includes('What can I do?'), 'the one help panel is opened by a link, not spread on the surface')
   // Nothing administrative is rendered here at all.
   for (const gone of ['aria-label="Perspective name"', 'aria-label="Revision reason"', 'aria-label="Active question"',
@@ -508,9 +606,12 @@ test('nothing asked yet renders the approved asking surface and no administrativ
   const panel = code(panelSrc())
   for (const kept of ["act('rename'", "act('question'", "act('challenge'", "act('branch'", "'resume' : 'retire'"])
     assert.ok(panel.includes(kept), `nothing was removed to make room (${kept})`)
-  // And the gate keeps the server's own reason where the affordance lives.
+  // Behind it, the disclosure says what an answer is grounded in -- and the
+  // permanently disabled press that said answering did not work is gone.
   const behind = html(createElement(PastQuestions, { resource: r, canWrite: true, onEvidence: () => {}, onNew: () => {}, onOpened: () => {} }))
-  assert.ok(behind.includes(PERSPECTIVE_BLOCK_REASON), 'the gate keeps its own reason here too')
+  assert.ok(behind.includes(PERSPECTIVE_DISCLOSURE), 'what an answer is grounded in is stated here')
+  assert.ok(!behind.includes('Answer from selected evidence'), 'the disabled affordance is gone')
+  assert.ok(!behind.includes('What this cannot do yet'), 'and so is the heading it sat under')
   assert.ok(behind.includes('aria-label="Active question"'), 'the durable lens is still reachable')
 })
 
@@ -540,26 +641,28 @@ test('a saved question renders as the question and what is understood of it', ()
   assert.ok(rendered.includes('Send ↑') && rendered.includes('Ask a follow-up or explore an idea…'),
     'the follow-up compose box is in the body, where the design puts it')
   assert.equal(rendered.split('mgd-hint').length - 1, 1, 'at most one hint line at the foot')
-  assert.ok(rendered.includes(GROUNDED_NOT_YET), 'and it is the one that says grounded answering does not work yet')
+  assert.ok(rendered.includes(DISCUSSION_READS), 'and it says what asking keeps and what discussing is')
+  assert.ok(rendered.includes(TAKE_TO_CONVERSATION), 'one press takes this question into the Conversation')
   assert.ok(!rendered.includes('— Remove') && !rendered.includes('About “'), 'the administrative row is gone')
 })
 
 /** SUPPORTING ITEMS (`06-future-support`): opened from the answer block, the
  *  collected items in the Magnet's own words with one way into each, and a
  *  closing block saying plainly that nothing chose or read them. */
-test('supporting items are the collected items themselves, marked as a future concept', async () => {
+test('supporting items are the collected items themselves, no longer marked as a future concept', async () => {
   store()
   const { r } = resource('mag-esupport')
   await r.read()
   const rendered = html(createElement(SupportingItems, { resource: r, question: 'Does the bench drift?', onOpen: () => {}, onBack: () => {} }))
   assert.ok(rendered.includes('← Back to answer'), 'one way back')
-  assert.ok(rendered.includes('mgd-future') && rendered.includes('FUTURE CONCEPT'), 'with the chip on the same row')
+  assert.ok(!rendered.includes('FUTURE CONCEPT'), 'the mark on the absence is gone, because it is not absent')
   assert.ok(rendered.includes('Supporting items') && rendered.includes('For “Does the bench drift?”'),
     'a heading and a muted line saying what they support')
   assert.ok(rendered.includes('mgd-item') && rendered.includes('Open item ↗'), 'the items carry one way into each')
   assert.ok(rendered.includes('Calibration of the bench reference drifted'), 'in the records’ own words')
   assert.ok(rendered.includes('mgd-shade') && rendered.includes('Why these?') && rendered.includes(SUPPORTING_WHY),
-    'and the note that nothing chose or read them closes the list')
+    'and the note saying which of them the answer names closes the list')
+  assert.doesNotMatch(SUPPORTING_WHY, /not available yet/, 'which no longer says answering does not work')
 })
 
 /** PAST QUESTIONS (`08-history`): the list to return through, with the search,
@@ -586,7 +689,7 @@ test('past questions is a list to return through, with the administrative verbs 
   assert.ok(rendered.includes('Back to current →'), 'and the closing line goes back')
   // Everything administrative is here, and shut.
   for (const kept of ['aria-label="Active question"', 'Wording history', 'Rename this Perspective',
-    'Edit saved question', PERSPECTIVE_BLOCK_REASON])
+    'Edit saved question', PERSPECTIVE_DISCLOSURE])
     assert.ok(rendered.includes(kept), `${kept.slice(0, 40)} is still reachable`)
   for (const section of rendered.match(/<details[^>]*>/g) ?? [])
     assert.doesNotMatch(section, /open/, 'nothing administrative is open until it is asked for')
@@ -684,8 +787,8 @@ test('nothing the owner reads in Summary says retained or batch', async () => {
   const forbidden = /retained|batch/i
   // Every sentence of both written blocks, the questions, and the standing statements.
   for (const line of [...summaryFacts(r.saved, r.snapshot()), ...collectionOverview(r.saved, r.snapshot()),
-    ...offeredQuestions(r.snapshot(), true), NO_COMPARISON, COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL,
-    SUPPORT_UNRECORDED, GROUNDED_UNAVAILABLE])
+    ...offeredQuestions(r.snapshot(), true), NO_COMPARISON, NOT_ANSWERED_YET, EXTRACTIVE_LABEL,
+    ANSWER_THIS_COLLECTION, SUMMARY_IS_A_QUESTION, GROUNDED_IN_COLLECTION, EXPLORED_OUTSIDE])
     assert.doesNotMatch(line, forbidden, `a line the owner reads still says it: ${line}`)
   // And in all three states of the rendered view: populated, empty, unread.
   const { r: emptyOne } = resource('mag-ewordsempty', empty); await emptyOne.read()
@@ -704,9 +807,11 @@ test('nothing the owner reads in Summary says retained or batch', async () => {
     'retained item', 'retained text', 'retained history', 'batch shown', 'latest batch', 'batch state',
     'first retained', 'under All'])
     assert.ok(!code(summarySrc()).includes(gone), `${gone} is not language this view shows`)
-  // Evidence survives exactly where it is about support for a claim.
-  assert.match(SUPPORT_UNRECORDED, /evidence links are unavailable/i)
-  assert.ok(html(createElement(Summary, { resource: r, onPost: () => {} })).includes('Draft an answer from selected records'))
+  // Evidence survives exactly where it is about support for a claim: the
+  // supporting records an answer names. The disabled press that used to carry
+  // that word is gone, so the word is checked where it now lives.
+  assert.match(SUPPORTING_WHY, /records/i)
+  assert.ok(!html(createElement(Summary, { resource: r, onPost: () => {} })).includes('Draft an answer from selected records'))
 })
 
 /* --- the chip stands for the version the owner read -------------------------

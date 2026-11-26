@@ -15,13 +15,12 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import Magnet from '../src/quiet2/magnets/Magnet'
-import Summary, { GROUNDED_UNAVAILABLE, startingAction, summaryFacts, summarySource } from '../src/quiet2/magnets/Summary'
+import Summary, { ANSWER_THIS_COLLECTION, startingAction, summaryFacts, summarySource } from '../src/quiet2/magnets/Summary'
 import EvidenceViews, { evidenceSource, resultTitle } from '../src/quiet2/magnets/EvidenceViews'
 import { batchSource, knownBatches } from '../src/quiet2/magnets/BatchHistory'
 import { discussEvidence, evidenceBounds, evidenceOrigin } from '../src/quiet2/magnets/Inspection'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { goTab, inspect, setOpen, writePlace } from '../src/quiet2/magnets/places'
-import { PERSPECTIVE_BLOCK_REASON } from '../src/quiet2/magnets/perspectives'
 import { page as binding } from '../src/brainBinding'
 
 const SOURCE = 'ent-source111111'
@@ -98,7 +97,9 @@ test('Summary opens alone, without a pinned composer, and renders only retained 
   assert.ok(card.includes('Limits and dates ▾'), 'the facts are behind one disclosure')
   assert.ok(card.indexOf('Limits and dates ▾') > card.indexOf('What this Magnet holds'),
     'and below what is true now, not above it')
-  assert.ok(card.includes('Draft an answer from selected records'), 'the evidence-answer action keeps natural wording')
+  // Part F: the permanently disabled press is deleted; the press that writes
+  // a real answer from this collection stands in its place.
+  assert.ok(card.includes(ANSWER_THIS_COLLECTION), 'the answer action keeps natural wording')
 })
 
 test('every Summary line is a fact about the collection, from the batch and the definition only', async () => {
@@ -244,16 +245,21 @@ test('the provenance disclosure states origin, version, capture and bounds, and 
   assert.equal(evidenceBounds(r.snapshot().results[0]), 'The whole post, as it was collected')
 })
 
-test('the grounding affordance is disabled and carries the gate’s own reason', async () => {
+/* Part F revised this one oracle, as Part A revised the Python oracles that
+   pinned the same gate shut. The permanently disabled grounding affordance and
+   the client's statement of the server's refusal are deleted: the boundary they
+   waited on is enforced (`mentis/magnet/scope.py`), so the Summary offers a
+   real press that writes an answer from this collection, and claims no
+   grounding it does not have. Nothing else in this file is Part F's. */
+test('the Summary offers a real answer from this collection and no disabled gate', async () => {
   store()
   const { r } = resource('mag-h3grounding')
   await r.read()
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.match(rendered, /<button[^>]*disabled[^>]*aria-describedby="grounded-status"/)
-  assert.ok(rendered.includes('Draft an answer from selected records'))
-  assert.ok(rendered.includes(PERSPECTIVE_BLOCK_REASON), 'the reason is the server-side gate’s own words')
-  assert.equal(GROUNDED_UNAVAILABLE, `Unavailable · ${PERSPECTIVE_BLOCK_REASON}`)
-  assert.ok(!/Unavailable · [a-z]/.test(code(summarySrc()).replace('`Unavailable · ${PERSPECTIVE_BLOCK_REASON}`', '')), 'the reason is not a sentence written here')
+  assert.ok(rendered.includes(ANSWER_THIS_COLLECTION), 'the press that writes the answer is offered')
+  assert.ok(!rendered.includes('Draft an answer from selected records'), 'the permanently disabled press is gone')
+  assert.ok(!/aria-describedby="grounded-status"/.test(rendered), 'and so is the refusal it carried')
+  assert.ok(!/is unavailable until|do not enforce|not available yet/.test(code(summarySrc())), 'no sentence here says answering is unavailable')
 })
 
 test('an empty collection says Conversation is still available, on Summary and in every list', async () => {
@@ -269,7 +275,9 @@ test('an empty collection says Conversation is still available, on Summary and i
   assert.ok(summary.includes(`<button type="button" class="mgd-button">${start.label}</button>`),
     'the useful action is a button on the surface')
   assert.ok(summary.includes(start.note), 'with its own note beside it')
-  assert.ok(summary.includes('Draft an answer from selected records'), 'the disabled action remains visible')
+  // Part F: with nothing collected there is nothing to answer from, so no
+  // press claims otherwise -- and none of them is a permanently disabled one.
+  assert.ok(!summary.includes(ANSWER_THIS_COLLECTION), 'nothing offers to answer from an empty collection')
   for (const lens of ['All', 'Posts', 'Files'] as const) {
     const list = html(createElement(EvidenceViews, { resource: r, lens, onPost: () => {}, onFile: () => {} }))
     assert.ok(list.includes('No collected information yet. Conversation is still available.'), `${lens} says the collection is empty`)

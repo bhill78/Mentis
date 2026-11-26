@@ -34,10 +34,25 @@ export function filesIndicator(loaded: number, known: boolean, partial: boolean)
   }
 }
 
-export function perspectivesIndicator(): MagnetIndicator {
+/** HOW MANY KEPT QUESTIONS THIS MAGNET HOLDS.
+ *
+ *  Part E owned this file and left this one line for Part F, refusing to
+ *  fabricate a count it could not have: a supported Perspectives type did not
+ *  exist, so `null` was the truth. It exists now -- a Magnet keeps questions
+ *  and the answers standing against them -- so the count is a real number
+ *  where the caller has read one, and still `null` where nobody has.
+ *
+ *  `recorded` is the number of Perspectives the listing read returned. Unknown
+ *  stays "unavailable", never zero, exactly as every other indicator's unknown
+ *  does. The resting puck's own number is unchanged: it counts new items. */
+export function perspectivesIndicator(recorded?: number | null): MagnetIndicator {
+  const kept = tallied(recorded)
   return {
-    key: 'perspectives', label: 'Perspectives', glyph: '?', value: null,
-    detail: 'Perspectives unavailable: no supported Perspectives type exists yet',
+    key: 'perspectives', label: 'Perspectives', glyph: '?',
+    value: kept === null ? null : String(kept),
+    detail: kept === null ? 'Perspectives unavailable: no kept question has been read for this Magnet yet'
+      : kept === 0 ? 'No question kept for this Magnet yet; ask one and its answer is kept with it'
+      : `${kept} kept ${kept === 1 ? 'question' : 'questions'}, each with the answer standing against it`,
     tab: 'Perspectives',
   }
 }
@@ -112,13 +127,19 @@ export interface MagnetIndicatorInputs {
   filesPartial: boolean
   /** New rows since the batch this viewer was last shown; `null` is unknown. */
   newItems: number | null | undefined
+  /** Kept questions this Magnet holds, where a caller has read them. Omitted
+   *  leaves the Perspectives indicator unavailable rather than zero. SEAM:
+   *  `Magnet.tsx` is not Part F's file and does not read the Perspective
+   *  listing, so nothing supplies this yet; its owner or the integrator wires
+   *  `perspectivesOf(resource).snapshot().rows.length` in one line. */
+  perspectives?: number | null
 }
 
 export function magnetIndicators(inputs: MagnetIndicatorInputs): MagnetIndicator[] {
   const indicators = [
     postsIndicator(inputs.postsSourceTally),
     filesIndicator(inputs.filesLoaded, inputs.filesKnown, inputs.filesPartial),
-    perspectivesIndicator(),
+    perspectivesIndicator(inputs.perspectives),
     newInformationIndicator(inputs.newItems),
   ]
   if (inputs.retained) {
