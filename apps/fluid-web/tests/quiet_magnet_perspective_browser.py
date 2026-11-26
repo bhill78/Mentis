@@ -11,14 +11,16 @@ protected rather than replaced, no grounded preparation or collection call, no
 word anywhere that reads as "inquiry", and zero browser errors.
 
 Synthetic HTTP throughout (`quiet_magnet_perspective_harness.tsx`): no Brain, no
-agent, no real-agent acceptance. The fixture's write routes are create,
-selection, question, rename, retire and resume, so three controls of the rebuilt
-surface are asserted present but not pressed -- `Record challenge` and `Send ↑`
-(a follow-up is a `branch` write the fixture has no route for), and `Explore
-supporting items ↗` (SupportingItems reads `snapshot().results` and subscribes
-to `resource.subscribe`, neither of which the fixture resource carries, so
-opening it unmounts the harness). They are reported as skipped, with their
-reasons, in this run's summary.
+agent, no real-agent acceptance. The fixture resource is a real `MagnetResource`
+(`createMagnetResource`) fed a fixture `get`, so both halves of refresh can be
+driven here: the owner's own read, and the one automatic read the panel makes
+when the Magnet reports a different collected batch
+(`window.perspectiveTest.collectAgain()` simulates that). The fixture's write
+routes are create, selection, question, rename, retire and resume, so two
+controls of the rebuilt surface are asserted present but not pressed --
+`Record challenge` and `Send ↑` (a follow-up is a `branch` write the fixture
+has no route for). They are reported as skipped, with their reasons, in this
+run's summary.
 """
 import json
 import subprocess
@@ -40,6 +42,8 @@ BLOCK_REASON = 'Grounded Perspective answers are blocked'
 QUESTION_IS_KEPT = 'This question is kept. What is understood of it can change as this Magnet collects more, and earlier answers stay readable.'
 READ_AGAIN = 'Read this question again'
 CHECKED_SAME = 'Read again: no newer answer is recorded against this question.'
+COLLECTION_MOVED = 'This Magnet has collected more since this question was last read, so it was read again. No newer answer is recorded yet.'
+FUTURE_CONCEPT = 'Future concept'
 SAVED_WORDS = 'Saved. No agent or collection was started.'
 # 640 px of panel is where the aside comes up (a container query on the panel's
 # own inline size), so the compact surface needs a narrower page than that.
@@ -104,10 +108,21 @@ with (root / 'quiet-magnet-perspective-browser.log').open('w', encoding='utf-8')
             expect(follow).to_have_attribute('placeholder', 'Ask a follow-up or explore an idea…')
             expect(follow).to_have_value('')
             expect(page.locator('.mgd-hint')).to_have_text(GROUNDED_NOT_YET)
-            # Pressed below only where the fixture has the route; present here.
             expect(page.get_by_role('button', name='Explore supporting items ↗', exact=True)).to_be_visible()
             seen.append(page.inner_text('body'))
             check('the selected question, what the record holds of it and the follow-up box are the resting surface')
+
+            # -- supporting items: the Magnet's own collected records -------------
+            page.get_by_role('button', name='Explore supporting items ↗', exact=True).click()
+            supporting = page.get_by_role('region', name='Supporting items')
+            expect(supporting).to_be_visible()
+            expect(supporting).to_contain_text('Post #1')
+            expect(supporting).to_contain_text('Collected item from batch 0')
+            expect(supporting.get_by_text(FUTURE_CONCEPT.upper())).to_be_visible()
+            page.get_by_role('button', name='← Back to answer', exact=True).click()
+            expect(supporting).to_have_count(0)
+            expect(page.locator('.q2p-asked')).to_have_text('Latest saved question α\U0001f642')
+            check('supporting items open against the Magnet’s own collected record and give the working area straight back')
 
             # -- a kept question, and refreshing what is understood of it --------
             # The question stays and its answer may change under it, so the
@@ -128,6 +143,17 @@ with (root / 'quiet-magnet-perspective-browser.log').open('w', encoding='utf-8')
             expect(page.locator('.q2p-asked')).to_have_text('Latest saved question α\U0001f642')
             seen.append(page.inner_text('body'))
             check('a kept question says its answer may change, and reading it again re-reads the record without writing')
+
+            # -- the automatic half of refresh: no button, a changed batch -------
+            # The only thing that can start this is the Magnet reporting a
+            # different collected batch; nothing here is a timer or a poll.
+            before = len(page.evaluate('window.perspectiveTest.calls'))
+            page.evaluate('window.perspectiveTest.collectAgain()')
+            expect(page.get_by_role('status').filter(has_text=COLLECTION_MOVED)).to_be_visible()
+            after = page.evaluate('window.perspectiveTest.calls')
+            assert all(c['method'] == 'GET' for c in after[before:]), after[before:]
+            assert any('/history' in c['tail'] for c in after[before:]), after[before:]
+            check('a different collected batch starts one automatic, read-only recheck of the kept question')
 
             # -- past questions, and the saved current question ------------------
             to_past()
@@ -343,7 +369,6 @@ with (root / 'quiet-magnet-perspective-browser.log').open('w', encoding='utf-8')
             check('nothing the mounted Perspectives panel shows or announces reads as inquiry')
             assert not errors, errors
             check('zero browser errors')
-            skipped.append('SupportingItems (Explore supporting items ↗ / ← Back to answer): asserted present, not opened -- opening it unmounts the harness with "Cannot read properties of undefined (reading \'filter\')", because `retainedItems` reads snapshot().results and the view subscribes to resource.subscribe, neither of which this fixture resource carries')
             skipped.append('Send ↑ follow-up (a branch write) and Record challenge: asserted present and enabled, not pressed -- the fixture has no branch or challenge route')
             browser.close()
         print(json.dumps({'passed': len(checks), 'failed': 0, 'skipped': len(skipped), 'errors': 0, 'checks': checks, 'skipped_detail': skipped}), flush=True)
