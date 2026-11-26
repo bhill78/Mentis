@@ -273,6 +273,104 @@ def test_a_pass_refreshes_at_most_COLLECTIONS_MOST_collections_and_each_at_most_
     assert left and all("refreshed" in r["why"] for r in left)
 
 
+class Counting:
+    """A registry stand-in that says every collection is bound and counts what it was asked."""
+
+    def __init__(self):
+        self.plan_calls, self.sweep_calls = [], []
+
+    def binding_state(self, collection):
+        return {"bound": True}
+
+    def plan(self, collection, **kw):
+        self.plan_calls.append(collection)
+        return {"confirm": {"plan": f"p-{collection}", "acknowledge_binding_change": False}}
+
+    def sweep(self, collection, plan_id, **kw):
+        self.sweep_calls.append((collection, plan_id))
+        return {"act": f"act-{collection}"}
+
+
+def test_two_due_magnets_naming_one_collection_refresh_it_once_between_them(world):
+    """REFRESH_PER_COLLECTION_MOST IS A LIMIT, NOT AN INCREMENT, and it is counted over the whole
+    pass rather than within one Magnet. Two due Magnets that name the same collection must not
+    plan and sweep it twice -- that would be two `git fetch`es of one remote, unattended, with
+    nobody present to have asked for either."""
+    shared = "ent-col000000000"
+    ids = ["mag-share000000001", "mag-share000000002"]
+    for mid in ids:
+        world.define(mid, collection=shared)
+        world.collected_by(mid)
+    sources = Counting()
+
+    out = D.one_pass(world.state, activate=Door(), sources=sources)
+    assert sorted(out["due"]) == ids                # both Magnets are due in this pass
+    # ONE PLAN AND ONE SWEEP OF THE SHARED COLLECTION, not one per Magnet.
+    assert sources.plan_calls == [shared]
+    assert [c[0] for c in sources.sweep_calls] == [shared]
+    refreshed = [r for r in out["refreshed"] if r["refreshed"]]
+    assert len(refreshed) == D.REFRESH_PER_COLLECTION_MOST == 1
+    left = [r for r in out["refreshed"] if not r["refreshed"]]
+    assert len(left) == 1 and "already refreshed" in left[0]["why"]
+    assert left[0]["collection"] == shared
+
+
+# -- at most how many attempts --------------------------------------------------------------------
+
+def test_a_slot_whose_activation_keeps_failing_is_attempted_at_most_ATTEMPTS_PER_SLOT_MOST_times(
+        world):
+    """THE RECORD BOUNDS RECORDED COLLECTIONS; THIS BOUNDS ATTEMPTS. A refused activation records
+    nothing, so nothing in the record stops the next pass asking again -- and each ask would also
+    re-fetch the Magnet's bound collection. The attempts of one slot are counted by this process
+    and capped, and the fetch is capped with them."""
+    shared = "ent-col000000003"
+    world.define(MAGNET, schedule="PT1H", collection=shared)
+    world.collected_by(MAGNET)
+    now = 1_000_000_000.0
+    door = Door(answer=(503, X.processor_unavailable(MAGNET)))
+    sources = Counting()
+    before = world.corpus.advance()
+
+    for _ in range(D.ATTEMPTS_PER_SLOT_MOST + 4):            # many passes, all in the one slot
+        out = D.one_pass(world.state, now=now + 1, activate=door, sources=sources)
+    assert len(door.asked) == D.ATTEMPTS_PER_SLOT_MOST == 2
+    assert sources.plan_calls == [shared] * D.ATTEMPTS_PER_SLOT_MOST
+    assert sources.sweep_calls and len(sources.sweep_calls) == D.ATTEMPTS_PER_SLOT_MOST
+    assert out["due"] == [] and out["refreshed"] == []        # the spent slot is let alone
+    assert out["attempts_most"] == D.ATTEMPTS_PER_SLOT_MOST
+    assert D.attempts_of(world.state, MAGNET, D.slot_of("PT1H", now)) == D.ATTEMPTS_PER_SLOT_MOST
+    assert world.corpus.advance() == before                  # and nothing was written by any of it
+
+    # THE NEXT CADENCE SLOT IS A NEW ALLOWANCE: the cap bounds a slot, it does not stop the Magnet.
+    later = now + 3600
+    out = D.one_pass(world.state, now=later, activate=door, sources=sources)
+    assert out["due"] == [MAGNET] and len(door.asked) == D.ATTEMPTS_PER_SLOT_MOST + 1
+    assert door.asked[-1][1]["op"] == D.op_for(MAGNET, D.slot_of("PT1H", later))
+    assert D.attempts_of(world.state, MAGNET, D.slot_of("PT1H", later)) == 1
+
+
+def test_the_attempt_count_is_this_process_only_and_dies_with_the_keeper(world):
+    """No queue, no backoff and nothing written: the count is one number per Magnet, held in
+    memory, dropped when the server stops. It bounds attempts and decides nothing else."""
+    world.define(MAGNET, schedule="PT1H")
+    world.collected_by(MAGNET)
+    now = 1_000_000_000.0
+    slot = D.slot_of("PT1H", now)
+    door = Door(raises=OSError("the front is not answering"))
+
+    out = D.one_pass(world.state, now=now, activate=door, acquire=False)
+    assert D.attempts_of(world.state, MAGNET, slot) == 1
+    assert out["not_collected"][0]["attempt"] == 1
+    assert out["not_collected"][0]["attempts_most"] == D.ATTEMPTS_PER_SLOT_MOST
+    assert not hasattr(D, "_QUEUE")                 # a count, not work kept for later
+
+    D.forget_attempts(world.state)
+    assert D.attempts_of(world.state, MAGNET, slot) == 0
+    D.one_pass(world.state, now=now, activate=door, acquire=False)
+    D.stop(world.state)                             # the keeper's counts end with the keeper
+    assert D.attempts_of(world.state, MAGNET, slot) == 0
+
+
 # -- what stays the owner's -----------------------------------------------------------------------
 
 @pytest.mark.parametrize("state,plan,why", [

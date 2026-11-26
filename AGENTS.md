@@ -81,18 +81,24 @@ Approved by the owner (O7; the third in round 4). Keep each bounded exactly as d
   server stops, and its thread never outlives the process. One pass per `PASS_EVERY_S` (300 s),
   and a cadence shorter than `CADENCE_LEAST_S` (300 s) is read as that, so no configuration can
   ask for a faster pass. Per pass: at most `MAGNETS_MOST` (5) Magnets, at most `COLLECTIONS_MOST`
-  (5) bound collections refreshed and `REFRESH_PER_COLLECTION_MOST` (1) refresh of each -- one
-  plan and the sweep that confirms it, the fetch an owner's sweep already makes, through
-  `mentis.sources.registry`'s one door and no new acquisition path. Exactly one collection per
-  cadence slot, which the APPEND-ONLY RECORD enforces and not a timer: the slot is the operation
-  key (`activation.DUE_OP_PREFIX`), so a second attempt replays and records nothing. It runs the
+  (5) bound collections refreshed and `REFRESH_PER_COLLECTION_MOST` (1) refresh of each, counted
+  over all of the pass's due Magnets together, so two Magnets naming one collection refresh it
+  once between them -- one plan and the sweep that confirms it, the fetch an owner's sweep already
+  makes, through `mentis.sources.registry`'s one door and no new acquisition path. Exactly one
+  RECORDED collection per cadence slot, which the APPEND-ONLY RECORD enforces and not a timer:
+  the slot is the operation key (`activation.DUE_OP_PREFIX`), so a collection that is recorded
+  replays and records nothing a second time. An ATTEMPT that is refused or fails records nothing,
+  so the record cannot bound attempts and the module does: at most `ATTEMPTS_PER_SLOT_MOST` (2)
+  attempts at one Magnet's slot by one server process, at most one of them per pass, counted in
+  memory (`attempts_of`, `forget_attempts`) and never written -- after that the slot is let alone
+  until its cadence gives a new one, and nothing of it survives the process. It runs the
   collection through the ONE activation path there is (the public door, then preflight and
   commit), with every check on that path unchanged: it presents no credential of any kind, mints
   and reads no grant, never touches `/api/worker`, and is admitted only where the owner has told
   this installation to trust its local owner -- otherwise it is refused 401 and said. The author
   is read out of the Magnet's own record (the Participant its latest `magnet-extracted` names), so
   no Participant is introduced that the Magnet did not already carry. A failed pass changes
-  nothing and is NOT retried: no queue, no backoff, no attempt counter. An idle server with no
+  nothing: no queue, no backoff, and no second try within the pass. An idle server with no
   scheduled Magnet reads the definition catalogue and does nothing else at all. Tests:
   `tests/test_magnet_due_runner.py`.
 

@@ -15,14 +15,22 @@ in `tests/test_magnet_due_runner.py`:
                    outlives the process. `start` twice gives the same keeper and no second thread.
   at most how      one pass per `PASS_EVERY_S`, and a cadence shorter than `CADENCE_LEAST_S` is
   often            read as `CADENCE_LEAST_S`, so no configuration can ask for a faster pass.
-  at most how      `MAGNETS_MOST` Magnets per pass; exactly one activation per Magnet per cadence
-  many             slot, which the append-only record enforces and not a timer (`DUE_OP_PREFIX`
-                   keys the slot, so a second attempt replays and records nothing); at most
-                   `COLLECTIONS_MOST` bound collections refreshed per pass and
-                   `REFRESH_PER_COLLECTION_MOST` refresh of each.
-  a failed pass    changes nothing and is NOT retried. Every failure is caught, named in the
-                   pass's own result, and dropped. There is no queue, no backoff, no attempt
-                   counter and no second try: the next interval reads the record again.
+  at most how      `MAGNETS_MOST` Magnets per pass. ONE RECORDED COLLECTION per Magnet per
+  many             cadence slot, which the append-only record enforces and not a timer
+                   (`DUE_OP_PREFIX` keys the slot, so a collection that is recorded replays and
+                   records nothing a second time). An ATTEMPT records nothing when it is refused
+                   or fails, so the record cannot bound attempts and this module does:
+                   `ATTEMPTS_PER_SLOT_MOST` attempts of one Magnet's slot by this server process,
+                   and at most one attempt per Magnet per pass. At most `COLLECTIONS_MOST` bound
+                   collections refreshed per pass, each of them `REFRESH_PER_COLLECTION_MOST`
+                   time -- counted over all the due Magnets of the pass together, so two Magnets
+                   naming one collection refresh it once between them.
+  a failed pass    changes nothing. Every failure is caught, named in the pass's own result, and
+                   dropped: there is no queue, no backoff and no second try inside the pass. The
+                   next interval reads the record again, and attempts that slot only while this
+                   process has made fewer than `ATTEMPTS_PER_SLOT_MOST` of them; after that the
+                   slot is let alone until its cadence gives a new one. The count is held in
+                   memory, one per Magnet, and dies with the process (`forget_attempts`).
   an idle server   with no scheduled Magnet reads the definition catalogue and stops. No network,
                    no acquisition, no record read of a Magnet, no write, no activation.
 
@@ -84,9 +92,19 @@ CADENCE_LEAST_S = 300.0
 MAGNETS_MOST = 5
 #: AT MOST THIS MANY BOUND COLLECTIONS REFRESHED PER PASS, over all the due Magnets together.
 COLLECTIONS_MOST = 5
-#: AT MOST THIS MANY REFRESHES OF ONE COLLECTION PER PASS. One plan and the one sweep that
-#: confirms it: the fetch an owner's sweep already makes, once.
+#: AT MOST THIS MANY REFRESHES OF ONE COLLECTION PER PASS, over all the due Magnets together: one
+#: plan and the one sweep that confirms it, the fetch an owner's sweep already makes, once. Two
+#: due Magnets naming the same collection refresh it once between them -- `one_pass` keeps the
+#: collections it has refreshed and asks the registry for each of them once.
 REFRESH_PER_COLLECTION_MOST = 1
+#: AT MOST THIS MANY ATTEMPTS AT ONE MAGNET'S CADENCE SLOT, by this server process. The record
+#: bounds COLLECTIONS, not attempts: a refused or failed activation writes nothing, so without
+#: this bound a slot whose activation keeps failing would be attempted again every
+#: `PASS_EVERY_S` for as long as the server runs, and a Magnet with a bound collection would
+#: re-fetch the network each time. Modelled on the approved neighbour
+#: `mentis.web.dispatch.RECOVERY_ATTEMPTS`, which caps for the same reason: an attempt has an
+#: effect outside this machine. The count is this process's own and is never written.
+ATTEMPTS_PER_SLOT_MOST = 2
 #: HOW LONG ONE UNATTENDED ACTIVATION MAY TAKE on the loopback connection, whole.
 ACTIVATE_WITHIN_S = 120.0
 #: HOW FAR BACK A CRON CADENCE IS READ for the slot it is in: a bounded scan of minutes, never a
@@ -223,13 +241,62 @@ def author_of(st, mid: str) -> str | None:
 
 def already_collected(st, mid: str, by: str, op: str) -> bool:
     """Whether this cadence slot's collection is already in the record. A read: the slot's key
-    is the record's, so this asks the record rather than keeping state of its own."""
+    is the record's, so this asks the record rather than keeping state of its own.
+
+    The key is `(author, op, magnet)`, so a hand press that names a different Participant as the
+    author changes it and leaves this slot looking uncollected. That cannot become repetition:
+    `ATTEMPTS_PER_SLOT_MOST` counts a Magnet's attempts at a slot whoever authors them, so a
+    changed author buys at most the attempts that slot had left, and none once they are spent.
+    """
     from mentis.conversation import anchors
     try:
         return anchors.prior_outcome(st.cv, by, op, X.identity(mid)) is not None
     except anchors.Refused:
         # That key came to something else. Not this runner's to resolve, and never a second try.
         return True
+
+
+# -- how many attempts this process has made ------------------------------------------------------
+
+#: THE ATTEMPT COUNT OF EACH MAGNET'S CURRENT SLOT, `(id(corpus), magnet) -> (slot, attempts)`.
+#: One entry per Magnet of the catalogue and no more: a new slot replaces the old count rather
+#: than adding to it, so this grows with the owner's scheduled definitions and with nothing else.
+#: It is not a queue and holds no work -- only how many times this process has already asked.
+_ATTEMPTS: dict[tuple[int, str], tuple[str, int]] = {}
+_ATTEMPTS_LOCK = threading.Lock()
+
+
+def attempts_of(st, mid: str, slot: str) -> int:
+    """HOW MANY TIMES THIS SERVER PROCESS HAS ALREADY ATTEMPTED this Magnet's collection for this
+    cadence slot. In memory, never written and never read from the record: it bounds attempts, it
+    decides nothing about what is due and nothing about authority. A restart has made none."""
+    with _ATTEMPTS_LOCK:
+        had = _ATTEMPTS.get((id(st.corpus), mid))
+    return had[1] if had is not None and had[0] == slot else 0
+
+
+def _attempted(st, mid: str, slot: str) -> int:
+    """Count one attempt at this slot, and say which attempt it is. Called where the pass is
+    about to ask -- before the refresh and the activation, so an attempt that dies half-way is
+    still an attempt and is never free."""
+    with _ATTEMPTS_LOCK:
+        key = (id(st.corpus), mid)
+        had = _ATTEMPTS.get(key)
+        count = (had[1] if had is not None and had[0] == slot else 0) + 1
+        _ATTEMPTS[key] = (slot, count)
+        return count
+
+
+def forget_attempts(st=None) -> None:
+    """Drop this server's attempt counts, or every server's. The counts belong to the process:
+    `stop` drops them with the keeper, and nothing outlives the process that made them."""
+    with _ATTEMPTS_LOCK:
+        if st is None:
+            _ATTEMPTS.clear()
+            return
+        key = id(st.corpus)
+        for one in [k for k in _ATTEMPTS if k[0] == key]:
+            _ATTEMPTS.pop(one, None)
 
 
 # -- what is due ----------------------------------------------------------------------------------
@@ -242,8 +309,15 @@ def scheduled(root) -> list[dict]:
 
 
 def due(st, *, now=None) -> list[dict]:
-    """At most `MAGNETS_MOST` Magnets whose collection is due now and not yet recorded for this
-    slot, in id order. A read: nothing is written and nothing is started here."""
+    """At most `MAGNETS_MOST` Magnets whose collection is due now, not yet recorded for this slot,
+    and not already attempted `ATTEMPTS_PER_SLOT_MOST` times by this process, in id order. A read:
+    nothing is written and nothing is started here.
+
+    The record answers the first question and this process's own count answers the second, because
+    the record holds nothing at all about an attempt that was refused or failed. A slot that has
+    spent its attempts is let alone until the cadence gives a new one; it takes none of the pass's
+    `MAGNETS_MOST` places while it waits.
+    """
     now = time.time() if now is None else now
     out = []
     for config in scheduled(st.corpus.root):
@@ -256,6 +330,8 @@ def due(st, *, now=None) -> list[dict]:
             continue
         op = op_for(mid, slot)
         if already_collected(st, mid, by, op):
+            continue
+        if attempts_of(st, mid, slot) >= ATTEMPTS_PER_SLOT_MOST:
             continue
         out.append({"magnet": mid, "config": config, "slot": slot, "author": by, "op": op})
         if len(out) >= MAGNETS_MOST:
@@ -380,7 +456,8 @@ def one_pass(st, *, now=None, activate=None, sources=None, acquire=True) -> dict
     now = time.time() if now is None else now
     found = due(st, now=now)
     out = {"at": now, "due": [one["magnet"] for one in found], "collected": [],
-           "refreshed": [], "not_collected": [], "magnets_most": MAGNETS_MOST}
+           "refreshed": [], "not_collected": [], "magnets_most": MAGNETS_MOST,
+           "attempts_most": ATTEMPTS_PER_SLOT_MOST}
     if not found:
         return out                       # AN IDLE SERVER DOES NOTHING AT ALL beyond this read.
     try:
@@ -390,20 +467,33 @@ def one_pass(st, *, now=None, activate=None, sources=None, acquire=True) -> dict
                                 for one in found]
         return out
     fetched = 0
+    already: set[str] = set()            # THE COLLECTIONS THIS PASS HAS REFRESHED, over every
+    #                                      due Magnet together: each is asked for once per pass.
     for one in found:
         mid, by, op = one["magnet"], one["author"], one["op"]
+        # ONE ATTEMPT, COUNTED BEFORE ANYTHING REACHES ANYWHERE, so the fetch and the activation
+        # of a slot that keeps failing are both bounded by `ATTEMPTS_PER_SLOT_MOST`.
+        attempt = _attempted(st, mid, one["slot"])
         if acquire:
             for collection in _bound_collections(one["config"]):
+                if collection in already:
+                    out["refreshed"].append({
+                        "collection": collection, "refreshed": False,
+                        "why": "this pass has already refreshed it for another Magnet"})
+                    continue
                 if fetched >= COLLECTIONS_MOST:
                     out["refreshed"].append({"collection": collection, "refreshed": False,
                                              "why": f"this pass has refreshed {COLLECTIONS_MOST}"})
                     continue
+                already.add(collection)
                 fetched += REFRESH_PER_COLLECTION_MOST
                 out["refreshed"].append(refresh(st, collection, by=by, sources=sources))
         try:
             status, answer = ask(mid, {"author": by, "op": op})
         except Exception as exc:                                      # noqa: BLE001
-            out["not_collected"].append({"magnet": mid, "why": f"{type(exc).__name__}: {exc}"})
+            out["not_collected"].append({"magnet": mid, "why": f"{type(exc).__name__}: {exc}",
+                                         "attempt": attempt,
+                                         "attempts_most": ATTEMPTS_PER_SLOT_MOST})
             continue
         if status in (200, 201) and not answer.get("refused") and not answer.get("error"):
             out["collected"].append({"magnet": mid, "slot": one["slot"], "status": status,
@@ -411,7 +501,9 @@ def one_pass(st, *, now=None, activate=None, sources=None, acquire=True) -> dict
                                      "batch": (answer.get("artifact") or {}).get("ref")})
         else:
             out["not_collected"].append({"magnet": mid, "status": status,
-                                         "why": answer.get("error") or f"answered {status}"})
+                                         "why": answer.get("error") or f"answered {status}",
+                                         "attempt": attempt,
+                                         "attempts_most": ATTEMPTS_PER_SLOT_MOST})
     return out
 
 
@@ -485,15 +577,18 @@ def start(st, *, every_s: float = PASS_EVERY_S, activate=None) -> Keeper:
 
 
 def stop(st=None) -> None:
-    """End the keeper, or every keeper. Called when the server stops."""
+    """End the keeper, or every keeper, and drop the attempt counts it made. Called when the
+    server stops."""
     with _KEEPERS_LOCK:
         keys = [id(st.corpus)] if st is not None else list(_KEEPERS)
         for key in keys:
             got = _KEEPERS.pop(key, None)
             if got is not None:
                 got.stop()
+    forget_attempts(st)
 
 
-__all__ = ["CADENCE_LEAST_S", "COLLECTIONS_MOST", "DUE_OP_PREFIX", "DUE_WRITER", "Keeper",
-           "MAGNETS_MOST", "PASS_EVERY_S", "REFRESH_PER_COLLECTION_MOST", "author_of", "due",
-           "front_door", "one_pass", "op_for", "refresh", "scheduled", "slot_of", "start", "stop"]
+__all__ = ["ATTEMPTS_PER_SLOT_MOST", "CADENCE_LEAST_S", "COLLECTIONS_MOST", "DUE_OP_PREFIX",
+           "DUE_WRITER", "Keeper", "MAGNETS_MOST", "PASS_EVERY_S", "REFRESH_PER_COLLECTION_MOST",
+           "attempts_of", "author_of", "due", "forget_attempts", "front_door", "one_pass",
+           "op_for", "refresh", "scheduled", "slot_of", "start", "stop"]
