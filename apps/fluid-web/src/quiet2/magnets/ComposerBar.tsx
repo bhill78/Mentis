@@ -32,7 +32,7 @@ import {
 } from './conversation'
 import { linkHost, rowHeadline, rowLink } from './links'
 import { place, remember, route, writePlace } from './places'
-import { perspectivesOf } from './perspectives'
+import { perspectivesOf, perspectiveRequest } from './perspectives'
 import './conversation.css'
 import './composer.css'
 
@@ -427,14 +427,45 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
   at.beforeRequest = async (post, op) => {
     const previous = miniAttempt(resource)
     if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen question’s request before sending a different question.')
-    return { post: { ...post, [SELECTOR_FIELD]: await managedSelector({ resource, inquiries }, post) }, op }
+    const selector = await managedSelector({ resource, inquiries }, post)
+    /* THE FROZEN ASK, carried through unchanged. A question frozen for an
+       agent (`InquiryPanel`'s "Ask an agent about this", `store.prepare()`)
+       is sent exactly as it was frozen -- its own words, its own immutable
+       input package as actual file parts, and its own operation key -- the
+       instant the chip it is attached to is still that exact question:
+       `selector.perspective` is the fresh durable read `managedSelector` just
+       checked the chip against, so agreement here is agreement with the
+       record, not with whatever this card happened to be holding. */
+    const inquiryState = inquiries.snapshot()
+    const active = inquiryState.active
+    /* ONLY WHILE IT IS STILL UNSENT. Once `afterRecorded` binds it,
+       `bound.perspective` names it: a later, genuinely different send with
+       the same chip still attached (an ordinary reply, or a second ask that
+       never froze a new one with `prepare`) must not be read as a resend of
+       the one already sent -- that would replay an already-used operation
+       key, carrying words that are not the ones it was frozen for. A retry
+       of THIS send, while it is still unresolved, never reaches here: it is
+       covered by the frozen attempt itself (`miniAttempt`, the guard above),
+       and reuses that attempt's own request without calling this again. */
+    if (active && inquiryState.bound?.perspective !== active.perspective && selector.perspective?.id === active.perspective) {
+      return { post: { ...perspectiveRequest(post, active), [SELECTOR_FIELD]: selector }, op: active.request_op, perspective: active }
+    }
+    return { post: { ...post, [SELECTOR_FIELD]: selector }, op }
   }
   at.afterRecorded = async (attempt, answer) => {
     if (!attempt.perspective) return
     const requests = answer.expectations
     if (!Array.isArray(requests) || requests.length !== 1 || typeof requests[0] !== 'string') throw new Error('A Perspective question needs exactly one actual agent request. Its frozen intent is kept.')
-    await inquiries.bind(attempt.perspective, requests[0])
-    inquiries.update({ active: attempt.perspective })
+    const request = requests[0]
+    await inquiries.bind(attempt.perspective, request)
+    /* BOUND AND RECONCILED: the actual send is now the record's, and
+       `reconcile`'s own qualification read is taken once here so the owner
+       sees it immediately rather than only once a reply lands. The agent's
+       actual reply is frozen as this Perspective's answer later, at the
+       recorded agent-reply boundary (`finalizeReply`), once the record shows
+       `request` was actually answered -- never here, before any reply exists. */
+    await inquiries.reconcile(attempt.perspective, 'display')
+    inquiries.update({ active: attempt.perspective, bound: { perspective: attempt.perspective.perspective, request } })
   }
 
   useEffect(() => { void store.prepare() }, [store])

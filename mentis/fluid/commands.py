@@ -1704,7 +1704,7 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                 *, written_by, managed=None, submitted_digest=None,
                 origin=None, destination=None, definition=None,
                 check_definition=None, defer_dispatch=False,
-                after_post=None) -> tuple[int, dict, list]:
+                after_post=None, authorization=None) -> tuple[int, dict, list]:
     """Everything the record holds of this request, committed as one, then the file,
     then the runs: see above."""
     from contextlib import nullcontext
@@ -1741,6 +1741,14 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                 # The key already answered on another door: that door's, and
                 # nothing of it is this door's to start.
                 if not answer[1].get("replayed"):
+                    if authorization is not None:
+                        from mentis.magnet import scope
+                        # The Turn comes ONLY from this write, never the client.
+                        # A refusal rolls back the post and every request with it;
+                        # dispatch cannot start until this transaction commits.
+                        scope.authorize(st, managed["magnet"],
+                            turn=answer[1]["post"], opens=authorization["opens"],
+                            by=by, op="request:" + MC.digest({"op": op}))
                     st.cv.record_act(
                         actor=by, act=REQUEST_ROUTED, conversation=cid,
                         turn=answer[1]["post"],
@@ -1791,6 +1799,7 @@ def agent_request(st, body, *, written_by, brain=None,
     from mentis.conversation import anchors
     from mentis.conversation.versions import Refused as ContextRefused
     from mentis.magnet import snapshot as SNAP
+    from mentis.magnet import scope
     from . import _checks as W
     from . import arrangements
     from . import workspace_manifest as wm
@@ -1820,7 +1829,7 @@ def agent_request(st, body, *, written_by, brain=None,
         return _bad("a request needs an operation key, \"op\": it is what makes "
                     "a retry the same request")
     operation = {**{k: v for k, v in body.items()
-                    if k not in ("from", "destination", "objects")},
+                    if k not in ("from", "destination", "objects", "magnet_authorization")},
                  "author": by}
     digest = anchors.digest({"from": origin, "destination": destination})
     selection = (None if objects is None
@@ -1832,6 +1841,13 @@ def agent_request(st, body, *, written_by, brain=None,
             from mentis.fluid.inspect import brain_key
             from mentis.operational.work_overview import owner_of
             mid = MC.route(st.cv, origin, destination)
+            authorization = body.get("magnet_authorization")
+            if "magnet_authorization" in body:
+                if (not mid or not isinstance(authorization, dict)
+                        or set(authorization) != {"opens"}):
+                    return _bad('magnet_authorization names only "opens" on a managed Magnet request')
+                if body.get("action") not in ("ask-mentis", "ask-participant"):
+                    return _bad("authorize an asking exchange, not a record-only post")
             prior = st.corpus.operational(actor=by, act=REQUEST_ROUTED,
                                           detail_is={"op": op}, limit=1)
             managed = mid or (prior and prior[0]["detail"].get("managed_context"))
@@ -1884,6 +1900,11 @@ def agent_request(st, body, *, written_by, brain=None,
                         context = MC.prepare(st, mid, body, definition, brain,
                             destination_conversation=ref if kind == "conversation" else None,
                             input_handover=_input_handover)
+                        if authorization is not None:
+                            if context["selector"].get("perspective"):
+                                raise scope.Refused(scope.SYNTHESIS_NEVER)
+                            if not definition.conversation:
+                                raise scope.Refused("Create this Magnet's Conversation before authorizing an exchange")
                         return _first_time(st, operation, by, op, digest, selection,
                             "destination" if destination else origin[0], kind, ref,
                             written_by=written_by, managed=context,
@@ -1891,12 +1912,16 @@ def agent_request(st, body, *, written_by, brain=None,
                             destination=destination, definition=definition,
                             defer_dispatch=_defer_dispatch,
                             after_post=_after_post,
+                            authorization=authorization,
                             check_definition=hold.close)
             return _first_time(st, operation, by, op, digest, selection,
                                "destination" if destination else origin[0],
                                kind, ref, written_by=written_by)
     except ContextRefused as exc:
         return exc.refusal.get("status", 422), exc.refusal, []
+    except scope.Refused as exc:
+        return 422, {"error": str(exc), "refused": True,
+                     "code": "authorization-refused"}, []
     except (SNAP.Stale, SNAP.NotSerialized) as exc:
         return 409, {"error": str(exc), "refused": True, "code": "definition-not-serialized"}, []
     except SNAP.NotCanonical as exc:

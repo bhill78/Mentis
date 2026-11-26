@@ -10,6 +10,7 @@ export function miniAsking(resource: MagnetResource, conversation: MiniConversat
   const where = miniComposerWhere(resource)
   return {
     where, key: where, heading: 'Message this Magnet',
+    magnetAuthorization: { allowed: () => resource.snapshot().context?.kind !== 'perspective' },
     drafts: {
       load: () => miniComposerDraft(resource),
       save: (draft) => saveMiniComposer(resource, draft),
@@ -17,9 +18,18 @@ export function miniAsking(resource: MagnetResource, conversation: MiniConversat
     },
     /* Exact authored parts and separately versioned selectors are frozen
        together under this operation key. No generated context becomes prose. */
-    send: (post, op, brain) => {
+    send: async (post, op, brain) => {
+      if (post.magnet_authorization && !conversation.conversation) {
+        await conversation.createOwn()
+        if (!conversation.conversation) throw new Error(conversation.snapshot().sendError
+          ?? 'The Magnet Conversation must be confirmed before authorizing this exchange.')
+      }
       carryContext(resource, op)
-      return conversation.submit(post, op, brain)
+      await conversation.submit(post, op, brain)
+      // submit reports refusal/uncertainty in its store. The Composer must keep
+      // this explicit choice until the store confirms this exact send.
+      if (post.magnet_authorization && conversation.snapshot().sent?.op !== op)
+        throw new Error(conversation.snapshot().sendError ?? 'This exchange is not confirmed. Keep the original choice and retry unchanged.')
     },
   }
 }

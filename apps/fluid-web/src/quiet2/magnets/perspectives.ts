@@ -191,6 +191,18 @@ export interface PreparedInquiry { intent: string; perspective: string; brain: s
 export interface OrdinaryContext { perspective: string; name: string; question: string; revision: string }
 export interface PendingAction { brain: string; magnet: string; kind: string; target: string | null; tail: string; data: Record<string, unknown>; op: string; result?: any; selectOp: string }
 export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Perspective; selectedDetail?: Perspective; rows: Perspective[]; selected: string | null; viewed?: string | null; loading: boolean; error?: string; events: InquiryEvent[]; next: string | null; listNext: string | null; historyComplete: boolean; priors: string[]; continuation: boolean; selections: Record<string, 'supporting' | 'contradicting' | 'context'>; declared: string[]; active?: PreparedInquiry; receipt?: any; answer?: any
+  /** THE ACTUAL AGENT REQUEST this Perspective's frozen ask is bound to
+   *  (`bind`'s own `request`, the expectation id) -- what the recorded
+   *  agent-reply boundary is read against. Set once by `afterRecorded`, after
+   *  the actual send; cleared whenever a fresh question is frozen (`prepare`)
+   *  or the active lens changes, so a stale reply is never read against a
+   *  question it does not belong to. */
+  bound?: { perspective: string; request: string } | null
+  /** THE ONE REPLY CURRENTLY BEING FROZEN, by its Turn id -- set for the
+   *  duration of `finalizeReply`'s own write, so a second observation of the
+   *  same still-in-flight reply (the pulse reads again before the first write
+   *  answers) does not send a second request. */
+  finalizing?: string | null
   /** This Magnet's standing Perspective, as the listing read reports it. */
   standing?: string | null
   /** The standing Perspective's recorded answers: the evolving summary and
@@ -342,7 +354,7 @@ export class PerspectiveStore {
   update = (v: Partial<InquirySnapshot>) => {
     if ('selected' in v && v.selected !== this.state.selected) {
       this.lensVersion++
-      v = { selectedDetail: undefined, active: undefined, receipt: undefined, answer: undefined, ...v }
+      v = { selectedDetail: undefined, active: undefined, receipt: undefined, answer: undefined, bound: undefined, finalizing: undefined, ...v }
     }
     this.state = { ...this.state, ...v }; this.listeners.forEach((f) => f())
   }
@@ -454,7 +466,8 @@ export class PerspectiveStore {
       : this.state.rows.find((row) => row.perspective === chosen)?.name) : null
     this.version++; this.historyVersion++
     this.update({ selected: chosen, viewed: pending.kind === 'selected' ? chosen : v.perspective ?? pending.target,
-      viewedDetail: undefined, events: [], next: null, historyComplete: false, active: undefined, receipt: undefined, answer: undefined })
+      viewedDetail: undefined, events: [], next: null, historyComplete: false, active: undefined, receipt: undefined, answer: undefined,
+      bound: undefined, finalizing: undefined })
     showPerspectiveContext(this.resource, chosen, chosenName)
     // An acknowledged write stays acknowledged even if its follow-up read fails.
     try {
@@ -471,7 +484,7 @@ export class PerspectiveStore {
   }
   async view(perspective: string) {
     const mine = ++this.historyVersion
-    this.update({ viewed: perspective, viewedDetail: undefined, events: [], next: null, historyComplete: false, active: undefined, receipt: undefined, answer: undefined })
+    this.update({ viewed: perspective, viewedDetail: undefined, events: [], next: null, historyComplete: false, active: undefined, receipt: undefined, answer: undefined, bound: undefined, finalizing: undefined })
     const v = this.detail(await this.get(`/${perspective}`), perspective)
     if (mine !== this.historyVersion || this.state.viewed !== perspective) return
     this.update({ viewedDetail: v, rows: this.merged(this.state.rows, v) })
@@ -609,7 +622,10 @@ export class PerspectiveStore {
     })
     const prepared = await this.write(`/${topic}/prepare`, { question: question.question.ref, batches: [batch], selections, priors: this.state.priors, declared_context: this.state.declared, continuation: this.state.continuation }, `${op}-prepare`) as PreparedInquiry
     if (this.state.selected !== topic || prepared.perspective !== topic || prepared.brain !== page.bound()) throw new Error('The lens or Brain changed during preparation. The original frozen intent is retained; it was not sent under a new selection.')
-    this.update({ active: prepared }); return prepared
+    // A freshly frozen question is never read against a reply bound to an
+    // earlier one: dropping `bound` here is what keeps the agent-reply
+    // boundary from being checked against the wrong intent.
+    this.update({ active: prepared, bound: undefined, finalizing: undefined }); return prepared
   }
   async bind(prepared: PreparedInquiry, request: string) { return this.write(`/${prepared.perspective}/bind`, { intent: prepared.intent, request }, `${prepared.request_op}-bind`) }
   async manifest(prepared: PreparedInquiry): Promise<any> {
@@ -624,6 +640,62 @@ export class PerspectiveStore {
   async reconcile(prepared: PreparedInquiry, purpose: 'display' | 'resume' | 'reuse' | 'attach', execution?: string) {
     const receipt = await this.write(`/${prepared.perspective}/reconcile`, { intent: prepared.intent, purpose, ...(execution ? { execution } : {}), declared_context: this.state.declared })
     this.update({ receipt }); return receipt
+  }
+  /** FREEZE AN ACTUAL REPLY AS THIS PERSPECTIVE'S SYNTHESIZED ANSWER.
+   *
+   *  `execution` is the qualified reconciliation's own (the latest run for
+   *  the bound request, as the record states it -- never guessed here), and
+   *  `answer` is the exact reply Turn the record shows answered it. The
+   *  server re-checks qualification itself and refuses rather than records
+   *  an unqualified reply; that refusal comes back here as an ordinary
+   *  result, not a thrown error, so a reply the agent sent that the record
+   *  cannot reconcile stays an ordinary reply and nothing is left stuck. */
+  async finalize(prepared: PreparedInquiry, execution: string, answer: string): Promise<any> {
+    return this.write(`/${prepared.perspective}/finalize`, { intent: prepared.intent, execution, answer },
+      `${prepared.request_op}-finalize-${answer}`)
+  }
+}
+
+/** THE RECORDED AGENT-REPLY BOUNDARY, acted on exactly once per reply.
+ *
+ *  Called wherever the record's own live read says a bound ask was answered
+ *  (the pulse-driven Conversation view, which already watches for an agent's
+ *  reply): never a new poll or timer of its own. Idempotent against the
+ *  three ways this can go wrong --
+ *
+ *  - UNRELATED: the caller is the one that matches `answer` to this
+ *    Perspective's own bound expectation before calling this at all; nothing
+ *    here reads any other reply.
+ *  - RETRIED: the same reply Turn is read again on a later pulse (nothing
+ *    changed, or this call is still in flight) -- `store.snapshot().answer`
+ *    and `.finalizing` are checked against the exact Turn id, so the second
+ *    observation does nothing.
+ *  - FAILED: the agent's run produced a reply that does not reconcile as a
+ *    synthesis (missing declared context, a late or superseded execution).
+ *    The server's refusal comes back as an ordinary result; it is recorded
+ *    so the same unqualified reply is not repeatedly sent, and the raw reply
+ *    stays exactly what it is -- an ordinary reply, not a synthesized
+ *    answer. */
+export async function finalizeReply(
+  store: PerspectiveStore, prepared: PreparedInquiry, answer: string,
+): Promise<{ ok: true; out: any } | { ok: false; why: string } | null> {
+  const before = store.snapshot()
+  if (before.answer?.answer_post_attempted === answer || before.finalizing === answer) return null
+  store.update({ finalizing: answer })
+  try {
+    const receipt = await store.reconcile(prepared, 'attach')
+    if (receipt.status !== 'qualified' || typeof receipt.execution !== 'string') {
+      store.update({ answer: { answer_post_attempted: answer, refused: true } })
+      return { ok: false, why: 'The agent’s reply does not yet reconcile as this Perspective’s answer.' }
+    }
+    const out = await store.finalize(prepared, receipt.execution, answer)
+    store.update({ answer: { ...out, answer_post_attempted: answer } })
+    if (out?.refused) return { ok: false, why: out.error ?? 'The agent’s reply did not qualify as this Perspective’s synthesized answer.' }
+    return { ok: true, out }
+  } catch (e) {
+    return { ok: false, why: (e as Error).message }
+  } finally {
+    if (store.snapshot().finalizing === answer) store.update({ finalizing: undefined })
   }
 }
 export function perspectivesOf(resource: MagnetResource) {
@@ -720,10 +792,19 @@ export function perspectiveSource(resource: MagnetResource): SearchSource {
     bound: () => stopped,
   }
 }
-/** Preserve the shared Composer's addressing, runtime, reply and Work choices. */
+/** Preserve the shared Composer's addressing, runtime, reply and Work choices.
+ *
+ *  Everything the actual send needs travels as ordinary fields the shared
+ *  send adapter already carries (`text`, `topics`, `parts`, `dispatch`):
+ *  there is no `_magnetPerspective` marker on the result. The server's own
+ *  gate refuses any `_magnet`-prefixed field as a generated work override
+ *  (`mentis.fluid.message_context.gate`), and the shared adapter's guard
+ *  (`composerRequest`) refuses it first for the same reason -- so a
+ *  Perspective send never attaches one. `attempt.perspective`, set by the
+ *  caller from the `prepared` it already holds, is what later identifies
+ *  this as a Perspective send; nothing needs to find it again on the post. */
 export function perspectiveRequest(post: Record<string, unknown>, prepared: PreparedInquiry) {
   return { ...post, text: prepared.text, topics: [...new Set([...(Array.isArray(post.topics) ? post.topics : []), prepared.perspective])],
     parts: [{ type: 'text', text: prepared.text }, ...(Array.isArray(post.parts) ? post.parts.filter((p: any) => p.type !== 'text') : []), ...prepared.parts],
-    _magnetPerspective: prepared,
     dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: any) => ({ ...spec, reach: 'work', requires: [...new Set([...(spec.requires ?? []), 'call_mentis_tools'])], work: `Use the attached frozen Perspective records, manifest and evidence. Read them with read_artifact. Reconstruct the inquiry by its Topic ${prepared.perspective}, distinguish original support from interpretations and conflicting evidence, cite the exact versions/ranges, and answer the frozen question. ${PERSPECTIVE_DISCLOSURE}` })) }
 }

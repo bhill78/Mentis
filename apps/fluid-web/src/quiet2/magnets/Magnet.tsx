@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalSto
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
 import type { MagnetCollectionResource } from './state'
+import { concerns, hearPulse } from '../../fluid/identity/activity'
 import { magnetIndicators, restingCount } from './indicators'
 import { retainedFiles } from './Inspection'
 import { perspectivesOf } from './perspectives'
@@ -12,6 +13,11 @@ import './magnet.css'
 
 const PUCK = 64
 const GAP = 12
+/** A Part D collection records `magnet-extracted` into the Magnet's own
+ *  Conversation (`mentis/magnet/activation.py`), so a durable pulse that
+ *  concerns a Conversation is read as a move this card should reread for --
+ *  broadly, as `fluid/frame/notifications.ts` does, not scoped to one id. */
+const MAGNET_PULSE_CONCERNS = { conversations: true }
 /** The approved card is 650 px, 900 px when expanded, and full width on a narrow screen. */
 const NARROW = 700
 const WIDTHS = { narrow: 650, wide: 900 }
@@ -184,6 +190,11 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
   const [newItems, setNewItems] = useState<number | null>(null)
   /** Whether this opening of the card has already recorded its baseline. */
   const baselined = useRef(false)
+  /** Bumped on a durable pulse move that concerns this Magnet's record, so a
+   *  server-only collection (Part D's periodic refresh) that lands while this
+   *  card is closed still reaches the newItems effect below -- a second
+   *  trigger beside `open`/`latestBatch`, not a replacement for it. */
+  const [pulseTick, setPulseTick] = useState(0)
   const cardId = useId()
   const viewId = useId()
   const settingsId = useId()
@@ -284,11 +295,21 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
     baselined.current = true
     counting.markShown?.(record)
   }, [open, latestBatch, counting])
+  /** The pulse (`fluid/identity/activity.ts`), heard regardless of `open`, so a
+   *  collection the SERVER starts on its own while this card stays closed --
+   *  which never touches `resource.read()` or `latestBatch` -- still reaches
+   *  the newItems effect below. Still no timer and no polling of its own: this
+   *  only listens to the one beat every durable-pulse reader in Fluid shares. */
+  useEffect(() => hearPulse((m, where) => {
+    if (m === 'durable' && concerns(where, MAGNET_PULSE_CONCERNS)) setPulseTick((t) => t + 1)
+  }), [])
   /** The one number the resting puck carries, taken from the record: the rows
    *  in the latest batch whose identity is absent from that baseline. Read when
-   *  the card opens or closes and when a new batch lands -- a collection
-   *  updates the snapshot whether the card is open or not -- and at no other
-   *  time: no timer, no polling, nothing waking on its own. An unknown count
+   *  the card opens or closes, when a new batch lands -- a collection updates
+   *  the snapshot whether the card is open or not -- and on a durable pulse
+   *  move, so a collection the server started on its own still reaches a
+   *  closed card. No timer and no polling of its own either way: the pulse
+   *  tick only follows the one beat subscribed to above. An unknown count
    *  stays unknown; the badge then reports what is held, never calling it new. */
   useEffect(() => {
     let live = true
@@ -297,7 +318,7 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
       if (live) setNewItems(count ?? null)
     })()
     return () => { live = false }
-  }, [open, latestBatch, counting])
+  }, [open, latestBatch, counting, pulseTick])
 
   useEffect(() => {
     const blur = () => { drag.current = null; setDragging(false); suppress.current = true }
