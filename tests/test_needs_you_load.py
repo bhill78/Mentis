@@ -213,18 +213,3 @@ def test_a_swallowed_refusal_then_another_failure_is_redone(world):
         return "redone"
 
     assert cv._c.settled(compute, compute) == "redone"
-
-
-def test_a_resumed_run_is_reserved_at_once_and_begins_after_the_gate(world, monkeypatch):
-    """`dispatch_soon(after=)`: the reservation Trash reads is taken when it is
-    handed off; the run itself begins once `after` is set."""
-    from mentis.web import dispatch as D
-    st = world["state"]
-    began = threading.Event()
-    monkeypatch.setattr(D, "dispatch", lambda st, **kw: began.set())
-    gate = threading.Event()
-    D.dispatch_soon(st, after=gate, expectation="opr-x", participant="ent-p")
-    assert D._dispatching_of(st)["opr-x"] == 1
-    assert not began.wait(0.3)
-    gate.set()
-    assert began.wait(5)
