@@ -49,7 +49,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { MagnetConfig, MagnetSource } from '../../fluid/surface/magnet/types'
 import type { MagnetResource } from './contract'
 import { conversationChoices, type ConversationChoice } from './managementApi'
-import { collectionChange, collectionIssue, configurationRead, dayOf, exactFileIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
+import { collectionChange, collectionIssue, collectionRhythm, configurationRead, dayOf, exactFileIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
 import { discardStagedSettings, panelDrafts, requestSettingsReturn, stageSettings, subscribePanelDrafts, type StagedSettings } from './panelDrafts'
 import './design.css'
 import './configuration.css'
@@ -144,7 +144,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const [collection, setCollection] = useState(''), [fileQuery, setFileQuery] = useState(''), [files, setFiles] = useState<HeldFile[]>([])
   const [fileNext, setFileNext] = useState<number | null>(null), [fileOffset, setFileOffset] = useState(0)
   const [arrangements, setArrangements] = useState<Choice[]>([{ id: 'home', name: 'Brain Home' }])
-  const [arrangement, setArrangement] = useState(''), [sendable, setSendable] = useState(false), [holds, setHolds] = useState(false)
+  const [arrangement, setArrangement] = useState(''), [sendable, setSendable] = useState(false)
   const [locations, setLocations] = useState(false)
   /** Which source kind is being added, if any. Empty is the resting state: the
    *  two supported kinds are offered and neither one's controls are present. */
@@ -199,7 +199,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     const ctl = new AbortController()
     void findConfigurationLocation(p.magnet, arrangements.map((a) => a.id), ctl.signal).then((found) => {
       if (ctl.signal.aborted) return
-      if (found) { setArrangement(found.arrangement); setSendable(true); setHolds(found.holds); setMessage('') }
+      if (found) { setArrangement(found.arrangement); setSendable(true); setMessage('') }
       else setMessage('There is no saved location to address this configuration through yet. Save a workspace or Brain Home once, then reopen Settings; the Magnet itself does not have to be placed in it.')
     })
     return () => ctl.abort()
@@ -213,8 +213,8 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   useEffect(() => {
     if (!arrangement) return
     const ctl = new AbortController()
-    void savedPlace(arrangement, p.magnet, ctl.signal).then((place) => { if (!ctl.signal.aborted) { setSendable(true); setHolds(place.holds) } })
-      .catch((e) => { if (!ctl.signal.aborted) { setSendable(false); setHolds(false); setMessage(e.message) } })
+    void savedPlace(arrangement, p.magnet, ctl.signal).then(() => { if (!ctl.signal.aborted) setSendable(true) })
+      .catch((e) => { if (!ctl.signal.aborted) { setSendable(false); setMessage(e.message) } })
     return () => ctl.abort()
   }, [arrangement, p.magnet, p.brainKey])
   useEffect(() => {
@@ -359,11 +359,18 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     <div className="mgd-divider" />
     <div className="mgd-row mgd-spread">
       <div className="mgd-grow">
-        <b>Collect manually</b>
-        <div className="mgd-subtle">{collectable ? lastCollected(live?.activation?.at) : 'Manual collection is not configured'}</div>
+        {/* HOW OFTEN IT LOOKS, NOT WHICH MODE IS SAVED. A Magnet made from a
+            sentence carries a cadence, so it refreshes on its own and there is
+            no Collect for it to offer; saying "Manual collection is not
+            configured" there would report a schema fact as if it were a fault.
+            `collectionRhythm` says the same thing in ordinary words, and the
+            last collection is said under it either way. */}
+        <b>{collectable ? 'Collect manually' : 'Collects on its own'}</b>
+        <div className="mgd-subtle">{collectable ? lastCollected(live?.activation?.at)
+          : `${collectionRhythm(p.config)} · ${lastCollected(live?.activation?.at).toLowerCase()}`}</div>
       </div>
-      <button type="button" className="mgd-button" disabled={!mayCollect}
-        onClick={() => void p.resource?.collect?.()}>{collecting ? 'Collecting…' : 'Collect now'}</button>
+      {collectable && <button type="button" className="mgd-button" disabled={!mayCollect}
+        onClick={() => void p.resource?.collect?.()}>{collecting ? 'Collecting…' : 'Collect now'}</button>}
     </div>
   </>
 
@@ -413,7 +420,12 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
         <p className="mgd-small mgd-muted">{PROPOSED_REASON}</p>
         <p className="mgd-small mgd-muted">{SUPPORTED_REASON}</p>
         <p className="mgd-small mgd-muted">{UNSUPPORTED_REASON}</p>
-        {Object.entries(p.config.selection).filter(([k]) => !['informationTypes', 'dates'].includes(k)).map(([k, v]) => <p className="mgd-small mgd-muted" key={k}>{k}: {JSON.stringify(v)} (not applied)</p>)}
+        {/* DELETED (#802, amendment §4): a `JSON.stringify` of every selection
+            key this build does not apply stood here -- the wire format of a
+            setting nobody chose, read out to the owner. A filter that is saved
+            and not applied is said as that, by name, in `configurationFacts`,
+            which is also what the index carries. The value is in the record for
+            anyone who needs it; it is not interface. */}
       </div>}
     </div>}
   </>
@@ -472,10 +484,13 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     {messageSection}
     {limitsSection}
 
-    <div className="mgd-space" />
-    <details><summary><span className="mgd-link mgd-small">Where this configuration is saved through</span></summary>
-      <p className="mgd-small mgd-muted">{arrangement ? `Saving through ${arrangements.find((a) => a.id === arrangement)?.name ?? arrangement}.` : locations ? 'No saved location found.' : 'Looking for a saved location…'}{arrangement && !holds ? ' This location does not hold the Magnet; saving will not add it there.' : ''}</p>
-      <label>Saved location<select value={arrangement} disabled={locked} onChange={(e) => { setMessage(''); setArrangement(e.target.value) }}><option value="">Choose a saved location</option>{arrangements.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}{conversations.map((c) => <option key={c.id} value={c.id}>Conversation: {c.name}</option>)}</select></label>
-    </details>
+    {/* DELETED (#802, amendment §4): a "Saved location" select over every saved
+        arrangement AND every Conversation stood here, asking the owner to pick
+        the door a configuration travels through. It was never a choice about
+        the Magnet: the definition belongs to no arrangement, a location only
+        keeps the operation key, and the right one is already FOUND read-only
+        above (`findConfigurationLocation`). The one case the owner can act on
+        -- that there is no saved location at all -- is said by `messageSection`,
+        which is where the save's own feedback already is. */}
   </section>
 }

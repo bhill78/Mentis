@@ -22,6 +22,7 @@
 //! and asking again gets further, because what was read stays kept.
 
 use std::collections::{HashMap, HashSet};
+mod collection_files;
 mod held_file;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -42,6 +43,14 @@ use crate::window::reads::{
 };
 use crate::window::{Prepared, Window};
 use crate::{Budget, Cursor, OpError, ReadAnswer, ReadOp, ReadRequest};
+
+/// THE COLLECTION-SCOPED READ'S BOUNDS, said where a caller and a test can read them.
+pub use collection_files::{
+    ADMISSIONS_MOST as COLLECTION_ADMISSIONS_MOST, OBJECTS_MOST as COLLECTION_OBJECTS_MOST,
+    ROWS_MOST as COLLECTION_ROWS_MOST,
+};
+/// Bytes one file row carries, the existing cap.
+pub const FILE_ROW_BYTES_MOST: usize = held_file::ROW_BYTES_MOST;
 
 /// What a definition may hold, `mentis.magnet.schema`'s.
 pub const SOURCES_MOST: usize = 20;
@@ -177,6 +186,9 @@ fn source_key(v: &Json, kind: &str) -> String {
     }
 }
 
+/// Why a source of this kind can't be read. KEPT EXACTLY AS THEY WERE but for `file`: a `file` source
+/// now reads one held object, every object under a prefix, or a whole declared collection, and only in
+/// page mode, so what a summary says of it is that -- not that a collection-wide read is unavailable.
 fn unavailable_why(kind: &str) -> String {
     match kind {
         "brain" | "agent-results" => {
@@ -184,10 +196,9 @@ fn unavailable_why(kind: &str) -> String {
         }
         "web" => "reading the web is not in this build".to_owned(),
         "connector" => "no connector is connected here".to_owned(),
-        "file" => {
-            "an exact held file is captured in page mode; collection-wide reads are unavailable"
-                .to_owned()
-        }
+        "file" => "a held file, a prefix or a whole collection is captured in page mode, not in a \
+                   summary"
+            .to_owned(),
         "database" => format!("reading a {kind} source is not in this build"),
         other => format!("nothing in this build reads a {other} source yet"),
     }
@@ -505,7 +516,14 @@ struct SourcePlan {
     dates: Py,
     /// What's left to read once the scope has gone.
     objects: Option<ObjectsWork>,
-    file: Option<held_file::HeldFile>,
+    file: Option<FileWork>,
+}
+
+/// What a `file` source found under the scope, waiting on its bytes. One exact held object, or a
+/// declared collection's objects (optionally under a prefix).
+enum FileWork {
+    One(held_file::HeldFile),
+    Collected(collection_files::Collected),
 }
 
 struct ObjectsWork {
@@ -1096,6 +1114,9 @@ impl ReadOp for MagnetRead<'_> {
         }
 
         let mut left = plans.iter().filter(|p| p.status == "ok").count();
+        // THE BATCH'S ROW ALLOWANCE, shared by every collection-scoped source in this read, so twenty
+        // of them cannot each take their own hundred.
+        let mut rows_left = collection_files::ROWS_MOST;
         for (source, plan) in chosen.iter().zip(&mut plans) {
             if args.gone.load(Ordering::Relaxed) {
                 break;
@@ -1106,7 +1127,19 @@ impl ReadOp for MagnetRead<'_> {
                     until: request.deadline,
                     gone: &args.gone,
                 };
-                match held_file::prepare(&mut share, &source.said) {
+                // ONE RULE decides which reader answers: `held_file::choice`, the rule Python keeps at
+                // activation. A prefix or a whole collection is the collection-scoped read.
+                let exact = matches!(
+                    held_file::choice(&source.said),
+                    Some((_, held_file::Choice::Exact(_)))
+                );
+                let got = if exact {
+                    held_file::prepare(&mut share, &source.said).map(FileWork::One)
+                } else {
+                    collection_files::prepare(&mut share, &source.said, &mut rows_left)
+                        .map(FileWork::Collected)
+                };
+                match got {
                     Ok(file) => {
                         plan.file = Some(file);
                         plan.status = "ok";
@@ -1218,8 +1251,8 @@ impl MagnetPlan {
         let mut allowed = if place.is_some() { UNCACHED_MOST } else { 0 };
         let mut said = Vec::with_capacity(sources.len());
         for mut source in sources {
-            if let Some(file) = source.file.take() {
-                match file.finish(window, stop) {
+            match source.file.take() {
+                Some(FileWork::One(file)) => match file.finish(window, stop) {
                     Ok((result, shortened)) => {
                         source.results.push(result);
                         if shortened {
@@ -1228,7 +1261,15 @@ impl MagnetPlan {
                         }
                     }
                     Err(error) => mark(&mut source, error),
+                },
+                Some(FileWork::Collected(collected)) => {
+                    let (rows, status, reason) =
+                        collection_files::finish(collected, window, stop);
+                    source.results.extend(rows);
+                    source.status = status;
+                    source.reason = reason;
                 }
+                None => {}
             }
             if let Some(work) = source.objects.take() {
                 read_objects(

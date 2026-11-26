@@ -275,22 +275,53 @@ export function collectionIssue(staged: StagedSettings): string | null {
   return null
 }
 
+/** HOW OFTEN THIS MAGNET LOOKS AGAIN, in ordinary words.
+ *
+ *  The schema keeps a cadence as `collection: {mode: 'scheduled', schedule:
+ *  <five cron fields or an ISO 8601 duration>}` (`mentis/magnet/schema.py`
+ *  `_when`). Nobody should read `PT6H` off a screen, so the durations a
+ *  proposal can set are said as what they are, and anything else is said as
+ *  the plain fact that it refreshes on a schedule. */
+const CADENCE_WORDS: Record<string, string> = {
+  PT1H: 'Every hour', PT6H: 'Every six hours', PT12H: 'Every twelve hours',
+  P1D: 'Every day', P1W: 'Every week',
+}
+export function collectionRhythm(config: MagnetConfig): string {
+  const collection = config.collection
+  if (collection?.mode === 'scheduled') {
+    const said = CADENCE_WORDS[collection.schedule ?? '']
+    return said ? `${said}, on its own` : 'On a schedule, on its own'
+  }
+  if (collection?.mode === 'paused') return 'Paused — it is not collecting'
+  if (collection?.mode === 'continuous') return 'Continuously'
+  return supportsManualCollection(config) ? 'Only when you press Collect now' : 'Only when you ask for it'
+}
+
 /** What the committed configuration actually says, as plain lines. The settings
  *  overlay shows these and `settingsSource` indexes them, so one wording serves
- *  both and the search cannot describe a setting the panel does not. */
+ *  both and the search cannot describe a setting the panel does not.
+ *
+ *  NO INTERNAL MODE WORD AND NO JSON (#802, amendment §4). This used to end in
+ *  "Collection: one-time · synthesis: manual · activation: manual" and a line
+ *  of `JSON.stringify` per saved-but-unapplied selection key -- the schema's
+ *  own vocabulary and its wire format, read out to somebody who never chose
+ *  either. What the owner can act on is how often it looks and what it looks
+ *  at; a filter this build does not apply is said as that, by name, without
+ *  its value. */
 export function configurationFacts(config: MagnetConfig): string[] {
   const types = config.selection?.informationTypes ?? []
   const dates = config.selection?.dates ?? {}
-  const other = Object.entries(config.selection ?? {}).filter(([k]) => !['informationTypes', 'dates'].includes(k))
+  const other = Object.entries(config.selection ?? {}).filter(([k]) => !['informationTypes', 'dates', 'criteria'].includes(k))
   const own = (config as { identity?: { name?: unknown } }).identity?.name
+  const criteria = typeof config.selection?.criteria === 'string' ? config.selection.criteria.trim() : ''
   return [
     `Name: ${typeof own === 'string' && own.trim() ? `${own.trim()} (this Magnet's own, independent of where it is shown)` : 'taken from where it is shown; give it one of its own in Settings'}`,
+    ...(criteria ? [`What it follows: ${criteria}`] : []),
     `Configured sources: ${config.sources.length ? config.sources.map(sourceIdentity).join(' · ') : 'none yet — ordinary conversation still works, and nothing else is read in their place'}`,
     `Selected Conversation content types: ${types.length ? types.join(', ') : 'none'}`,
     `Dates: ${dates.after || dates.before ? `${dates.after || 'any'} to ${dates.before || 'any'}` : 'no date limit'}`,
-    `Collection: ${config.collection?.mode ?? 'not configured'} · synthesis: ${config.synthesis?.mode ?? 'not configured'} · activation: ${config.activation?.mode ?? 'not configured'}`,
-    `Manual collection supported by these saved modes: ${supportsManualCollection(config) ? 'yes' : 'no'}`,
-    ...other.map(([k, v]) => `Saved but not applied — ${k}: ${JSON.stringify(v)}`),
+    `How often it collects: ${collectionRhythm(config)}`,
+    ...other.map(([k]) => `Saved here but not applied by this build: ${k}`),
   ]
 }
 

@@ -30,6 +30,28 @@
 .q2 .q2-magnet-source-list button:hover, .q2 .q2-magnet-source-list button[aria-selected='true'] { background: var(--wash); }
 .q2-magnet-source-list strong { font: 500 .875rem/1.3 var(--q2-sans, var(--font)); }
 .q2-magnet-source-list small { color: var(--text-faint); font: 400 .6875rem/1.3 var(--q2-sans, var(--font)); }
+/* ONE SENTENCE IN, A PROPOSAL ON SCREEN (Part G2, amendment §4). The sentence
+   is the one thing creation asks for, so it is the one field, and it is as
+   wide as the card; the proposal under it is a titled block of ordinary words,
+   not a form. */
+.q2-magnet-want > span { font: 600 .9375rem/1.3 var(--q2-sans, var(--font)) !important; }
+.q2 .q2-magnet-create textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: 400 .9375rem/1.45 var(--q2-sans, var(--font)); resize: vertical; }
+.q2 .q2-magnet-create textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.q2-magnet-proposal { margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--wash); }
+.q2-magnet-proposal > h3 { margin: 0; font: 650 1rem/1.3 var(--q2-sans, var(--font)); }
+.q2-magnet-proposal dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 10px 0 0; }
+.q2-magnet-proposal dl > div { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.q2-magnet-proposal dt { color: var(--text-faint); font: var(--type-meta); }
+.q2-magnet-proposal dd { margin: 0; font: 400 .875rem/1.45 var(--q2-sans, var(--font)); }
+.q2-magnet-proposal > details { margin-top: 12px; }
+.q2-magnet-proposal > details > summary { cursor: pointer; width: max-content; color: var(--text-dim); font: var(--type-meta); }
+.q2-magnet-proposal > details > summary:hover { color: var(--text); }
+.q2-magnet-unavailable ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-faint); font: var(--type-meta); }
+.q2-magnet-proposed-sources { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.q2-magnet-proposed-sources label { display: grid !important; grid-template-columns: max-content 1fr; align-items: baseline; gap: 2px 8px; margin: 0 !important; }
+.q2 .q2-magnet-proposed-sources input { width: auto; min-height: 0; grid-row: span 2; }
+.q2-magnet-proposed-sources strong { font: 500 .875rem/1.3 var(--q2-sans, var(--font)); }
+.q2-magnet-proposed-sources small { color: var(--text-faint); font: 400 .6875rem/1.3 var(--q2-sans, var(--font)); }
 .q2-magnet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .q2 .q2-magnet-primary { min-height: 32px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--canvas); font: var(--type-control); font-weight: 650; }
 .q2 .q2-magnet-primary:disabled { opacity: .45; cursor: default; }

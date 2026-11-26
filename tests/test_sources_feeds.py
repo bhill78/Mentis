@@ -491,7 +491,9 @@ def test_rss_1_0_rdf_reads_too():
 
 @pytest.mark.live
 @pytest.mark.parametrize("connector,options", [
-    ("rss-atom", {"feeds": ["https://news.google.com/rss"]}),
+    # A plain feed, from a different host than the search provider, so the
+    # two live cases do not share one host's rate limit.
+    ("rss-atom", {"feeds": ["https://feeds.bbci.co.uk/news/rss.xml"]}),
     ("web-search", {"queries": ["apple orchard"]}),
 ])
 def test_live_a_feed_and_a_query_acquire_real_objects(brain, connector,
@@ -525,7 +527,13 @@ def test_live_a_feed_and_a_query_acquire_real_objects(brain, connector,
 def test_live_a_search_query_serves_this_machine():
     """The amendment's verification, repeatable: the provider's address
     answers 200 with real RSS, with a guid and a date per item. Marked
-    `live`, so it is opt-in (`-m live`) and no ordinary run depends on it."""
+    `live`, so it is opt-in (`-m live`) and no ordinary run depends on it.
+
+    A PROVIDER MAY RATE-LIMIT. Google News answers 429 to a burst of
+    queries from one machine, which is the terms note in the provider table
+    being enforced rather than anything wrong here: the connector reports it
+    as `Unreachable` with its status, which is what the amendment asks for.
+    This test says so rather than retrying, so a 429 reads as what it is."""
     where = feeds.address_for("orchard")
     answer = fetch.get(where, accept=feeds.ACCEPT,
                        max_bytes=feeds.MAX_FEED_BYTES)

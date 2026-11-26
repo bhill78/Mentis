@@ -377,21 +377,40 @@ def _is_later_schema(data) -> bool:
     return isinstance(version, int) and not isinstance(version, bool) and version > SCHEMA_VERSION
 
 
-FILE_CHOICE = "Choose one held file; collection-wide file reads are unavailable."
+#: A `file` source names A PATH, A PREFIX, OR THE WHOLE COLLECTION. The exact-file-only refusal this
+#: replaces was the activation gate's, not the schema's: `schema.SOURCE_KINDS` has always taken
+#: `collection` as required and `path` as optional, so a collection-wide definition was always valid
+#: and only this gate and the reader refused it. What is still refused is a path that names nothing
+#: readable -- a wildcard, a traversal, a separator, an empty component.
+FILE_CHOICE = "Choose a path, a prefix ending in `/`, or the whole collection."
+
+
+def file_choice(source) -> tuple[str, str | None] | None:
+    """`("whole", None)`, `("prefix", "docs/")` or `("exact", "a/b.md")` of what a `file` source
+    names, or None where it names nothing that reads.
+
+    ONE RULE, kept word for word with Rust's `held_file::choice`
+    (`crates/mentis-ops/src/magnet/held_file.rs`): no `path` is the whole collection, a trailing `/`
+    is a prefix, and anything else is one object. A component is never empty, `.` or `..`, and no
+    path carries a separator, wildcard, drive letter or NUL."""
+    if not source.get("collection"):
+        return None
+    if source.get("path") is None:
+        return ("whole", None)
+    path = source["path"]
+    if (not isinstance(path, str) or not path or path != path.strip()
+            or "\\" in path or ":" in path or any(c in path for c in "*?[]\x00")):
+        return None
+    head, prefix = (path[:-1], True) if path.endswith("/") else (path, False)
+    if any(p in ("", ".", "..") for p in head.split("/")):
+        return None
+    return ("prefix", path) if prefix else ("exact", path)
 
 
 def runnable_files(value) -> bool:
     """New execution only. Historical definitions never pass through this check."""
-    for source in value["sources"]:
-        if source["kind"] != "file":
-            continue
-        path = source.get("path")
-        if (not source.get("collection") or not isinstance(path, str) or not path.strip()
-                or path != path.strip() or "\\" in path or ":" in path
-                or any(c in path for c in "*?[]\x00")
-                or any(p in ("", ".", "..") for p in path.split("/"))):
-            return False
-    return True
+    return all(file_choice(source) is not None
+               for source in value["sources"] if source["kind"] == "file")
 
 
 def _snapshot(st, mid, by, op) -> tuple[bytes, str, dict]:
@@ -524,6 +543,22 @@ def _whole_int(value, wanted) -> bool:
     return type(value) is int and value == wanted
 
 
+def _row_path_matches(said, source) -> bool:
+    """WHAT A ROW'S OBJECT MAY BE, FOR WHAT THE SOURCE NAMED. An exact source admits exactly its own
+    path, as it always did; a prefix source admits only an object under that prefix; a
+    whole-collection source admits any object the same rule would accept as a path of its own. A row
+    outside the configured scope is still the two halves disagreeing."""
+    choice = file_choice(source)
+    if choice is None or not isinstance(said, str):
+        return False
+    kind, value = choice
+    if kind == "exact":
+        return said == value
+    if kind == "prefix" and not said.startswith(value):
+        return False
+    return file_choice({"collection": source["collection"], "path": said}) == ("exact", said)
+
+
 def _verified_file(result, source, bad):
     """The pinned held-source shape alone permits an Admission version and null home."""
     v = result.get("value")
@@ -536,7 +571,8 @@ def _verified_file(result, source, bad):
             or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
             or result.get("id") != ref or result["version"] != ref
             or result["conversation"] is not None or result["author"] is not None
-            or v["collection"] != source.get("collection") or v["path"] != source.get("path")
+            or v["collection"] != source.get("collection")
+            or not _row_path_matches(v["path"], source)
             or not isinstance(v["text"], str) or "\x00" in v["text"]
             or any(type(v[k]) is not int for k in ("offset", "end", "size", "omitted_bytes"))
             or v["offset"] != 0 or not 0 <= v["end"] <= min(65536, v["size"])

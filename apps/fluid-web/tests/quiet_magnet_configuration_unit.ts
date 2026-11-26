@@ -13,7 +13,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import CollectionConfiguration from '../src/quiet2/magnets/CollectionConfiguration'
 import {
-  canonicalDefinition, collectionChange, collectionIssue, configurationDigest, configurationFacts,
+  canonicalDefinition, collectionChange, collectionIssue, collectionRhythm, configurationDigest, configurationFacts,
   dayOf, durableDefinition, findConfigurationLocation, findHoldingArrangement, identityChange, magnetName,
   MAGNET_NAME_MOST, nameIssue, NO_SAVED_PLACE, NO_SOURCE_TO_COLLECT, savedPlace, saveCollection,
   sourceIdentity, withDay,
@@ -229,9 +229,16 @@ test('the panel opens on the name and the sources, and says what no source means
   assert.ok(!html.includes('Unsaved changes'), 'opening Settings announces nothing')
   assert.ok(!html.includes('aria-label="Save collection configuration"'), 'the commit follows an edit, not the slot')
   assert.ok(!html.includes('of 20 sources chosen'), 'the rows are the count; the bound is stated where it bites')
-  // Which saved location the save goes through is disclosed, not demanded.
-  assert.ok(html.includes('Where this configuration is saved through'))
+  // WHICH SAVED LOCATION THE SAVE GOES THROUGH IS NEITHER ASKED NOR DISCLOSED
+  // (Part G2, #802 and amendment §4). It used to be a "Saved location" select
+  // over every saved arrangement AND every Conversation, behind a disclosure.
+  // It was never a choice about the Magnet -- the definition belongs to no
+  // arrangement, and the right location is already found read-only -- so both
+  // the select and the disclosure that housed it are gone, not restyled.
+  assert.ok(!html.includes('Saved location'), 'the select is gone')
+  assert.ok(!html.includes('Where this configuration is saved through'), 'and so is the disclosure around it')
   assert.ok(!html.includes('Location containing this Magnet'))
+  assert.ok(!html.includes('(not applied)'), 'and the JSON of an unapplied selection key with it')
   const withSources = renderToStaticMarkup(createElement(CollectionConfiguration, {
     magnet: 'mag-partb', config: config({ sources: [HELD], identity: { name: 'Tide study' } }), brainKey, canWrite: () => true, onSaved: () => {},
   }))
@@ -288,4 +295,44 @@ test('the design primitives the panel composes from are styled outside the card 
       assert.ok((selector.match(/\./g) ?? []).length >= 2, `the design's "${selector.trim()}" outranks a one-class base rule`)
     }
   }
+})
+/* -- PART G2: NO INTERNAL MODE WORD, AND NO JSON --------------------------------
+ *
+ * #802 and amendment §4. `configurationFacts` used to end in "Collection:
+ * one-time · synthesis: manual · activation: manual" and a `JSON.stringify` per
+ * saved-but-unapplied selection key. Both are gone: how often it collects is
+ * said in ordinary words, and an unapplied filter is named without its value. */
+test('the configuration facts say how often it collects, not which modes are saved', () => {
+  const manual = config()
+  const facts = configurationFacts(manual)
+  const text = facts.join('\n')
+  for (const gone of ['one-time', 'on-new-information', 'scheduled', 'JSON', '{', '}']) {
+    assert.ok(!text.includes(gone), gone + ' still appears in the configuration facts')
+  }
+  assert.ok(facts.some((f) => f.startsWith('How often it collects: ')), text)
+  // The sentence the Magnet was made from is a fact the owner recognises.
+  const followed = configurationFacts(config({ selection: { criteria: 'the tide work' } }))
+  assert.equal(followed[1], 'What it follows: the tide work')
+  assert.ok(!followed.join('\n').includes('criteria'), 'said as what it is, not by its schema key')
+})
+
+test('a cadence is said as what it is, never as its ISO duration', () => {
+  assert.equal(collectionRhythm(config({ collection: { mode: 'scheduled', schedule: 'P1D' } })), 'Every day, on its own')
+  assert.equal(collectionRhythm(config({ collection: { mode: 'scheduled', schedule: 'PT6H' } })), 'Every six hours, on its own')
+  assert.equal(collectionRhythm(config({ collection: { mode: 'scheduled', schedule: 'PT1H' } })), 'Every hour, on its own')
+  assert.equal(collectionRhythm(config({ collection: { mode: 'scheduled', schedule: 'P1W' } })), 'Every week, on its own')
+  // A cadence nothing here has words for is still never read out raw.
+  const odd = collectionRhythm(config({ collection: { mode: 'scheduled', schedule: '*/5 * * * *' } }))
+  assert.equal(odd, 'On a schedule, on its own')
+  assert.equal(collectionRhythm(config({ collection: { mode: 'paused' } })), 'Paused — it is not collecting')
+  assert.ok(!collectionRhythm(config()).includes('one-time'))
+})
+
+test('a saved filter this build does not apply is named without its value', () => {
+  const facts = configurationFacts(config({ selection: { phrases: ['tide', 'harbour'], topics: ['ent-aaaaaaaaaaaa'] } }))
+  const text = facts.join('\n')
+  assert.ok(text.includes('Saved here but not applied by this build: phrases'), text)
+  assert.ok(text.includes('Saved here but not applied by this build: topics'), text)
+  assert.ok(!text.includes('tide') && !text.includes('ent-aaaaaaaaaaaa'), 'the value is in the record, not on screen')
+  assert.ok(!text.includes('['), 'and never as its wire format')
 })

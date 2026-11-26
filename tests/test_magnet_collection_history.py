@@ -38,7 +38,13 @@ def test_authentic_prechange_brain_through_actual_collection_http(tmp_path):
         artifact = got["activation"]["artifact"]
         assert C.read(w.state, MAGNET, batch=artifact["ref"], digest=artifact["digest"]) == got
         assert C.history(w.state, MAGNET)["batches"] == [got["activation"]]
-        assert ask_preflight(w, asked_body(w, op="new-collect"))["body"]["reason"]["message"] == X.FILE_CHOICE
+        # PART C: this historical definition names a whole collection and NO path, which this build
+        # now runs instead of refusing with `file-choice-required`. What the lift must not touch is
+        # the retained batch above -- and it does not: the record is append-only, so an old batch
+        # still reads exactly as it was recorded, `unavailable` source and all, and a preflight on
+        # the same definition still records nothing of its own.
+        assert ask_preflight(w, asked_body(w, op="new-collect"))["state"] == "ready"
+        assert X.file_choice(sources[-1]["source"]) == ("whole", None)
         assert record_size(w) == before
     finally:
         w.stop()
@@ -199,11 +205,13 @@ def test_history_verifies_only_the_bounded_page_and_rejects_corruption(world, mo
         C.history(world.state, MAGNET, limit=1)
 
 
-@pytest.mark.parametrize("path", [None, "", "../x", "/x", "x/", "x//y", "a/./b", "*.md", "x?", "x[1]", "C:/x", "x\\y"])
-def test_exact_file_choice_is_new_execution_only(path):
-    source = {"kind":"file", "collection":"col-test"}
-    if path is not None:
-        source["path"] = path
+# PART C lifted the exact-file-ONLY half of this gate: no `path` is the whole collection and a
+# trailing `/` is a prefix, both of which now run (`tests/test_magnet_collection_activation.py`).
+# What is still refused -- a blank, a traversal, a wildcard, a separator, an empty component -- is
+# unchanged, and is what this still pins.
+@pytest.mark.parametrize("path", ["", "../x", "/x", "x//y", "a/./b", "*.md", "x?", "x[1]", "C:/x", "x\\y"])
+def test_a_file_choice_that_names_nothing_readable_is_new_execution_only(path):
+    source = {"kind":"file", "collection":"col-test", "path": path}
     assert not X.runnable_files({"sources":[source]})
     assert X.runnable_files({"sources":[{"kind":"file", "collection":"col-test", "path":"exact/café.txt"}]})
 

@@ -66,6 +66,13 @@ export default function SettingsView({ resource, identity, collectionConfigurati
       <button type="button" className="q2-magnet-icon" aria-label={`Close settings and return to ${back}`} title={`Close settings and return to ${back}`}
         onClick={() => leaveSettings(resource)}>×</button>
     </div>
+    {/* SETTINGS IS FOR CHANGING SOMETHING LATER (owner's correction
+        `ent-8a4357b5f7fc`, amendment §4). It is not a step in getting started:
+        a Magnet made from a sentence arrives already configured, already
+        collected and already refreshing, and nothing in creation sends anybody
+        here. So this says what the place is for, once, where someone who
+        arrived expecting a setup form would otherwise be looking for it. */}
+    <p className="q2-magnet-muted">Everything here is already set. Change it when you want this Magnet to follow something else, or to look more or less often.</p>
     {/* Only while there is something unsaved for it to be about. */}
     {drafts.settings && <p className="q2-magnet-muted">Closing this, like Escape, keeps these unsaved edits. Cancel discards them.</p>}
 

@@ -195,6 +195,65 @@ fn shared_python_reading_cases_through_the_background_m1_composer() {
         serde_json::to_vec(&file_only_batches).unwrap(),
     )
     .unwrap();
+    // THE LIFTED CHOICE, on this same conformance Brain. A `file` source naming no path reads the
+    // whole collection, and the rows it returns are exactly the cases the exact reader can read --
+    // every damaged or absent one reported in the source's reason, none silently dropped.
+    let mut config = original.clone();
+    config["sources"] = json!([{"kind": "file", "collection": "col-held-conformance"}]);
+    let request = ReadRequest {
+        args: MagnetArgs {
+            magnet: MagnetDefinition::parse("mag-a1c7e2f09b3d4e68", &config.to_string()).unwrap(),
+            mode: MagnetMode::Page {
+                source: None,
+                types: None,
+            },
+            bundle: Err("a file source needs no post extraction".into()),
+            gone: Arc::default(),
+        },
+        cursor: None,
+        limit: None,
+        deadline: Instant::now() + Duration::from_secs(10),
+    };
+    let mut answer = mentis_ops::run(
+        &MagnetRead { window: &window },
+        &reader,
+        ReadClass::Background,
+        &request,
+    )
+    .unwrap();
+    let Prepared(plan) = answer.rows.pop().unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    let page: Json =
+        serde_json::from_str(&plan.finish(&window, &|| Instant::now() >= until).dumps()).unwrap();
+    let source = &page["sources"][0];
+    let mut read: Vec<String> = source["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["value"]["path"].as_str().unwrap().to_owned())
+        .collect();
+    read.sort();
+    let cases: Vec<Json> =
+        serde_json::from_slice(&std::fs::read(root.join("held-cases.json")).unwrap()).unwrap();
+    let mut want: Vec<String> = cases
+        .iter()
+        .filter(|c| c["available"] == true)
+        .map(|c| c["path"].as_str().unwrap().to_owned())
+        .collect();
+    want.sort();
+    assert_eq!(read, want, "{source}");
+    assert_eq!(source["status"], "partial", "{source}");
+    let why = source["reason"].as_str().unwrap();
+    for case in cases.iter().filter(|c| c["available"] != true) {
+        let path = case["path"].as_str().unwrap();
+        // The one case never admitted at all is not an object of the collection, so it is not
+        // something a collection-wide read can report missing.
+        if case["damage"] == "unobserved" {
+            assert!(!why.contains(path), "{path} was never admitted: {why}");
+        } else {
+            assert!(why.contains(path), "{path} is not reported: {why}");
+        }
+    }
     let result = Command::new(std::env::var("MENTIS_COLLECTION_PYTHON").unwrap_or("python".into()))
         .current_dir(&repo)
         .env("PYTHONPATH", &repo)

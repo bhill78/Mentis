@@ -401,3 +401,37 @@ test('entries() covers the Perspectives and wording the panel has already read',
   assert.ok(entries.some((e) => e.title.includes('First')))
   assert.ok(entries.some((e) => e.text === 'First'), 'the created name already read is in hand')
 })
+
+/* -- PART G2: SETTINGS IS FOR CHANGING SOMETHING LATER --------------------------
+ *
+ * Amendment §4: "Settings becomes the place you go to CHANGE something later.
+ * It is not a step in getting started, and nothing in creation routes through
+ * it." So Settings says what it is for, and the universal index it feeds
+ * carries no internal mode word and no JSON blob -- the search could otherwise
+ * describe a Magnet in the schema's vocabulary even after the panel stopped. */
+test('the settings index carries no internal mode word and no wire format', () => {
+  store()
+  const r = resource('mag-g2index')
+  r.saved.config = { ...r.saved.config!, collection: { mode: 'scheduled', schedule: 'P1D' },
+    selection: { ...r.saved.config!.selection, criteria: 'the tide work', phrases: ['tide'] } }
+  const text = settingsSource(r).entries().map((e) => e.text).join('\n')
+  assert.ok(text.includes('How often it collects: Every day, on its own'), text)
+  assert.ok(text.includes('What it follows: the tide work'), text)
+  assert.ok(text.includes('Saved here but not applied by this build: phrases'), text)
+  for (const gone of ['synthesis: manual', 'activation: manual', 'Collection: one-time',
+    'Manual collection supported by these saved modes', '["tide"]']) {
+    assert.ok(!text.includes(gone), gone + ' is still in the settings index')
+  }
+})
+
+test('Settings says it is for changing something later, not for setting it up', () => {
+  store()
+  const r = resource('mag-g2settings')
+  const html = renderToStaticMarkup(createElement(SettingsView, {
+    resource: r, canReset: true, hasOwnConversation: false,
+    onReset: () => {}, onRemove: () => {}, onSource: () => {},
+    onConversation: () => {}, onOrigin: () => {},
+  }))
+  assert.ok(html.includes('Everything here is already set'), html.slice(0, 600))
+  assert.ok(html.includes('follow something else'), 'and what it is for')
+})
