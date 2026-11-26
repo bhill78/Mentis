@@ -315,6 +315,11 @@ PLACED = frozenset({
     # a later record regarding work: re-project what it names (WS-C)
     "regards", "purged"}) | CONVERSATION_MATERIAL
 
+#: KINDS WHOSE ESTABLISHMENT NO PROJECTION READS: an `establishes` link on
+#: one of these is placed, not rebuilt. Topics (`Conversations.open_topic`)
+#: organise a Conversation's posts; no work, stage or obligation reads them.
+ESTABLISHED_UNREAD = frozenset({"topic"})
+
 #: How often items whose stage asked git are projected again: a merge or a
 #: deploy writes nothing to the record (review).
 GIT_S = 60.0
@@ -504,6 +509,15 @@ class CurrentWork:
         """Items whose stage may have moved with no write (`_window`)."""
         return {t for t, until in model.due.items() if until is not None}
 
+    def _kind_of_entry(self, ref):
+        """The Kind of the entry `ref` names, or None if it cannot be read
+        (which then rebuilds, as any unclassified write does)."""
+        try:
+            got = self.cv._entry(ref)
+            return self.cv._kind_of(got[0]) if got else None
+        except Exception:                                 # noqa: BLE001
+            return None
+
     def _update(self):
         cv, model = self.cv, self._model
         store = cv._c._store
@@ -564,6 +578,14 @@ class CurrentWork:
                     continue
                 self._build(f"entry {k}")
                 return
+            # ESTABLISHING WHAT NO PROJECTION READS IS PLACED: `establishes`
+            # rebuilds because governed material stands by it, but a Topic is
+            # established the same way, and a Magnet opens Topics as it works
+            # (TEST, 2026-11-26: every Topic opened rebuilt the whole model).
+            if (k == "establishes" and to
+                    and self._kind_of_entry(to) in ESTABLISHED_UNREAD):
+                place(eid, frm, to)
+                continue
             if k in REBUILDS or k not in PLACED:
                 self._build(f"entry {k}")
                 return
