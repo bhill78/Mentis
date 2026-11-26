@@ -58,7 +58,18 @@
  *  And where the collected material records when it was published, that dated
  *  shape is drawn as a table rather than described (`datedMaterial`,
  *  `datedTable`): a set of dated published articles is a table, whatever the
- *  bytes it is stored as. */
+ *  bytes it is stored as.
+ *
+ *  **THE REASONED BRIEFING IS ASKED FOR, NOT WAITED FOR** (owner #1017, plan
+ *  Part 3). No model is called on the synthesis path, so the counted answer is
+ *  the best that path can write; a briefing is written by a run reasoning over
+ *  the collected records, through the mechanism the Perspectives surface
+ *  already has. This view adds one press (`askForBriefing`), which freezes the
+ *  standing question with this collection as its evidence and hands it to the
+ *  Conversation for the owner to send, and the reading of the answer that comes
+ *  back (`readFrozenAnswer`, `withWords`) -- which the record keeps as a frozen
+ *  package rather than as words on the event. Nothing dispatches itself, and a
+ *  briefing standing as the answer is never written over on its own. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import { Prose, blocksAt, blocksOf, isStructured, isTableDivider, isTableRow, rowCells, type Block } from '../../prose'
@@ -66,7 +77,7 @@ import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSo
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
 import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
-import { goTab, inspect, openOverlay, place } from './places'
+import { goTab, inspect, openOverlay, place, setOpen } from './places'
 import { resultTitle } from './EvidenceViews'
 import { AnswerStatement, Linked, SourceLink, linkHost, rowBody, rowHeader, rowLink } from './links'
 import { collectionRows } from './collectionRows'
@@ -74,9 +85,11 @@ import { supportsManualCollection } from './configuration'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { setQuestionDraft, panelAt } from './panelDrafts'
 import {
-  answerDiff, answerText, changeWords, grounding, perspectivesOf, provenanceOf, statements,
-  NOTHING_NEW_CODE,
-  type AnswerChange, type InquiryEvent, type Perspective, type StandingSummary,
+  answerDiff, answerText, changeWords, grounding, perspectivesOf, provenanceOf,
+  stampAttachedQuestion, statements,
+  NOTHING_NEW_CODE, STANDING_QUESTION,
+  type AnswerChange, type InquiryEvent, type Perspective, type PerspectiveStore,
+  type StandingSummary,
 } from './perspectives'
 import './summary.css'
 
@@ -668,6 +681,172 @@ export function askOrdinaryQuestion(resource: MagnetResource, question: string):
   focusMiniComposer()
   goTab(resource, 'Conversation')
   return ''
+}
+
+/* ---------------------------------------------------------------------------
+   THE REASONED BRIEFING (owner #1017 `ent-599e68de0893`, plan Part 3).
+
+   The owner asked for a Summary that reads like an intelligent research
+   briefing -- themes, noteworthy discoveries, developments, implications,
+   avenues worth exploring -- rather than the counts the Python synthesis
+   writes. No model is called on the synthesis path (`perspectives_work.py`
+   `_state_of`), so no instruction of its can produce one: a briefing is
+   written by a run that reasons over the collected records.
+
+   NOTHING NEW IS BUILT FOR IT. The mechanism is the one the Perspectives
+   surface already uses for an agent-written answer: the question is frozen
+   with this Magnet's own collection as its immutable evidence package
+   (`store.prepare`), the frozen ask travels through the Conversation's own
+   composer (`ComposerBar`'s `beforeRequest`), and the reply the record shows
+   answered it is frozen as this Perspective's answer at the recorded
+   agent-reply boundary (`finalizeReply`, `MiniConversation`). What this
+   surface adds is the one press that starts it for the STANDING question --
+   the one whose answer is this Summary's lead -- and the reading of the answer
+   that comes back.
+
+   IT IS THE OWNER'S PRESS, AND ONLY THE OWNER'S. The press dispatches
+   nothing: it freezes the question and carries it into this Magnet's
+   Conversation, where the owner chooses who answers it and presses Send,
+   exactly as "Ask an agent about this" does on the Perspectives surface. A
+   Magnet opening spends no run, nothing wakes to write a briefing, and the
+   written synthesis stays as the no-agent floor until a reply is frozen in
+   its place (AGENTS.md: nothing wakes on its own; `activation.py` refuses a
+   synthesis mode that is not `manual`).
+
+   The hand-off is written here rather than imported from `InquiryPanel`'s own
+   `askAnAgent`, which does the same three steps for the question being viewed:
+   that module imports this one (`offeredQuestions`), so importing it back
+   would be a cycle. The steps, their order and their refusals are the same;
+   where the shared hand-off belongs is noted as a seam for the owner of those
+   files. */
+
+/** THE WORDING FROZEN FOR THE RUN, and so the instruction it answers. It opens
+ *  with this Magnet's standing question verbatim -- the question whose answer
+ *  the Summary shows, and the one `bind` checks the sent Turn begins with --
+ *  and then says, in the owner's own words from #1017, what kind of answer is
+ *  wanted. It is a wording of that same kept question, recorded as one: the
+ *  earlier wordings stay readable under it. */
+export const BRIEFING_ASK = `${STANDING_QUESTION} Write the answer as a research briefing: the meaningful themes running through the collected records, the noteworthy discoveries and developments they report, what those imply, and the interesting avenues they leave worth exploring. Ground every statement in the attached collected records and cite the exact ones each statement is written from. Counts and collection statistics are secondary; put them last or leave them out.`
+export const WRITE_THE_BRIEFING = 'Ask an agent for a briefing'
+/** Said beside the press, because a press that looks like it spends a run must
+ *  say what it actually does. */
+export const BRIEFING_IS_YOURS_TO_SEND = 'Asking for a briefing sends nothing by itself: it freezes the briefing question with this collection as the only evidence for it, and carries it into this Magnet’s Conversation, where you choose who answers it and press Send. The answer standing above is unchanged until a reply is frozen in its place.'
+/** Said where a briefing written by a run is shown, about what the record
+ *  checked before it accepted it. Deliberately not a grounding claim: what an
+ *  answer was allowed to reach is `Grounded`'s to state, from the provenance
+ *  the answer itself records. */
+export const BRIEFING_BY_RUN = 'Written by a run this Magnet handed its frozen collection to: the record froze the reply as this answer only after checking that what the run could reach was exactly that frozen package — this collection, the question, this Magnet’s own definition and its recorded history — together with anything you declared with it, and nothing else.'
+/** Said when the frozen words of such an answer cannot be read. Nothing is
+ *  shown in their place. */
+export const BRIEFING_UNREAD = 'The answer standing against this Magnet’s kept question was written by a run, and its frozen words could not be read, so none of them are shown here.'
+/** Said where the written floor was NOT written over a briefing. */
+export const BRIEFING_STANDS = 'A briefing written by a run stands as this Magnet’s answer. Nothing was written over it: ask for a written answer or another briefing when you want one.'
+
+/** ASK AN AGENT FOR THE BRIEFING. Three durable writes, in this order, each of
+ *  them the owner's press: the standing question is made the active one (so the
+ *  chip the composer checks is that question), its words are frozen as this
+ *  wording of it, and the immutable input package is prepared from the
+ *  collection in hand. Then the frozen ask is carried into the Conversation.
+ *  Nothing is dispatched, and the owner's own unsent words are never
+ *  overwritten -- that is checked before anything is written. */
+export async function askForBriefing(resource: MagnetResource, store: PerspectiveStore): Promise<void> {
+  if (!resource.snapshot().activation?.artifact.ref)
+    throw new Error('Collect something first. A briefing is written from this Magnet’s collected records, and there are none.')
+  const held = miniComposerDraft(resource)
+  if (held.text.trim() && held.text !== BRIEFING_ASK)
+    throw new Error('The Conversation Composer already holds different words of yours. Keep or clear them before asking for a briefing.')
+  const topic = await store.ensureStanding()
+  if (store.snapshot().selected !== topic) await store.select(topic)
+  await store.prepare(BRIEFING_ASK, `magnet-briefing:${resource.saved.id}:${crypto.randomUUID()}`)
+  // The words carried into the composer are read back from the record, not
+  // held from above: the sent Turn has to begin with the question as the
+  // record now holds it (`perspectives_work.bind`).
+  const context = await store.ordinaryContext()
+  if (!context || context.perspective !== topic)
+    throw new Error('The active question changed while the briefing was being frozen. The frozen request is kept; nothing was sent.')
+  stampAttachedQuestion(resource, store.snapshot().selectedDetail)
+  saveMiniComposer(resource, { ...miniComposerDraft(resource), text: context.question })
+  focusMiniComposer()
+  goTab(resource, 'Conversation')
+  setOpen(resource, true)
+}
+
+/** WHETHER A RECORDED ANSWER WAS WRITTEN BY A RUN rather than by the Python
+ *  synthesis, decided from the two fields only `finalize` records: the reply
+ *  Turn it was frozen from and the execution that produced it
+ *  (`perspectives_work.finalize`). The synthesis records neither. */
+export function agentWritten(e?: InquiryEvent | null): boolean {
+  const d = object(e?.data)
+  return typeof d.answer_post === 'string' && !!d.answer_post && typeof d.execution === 'string' && !!d.execution
+}
+
+/** The held package an answer event stands for, where it names one exactly. */
+export function heldAnswer(e?: InquiryEvent | null): { ref: string; digest: string; size: number } | null {
+  const held = object(object(e?.data).answer)
+  return typeof held.ref === 'string' && /^[0-9a-f]{64}$/.test(held.digest ?? '') && Number.isInteger(held.size)
+    ? { ref: held.ref, digest: held.digest, size: held.size } : null
+}
+
+/** The words a frozen answer package holds: its reply's own text parts, in the
+ *  order they were frozen. Nothing is characterised, shortened or joined with
+ *  anything else -- a briefing is read as the document it was written as. */
+export function frozenWords(pkg: unknown): string {
+  const parts = object(pkg).parts
+  return (Array.isArray(parts) ? parts : [])
+    .filter((p) => object(p).type === 'text' && typeof object(p).text === 'string')
+    .map((p) => String(object(p).text).replace(/\s+$/, ''))
+    .filter((t) => !!t.trim()).join('\n\n')
+}
+
+/** READ THE FROZEN WORDS OF AN ANSWER A RUN WROTE.
+ *
+ *  `finalize` records the reply as an immutable package and the reply Turn it
+ *  came from; it does not record the words on the event the way the synthesis
+ *  does (`data.text`), so a briefing has nothing to show until the package
+ *  itself is read. It is read through the one artifact door this card already
+ *  reads a frozen manifest through, and verified the same way -- exact size,
+ *  exact digest -- so what is shown is the frozen answer and never a
+ *  substitute. Where the event does record `text` (an answer written by the
+ *  synthesis, or by a later build that records it), that is used and nothing is
+ *  fetched. */
+export async function readFrozenAnswer(e: InquiryEvent): Promise<string> {
+  const recorded = answerText(e)
+  if (recorded) return recorded
+  const held = heldAnswer(e)
+  if (!held) throw new Error('This answer names no frozen record of its own words.')
+  const r = await fetch(`/api/artifacts/${encodeURIComponent(held.ref)}`, { headers: CLIENT_HEADERS, cache: 'no-store' })
+  if (!r.ok) throw new Error('The frozen answer is unavailable. Nothing was substituted for it.')
+  const raw = new Uint8Array(await r.arrayBuffer())
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', raw))].map((n) => n.toString(16).padStart(2, '0')).join('')
+  if (raw.byteLength !== held.size || digest !== held.digest)
+    throw new Error('The frozen answer did not verify against the record. Nothing of it is shown.')
+  const words = frozenWords(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)))
+  if (!words) throw new Error('The frozen answer holds no words to read.')
+  return words
+}
+
+/** WHETHER THE WRITTEN FLOOR IS STILL OWED FOR THE COLLECTION IN HAND.
+ *
+ *  It is owed where the record holds no answer written from this collection --
+ *  which is what the one write per observed collection answers. It is NOT owed
+ *  where a run's briefing stands: `finalize` records no collection on its
+ *  answer (`basis` is the synthesis's field alone), so "not for this
+ *  collection" would be read of every briefing there is, and the counted
+ *  answer would be written over the reasoned one on the next open. A briefing
+ *  is superseded only by a press. */
+export function needsWrittenAnswer(got: StandingSummary | null | undefined, batch: string): boolean {
+  return !(got?.batch === batch || agentWritten(got?.current))
+}
+
+/** The answer to render: the recorded event, with the frozen words of a
+ *  run-written answer put where every other part of this view already reads an
+ *  answer's words (`answerText`). The recorded characters are the frozen ones;
+ *  nothing else of the event is changed, so what it was grounded in, what it
+ *  cites and what changed are still read from the record itself. */
+export function withWords(e: InquiryEvent | null | undefined, read: { post: string; words: string } | null): InquiryEvent | null {
+  if (!e) return null
+  if (!read || read.post !== e.post || answerText(e)) return e
+  return { ...e, data: { ...e.data, text: read.words } }
 }
 
 export interface ComparisonResult { words: string; added: Excerpt[]; at?: number; comparable: boolean }
@@ -1294,7 +1473,14 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
     asked.current = batch
     setAnswering(true)
     void inquiries.readSummary()
-      .then((got) => got?.batch === batch ? got : inquiries.summarise(batch))
+      /* AND A BRIEFING A RUN WROTE IS NEVER WRITTEN OVER ON ITS OWN (plan Part
+         3). The written synthesis is the floor shown where no run has answered;
+         it is not an improvement on a briefing, and `finalize` records no
+         collection on its answer, so "the answer is not for this collection"
+         cannot be read as "there is no answer". With a briefing standing, this
+         view writes nothing: the owner's two presses -- a written answer, or
+         another briefing -- are what record the next one. */
+      .then((got) => needsWrittenAnswer(got, batch) ? inquiries.summarise(batch) : got)
       .catch((e: Error) => { if ((e as { details?: { code?: string } }).details?.code !== NOTHING_NEW_CODE) setMessage(`No answer was written from this collection: ${e.message}`) })
       .finally(() => setAnswering(false))
     // Only the collected batch may start this: nothing else here is new evidence.
@@ -1307,13 +1493,39 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
       .catch((e: Error) => setMessage(e.message))
       .finally(() => setAnswering(false))
   }
-  const answered = answerText(summary?.current)
+  /* THE FROZEN WORDS OF A BRIEFING A RUN WROTE, read once per answer. A read of
+     one named artifact, verified against the record, started only by the answer
+     standing now being one whose words the event does not carry: no timer, no
+     poll, and nothing is read again while that same answer stands. */
+  const [frozen, setFrozen] = useState<{ post: string; words: string } | null>(null)
+  const standingAnswer = summary?.current ?? null
+  useEffect(() => {
+    if (!standingAnswer || !agentWritten(standingAnswer) || answerText(standingAnswer)) return
+    let live = true
+    void readFrozenAnswer(standingAnswer)
+      .then((words) => { if (live) setFrozen({ post: standingAnswer.post, words }) })
+      .catch((e: Error) => { if (live) setMessage(`${BRIEFING_UNREAD} ${e.message}`) })
+    return () => { live = false }
+  }, [standingAnswer])
+  const [asking, setAsking] = useState(false)
+  const askBriefing = () => {
+    if (asking) return
+    setAsking(true); setMessage('')
+    void askForBriefing(resource, inquiries)
+      .catch((e: Error) => setMessage(e.message))
+      .finally(() => setAsking(false))
+  }
+  /** The answer as it is read here: the recorded event, with a run-written
+   *  answer's frozen words where this view reads any answer's words. */
+  const current = withWords(standingAnswer, frozen)
+  const byRun = agentWritten(current)
+  const answered = answerText(current)
   const writtenBriefing = !!answered && isWrittenBriefing(answered)
-  const change: AnswerChange | null = answerDiff(summary?.current, summary?.superseded[0])
+  const change: AnswerChange | null = answerDiff(current, summary?.superseded[0])
 
   const lead = materialLead(s)
   const measured = collectionOverview(resource.saved, s)
-  const recordCount = answerRecordCount(summary?.current ?? null)
+  const recordCount = answerRecordCount(current)
   const excerpts = collectedExcerpts(s.results)
   const dated = datedMaterial(s.results)
   const starting = startingAction(resource.saved)
@@ -1389,8 +1601,14 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   recorded and this view used to discard. The recorded
                   characters are unchanged either way. What was grounded in what
                   is said by `Grounded`, below, exactly as before. */}
-              <Briefing resource={resource} answer={summary?.current ?? null} />
-              <Grounded answer={summary?.current ?? null} />
+              <Briefing resource={resource} answer={current} />
+              <Grounded answer={current} />
+              {/* WHAT THE RECORD CHECKED BEFORE IT FROZE A RUN'S REPLY as this
+                  answer. Said only of an answer a run wrote, and said as what
+                  it is -- a statement about the reach the record qualified, not
+                  a second grounding claim: what an answer was allowed to reach
+                  is `Grounded`'s, from the answer's own provenance. */}
+              {byRun && <p className="mgd-subtle">{BRIEFING_BY_RUN}</p>}
               {/* Who wrote it is said ONCE, by the grounding statement above
                   ("Written from this Magnet's collected records and nothing
                   else"). What this adds is the one thing that statement does
@@ -1412,8 +1630,15 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
           <span className="mgd-subtle mgd-grow">{starting.note}</span>
           <button type="button" className="mgd-button mgd-secondary" disabled={answering || !batch} onClick={answerNow}>
             {answering ? 'Answering…' : answered ? 'Answer again from this collection' : ANSWER_THIS_COLLECTION}</button>
+          {/* THE BRIEFING THE OWNER ASKED FOR, as the one press that asks for
+              it (plan Part 3). The written answer beside it is the floor that
+              needs no run; this is the reasoned one, and it is started only
+              here, by hand. */}
+          <button type="button" className="mgd-button mgd-secondary" disabled={asking || !batch} onClick={askBriefing}>
+            {asking ? 'Preparing the briefing question…' : WRITE_THE_BRIEFING}</button>
           <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
         </div>
+        <p className="mgd-subtle">{byRun ? BRIEFING_STANDS : BRIEFING_IS_YOURS_TO_SEND}</p>
         <div className="mgd-divider" />
 
         {/* THE COLLECTED RECORDS COME FIRST (owner request ent-068c167fa7e6 §2:
@@ -1465,7 +1690,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                 standing now against the answer it superseded: that is what the
                 evolving summary changing means. The batch comparison stays
                 below it, as the measured detail it is. */}
-            {!!summary?.current && <>
+            {!!current && <>
               {/* A DOCUMENT'S LINES ARE NOT ITS STATEMENTS. `answerDiff` splits
                   the recorded text on newlines, which is exactly right for the
                   synthesis -- it writes one statement per line -- and wrong for
@@ -1482,7 +1707,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span><Linked text={line} /></p>)}
                   {change?.gone.map((line) => <p className="mgd-item" key={`gone-${line}`}><span className="mgd-subtle">No longer says · </span><Linked text={line} /></p>)}
                 </>}
-              {!summary.superseded.length && <p className="mgd-subtle">This is the first answer recorded against this Magnet's standing question, so there is nothing before it to differ from.</p>}
+              {!summary?.superseded.length && <p className="mgd-subtle">This is the first answer recorded against this Magnet's standing question, so there is nothing before it to differ from.</p>}
               <div className="mgd-divider" />
             </>}
             {comparison
