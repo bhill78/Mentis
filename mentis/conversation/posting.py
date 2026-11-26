@@ -637,8 +637,7 @@ def post(cv, corpus, cid, body, *, agents=None, written_by,
                         # is idempotent, takes its own write lock and never
                         # fails the answer (`_quietly`); the caller runs it
                         # after this commits, ahead of the dispatches.
-                        defer.append(lambda e=e: _completion
-                                     .reconcile_held_by_quietly(cv, e))
+                        defer.append(lambda e=e: _reconcile_after(cv, e))
             # THE KEY ANSWERS FOR THE WHOLE REQUEST, so it is written
             # last, beside everything it answers for, and a retry is
             # given back exactly the response this one gives.
@@ -657,6 +656,32 @@ def post(cv, corpus, cid, body, *, agents=None, written_by,
     # starts a thread and records its own failures, so what is owed is never
     # left without either a run or a recorded reason there is none.
     return out, later
+
+
+#: how often an answer's deferred reconciliation is tried before it is left
+#: to the next reconciliation of that work (a run ending, a claim recorded)
+RECONCILE_TRIES = 3
+
+
+def _reconcile_after(cv, cleared) -> list:
+    """Reconcile what an answer cleared, once it is durable (`post(defer=)`).
+
+    Bounded: at most `RECONCILE_TRIES` attempts, a second apart, for a
+    failure such as a busy database -- the same act inside the answer's
+    transaction could not fail that way. It is idempotent, so a try that
+    raced another reconciliation writes nothing twice. Every failure is
+    printed; none is raised, as `reconcile_held_by_quietly`."""
+    import time
+    import traceback
+    from mentis.operational import completion as _completion
+    for attempt in range(RECONCILE_TRIES):
+        try:
+            return _completion.reconcile_held_by(cv, cleared)
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
+            if attempt + 1 < RECONCILE_TRIES:
+                time.sleep(1.0)
+    return []
 
 
 # -- addressing an existing post ------------------------------------------------

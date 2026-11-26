@@ -162,7 +162,23 @@ def _reading_beside() -> bool:
 def _pinned(store):
     """The read connection this thread holds open for `store` in
     `Store.one_moment()`, or None."""
-    return (getattr(_beside, "pinned", None) or {}).get(id(store))
+    got = (getattr(_beside, "pinned", None) or {}).get(id(store))
+    return got[0] if got else None
+
+
+def moment_memo(store):
+    """The memo of this thread's `Store.one_moment()` on `store`, or None.
+
+    WHAT IS READ AT ONE MOMENT IS KEPT FOR THAT MOMENT ONLY. A snapshot is
+    fixed at its first read while other threads go on committing, so an
+    answer taken inside it can be older than the record by the time it is
+    returned; a memo keyed by the record's write count
+    (`Conversations._recall`) would keep it as current, and would hand an
+    answer taken outside the moment into it. Inside one, answers are kept
+    here instead, reused by that moment's reads, and dropped with it (review
+    of 8becfbe0)."""
+    got = (getattr(_beside, "pinned", None) or {}).get(id(store))
+    return got[1] if got else None
 
 #: THE SCHEMA IS NOT DEFINED HERE. It is the ordered migration list in
 #: `mentis.spine.migrations`, and a Brain is made by `migrations.create_brain`.
@@ -464,7 +480,7 @@ class Store:
             try:
                 conn.execute("BEGIN")
                 self._watch(conn)
-                pins[id(self)] = conn
+                pins[id(self)] = (conn, {})
                 yield
                 ok = True
             finally:

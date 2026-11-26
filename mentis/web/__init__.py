@@ -52,6 +52,21 @@ from mentis.conversation import (content_of, rendering_of, standing_state,
                                  text as text_part)
 from mentis.web.dispatch import dispatch_soon
 from mentis.spine.store import beside_writer_refused, reading_beside_writer
+import weakref as _weakref
+
+#: the threads finishing what an acknowledged answer deferred (the Turns
+#: route): reconciling the claim it held, then starting what it resumes
+_AFTER_ANSWERS: "_weakref.WeakSet[threading.Thread]" = _weakref.WeakSet()
+
+
+def after_answers_settled(timeout: float = 30.0) -> bool:
+    """Wait until every answer's deferred work, started so far, has run:
+    for a caller that reads what that work wrote (a test, a CLI). True if all
+    of it ended within `timeout`."""
+    end = time.time() + timeout
+    for t in list(_AFTER_ANSWERS):
+        t.join(max(0.0, end - time.time()))
+    return not any(t.is_alive() for t in list(_AFTER_ANSWERS))
 # WRITING A POST IS A DOMAIN OPERATION (`mentis/conversation/posting.py`),
 # shared with Fluid's command door. The names this module and its callers
 # have always used for its vocabulary and helpers are kept as they were.
@@ -4074,9 +4089,19 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 written_by=lambda: _observed_writer(st, presented),
                 defer=deferred)
             if deferred:
-                threading.Thread(
-                    target=lambda: [f() for f in deferred],
-                    name="after-answer", daemon=True).start()
+                # IN THE ORDER IT ALWAYS HAD: the claim the answer held is
+                # reconciled, then the work it resumes is started -- both
+                # after the answer is acknowledged (review of 8becfbe0)
+                def after(deferred=deferred, later=later):
+                    for f in deferred:
+                        f()
+                    for kw in later:
+                        (_enqueue_dispatch or dispatch_soon)(st, **kw)
+                t = threading.Thread(target=after, name="after-answer",
+                                     daemon=True)
+                _AFTER_ANSWERS.add(t)
+                t.start()
+                return out
             for kw in later:
                 (_enqueue_dispatch or dispatch_soon)(st, **kw)
             return out

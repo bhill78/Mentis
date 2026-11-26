@@ -7077,7 +7077,20 @@ class Conversations:
         still that number: no commit has finished since, and none is under
         way, so it is what a read made at the moment of reuse would return.
         The memo can cost freshness nowhere; where it cannot be sure, it
-        reads again."""
+        reads again.
+
+        INSIDE ONE MOMENT (`Store.one_moment`), that moment's own memo and
+        nothing else: its reads are of the record as the moment began, which
+        may already be older than `steady` says, so nothing it computes is
+        kept beyond it, and nothing kept outside it is used in it."""
+        from mentis.spine.store import moment_memo
+        held = moment_memo(self._c._store)
+        if held is not None:
+            if key not in held:
+                held[key] = value = compute()
+                for k, v in (also(value) if also else {}).items():
+                    held.setdefault(k, v)
+            return held[key]
         frame = getattr(self._scope, "frame", None)
         if frame is None:
             return compute()

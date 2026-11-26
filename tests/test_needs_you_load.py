@@ -168,3 +168,48 @@ def test_a_turns_number_is_its_rank_and_reads_no_body(world, monkeypatch):
         got = {t: cv.turn_number(t) for t in turns}
     assert got == {t: expected[t] for t in turns}
     assert not bodies                          # no Turn was read in full
+
+
+# -- review of 8becfbe0 ---------------------------------------------------------------
+
+def test_what_a_moment_read_is_not_kept_past_it(world):
+    """A commit landing while a moment's computation runs: the scope's later
+    reads see it, never the moment's older answer kept under the newer count."""
+    from mentis.spine.store import reading_beside_writer
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    cv.say(cid, owner, [text("first")])
+
+    def compute():
+        n = len(cv.contributions(cid))
+        t = threading.Thread(target=lambda: cv.say(cid, owner, [text("w")]))
+        t.start()
+        t.join(10)
+        return n, len(cv.contributions(cid))
+
+    with reading_beside_writer():
+        with cv.reading():
+            inside = cv._c.settled(compute, compute)
+            after = len(cv.contributions(cid))
+    assert inside[0] == inside[1]              # one moment inside
+    assert after == inside[0] + 1              # and the commit after it
+
+
+def test_a_swallowed_refusal_then_another_failure_is_redone(world):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    calls = []
+
+    def compute():
+        calls.append(1)
+        if len(calls) == 1:
+            try:
+                cv.say(cid, owner, [text("in a read")])
+            except WriteWhileReadingBeside:
+                pass
+            raise KeyError("after the refusal")
+        return "redone"
+
+    assert cv._c.settled(compute, compute) == "redone"

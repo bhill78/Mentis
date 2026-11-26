@@ -534,8 +534,11 @@ class Corpus:
                 with store.one_moment():
                     value = compute()
                 refused = beside_writer_refused()
-            except WriteWhileReadingBeside:
-                if outer:
+            except Exception as exc:                      # noqa: BLE001
+                # THE REFUSAL ITSELF, OR ANYTHING AFTER A SWALLOWED ONE, is
+                # redone below as before; any other failure is the caller's
+                if outer or not (isinstance(exc, WriteWhileReadingBeside)
+                                 or beside_writer_refused()):
                     raise
                 refused = True
             if not refused:
