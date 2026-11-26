@@ -39,11 +39,17 @@
    reading position (`places.ts`), so staying reachable is what preserves that.
    At rest this is exactly what `04-browse.png` shows; only a scrolled list --
    a state no mockup gives -- differs. The frame publishes the panel's own
-   surface colour, so nothing here invents one. */
+   surface colour, so nothing here invents one.
+
+   Above an open row preview (correction, review ent-8e817d3b3dff N2: a
+   focused row retained under the pills while scrolling put its preview's
+   z-index 2 above the pills' former z-index 1, painting over the lower part
+   of the sticky bar). The pills stay reachable above any open preview,
+   never the other way round. */
 .q2 .q2-magnet-type-pills {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
   margin: 2px 0;
   padding: 1px 0;
   flex-wrap: wrap;
@@ -91,12 +97,22 @@
    past a readable height; `.mgd-item`'s own padding gives it the same
    left/right edges as the row above it. */
 .q2 .q2-magnet-collected-items .mgd-item { position: relative; }
+/* FLUSH AGAINST THE ROW, NEVER A GAP (correction, review ent-8e817d3b3dff N1:
+   the prior `margin-top: 2px` left a sliver between the row's button and its
+   own preview that belonged to no element. A pointer crossing it, however
+   briefly, left every descendant of this row -- closing this preview and
+   opening the next row's before the pointer ever reached the first row's own
+   link, and a longer straight-line move repeated that at each row boundary
+   underneath, landing several rows down. `margin: 0` removes that sliver in
+   both directions the preview can open, so hovering from the row into its
+   preview, or on through it toward the link inside, never leaves this row's
+   own box. */
 .q2 .q2-magnet-collected .q2-magnet-row-more {
   display: none;
   position: absolute;
   left: 2px; right: 2px; top: 100%;
   z-index: 2;
-  margin: 2px 0 0;
+  margin: 0;
   padding: 6px 8px;
   max-height: 220px;
   overflow-y: auto;
@@ -105,6 +121,15 @@
   border: 1px solid var(--magnet-rule);
   box-shadow: var(--pop-lift);
 }
+/* OPENS UPWARD WHEN THE ROOM BELOW RUNS OUT (correction, review
+   ent-8e817d3b3dff N2: the last complete row's preview had nowhere below it
+   inside the scrolling list and was clipped at the list's own foot, with no
+   upward placement attempted). `EvidenceViews.tsx` measures the room in the
+   nearest scrolling ancestor against this row, the same `placeUpDown`
+   `pop.tsx` already gives every other floating panel that must fit the room
+   it has, and toggles this class rather than inventing a second placement
+   rule. */
+.q2 .q2-magnet-collected .q2-magnet-row-more.opens-up { top: auto; bottom: 100%; }
 .q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-preview { margin: 0 0 3px; line-height: 1.35; }
 .q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-row-link { display: inline-block; margin-top: 1px; line-height: 1.25; }
 .q2 .q2-magnet-collected-items .mgd-item:hover .q2-magnet-row-more,

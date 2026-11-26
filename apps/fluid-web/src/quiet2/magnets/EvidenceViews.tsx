@@ -26,6 +26,7 @@ import { SourceLink, linkHost, rowBody, rowHeadline, rowLink } from './links'
 import CollectionConfiguration from './CollectionConfiguration'
 import { SearchToolbar } from './SearchView'
 import { magnetName, supportsManualCollection } from './configuration'
+import { placeUpDown } from '../../pop'
 import './design.css'
 import './summary.css'
 import './perspectives.css'
@@ -323,6 +324,17 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
   const read = s.activation !== undefined
   const items = lens === 'Posts' ? posts : lens === 'Files' ? files : lens === 'Images' ? images : [...posts, ...files]
+  /** Keeps a just-opened row preview fitted to the room the scrolling list
+   *  actually has, flipping it to open upward when the room below has run
+   *  out (correction, review ent-8e817d3b3dff N2: the last complete row's
+   *  preview had nowhere below it and was clipped at the list's own foot).
+   *  Fires on the row gaining hover or focus -- whichever reveals the
+   *  preview under `collection.css` -- so it is placed before a reader's
+   *  pointer or Tab reaches it, never after. */
+  const placeRowMore = (e: { currentTarget: HTMLElement }) => {
+    const more = e.currentTarget.querySelector<HTMLElement>('.q2-magnet-row-more')
+    if (more) placeUpDown(more)
+  }
   /** One row, compact by default (plan Part 4, approved mockup round 3,
    *  04-browse.png): a title a reader recognises, what it is and when, on one
    *  line -- never a raw id, a recorded digest or a type glyph. The captured
@@ -330,7 +342,8 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
    *  block at 115-140 px, are not shown by default; they are reached by
    *  hovering or focusing the row, so 72 rows is a column a reader can scan
    *  rather than a column that needs scrolling to show six of them. */
-  const row = (r: RouteResult) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`} className="mgd-item">
+  const row = (r: RouteResult) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`} className="mgd-item"
+    onMouseEnter={placeRowMore} onFocus={placeRowMore}>
     <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
       onClick={() => inspect(resource, r.id, `item-${r.id}`)}>
       <span className="q2-magnet-row-text">
