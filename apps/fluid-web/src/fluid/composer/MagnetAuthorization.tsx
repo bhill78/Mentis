@@ -1,3 +1,5 @@
+import './magnetAuthorization.css'
+
 /** An explicit choice for one send. Never a permission default or saved grant. */
 export interface OutsideChoice { web: boolean; collection: string }
 export const noOutside: OutsideChoice = { web: false, collection: '' }
@@ -16,7 +18,7 @@ export function authorizeMessage(body: Record<string, unknown>, choice: OutsideC
 export default function MagnetAuthorization({ value, change, allowed, busy }: {
   value: OutsideChoice; change(value: OutsideChoice): void; allowed: boolean; busy: boolean
 }) {
-  return <fieldset disabled={busy} className="fc-refs" aria-label="Outside sources for this exchange">
+  return <fieldset disabled={busy} className="fc-magnet-authorization" aria-label="Outside sources for this exchange">
     <legend>Outside sources for this exchange only</legend>
     <label><input type="checkbox" checked={value.web} disabled={!allowed}
       onChange={(e) => change({ ...value, web: e.target.checked })} /> Allow runtime web search</label>

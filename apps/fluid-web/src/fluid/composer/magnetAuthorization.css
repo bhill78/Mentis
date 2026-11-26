@@ -1,0 +1,22 @@
+.fc-magnet-authorization {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fc-magnet-authorization label {
+  display: block;
+  min-width: 0;
+}
+
+.fc-magnet-authorization input[type="text"] {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.fc-magnet-authorization button {
+  justify-self: start;
+}
