@@ -18,8 +18,8 @@ use tokio::task::JoinHandle;
 use super::say;
 use crate::launch::SECRET_HEADER;
 use crate::live::{
-    LIVE_PATH, LiveMark, LiveSnapshot, Liveness, POLL_EVERY, POLL_TIMEOUT, POLL_WHILE_ASKED_WITHIN,
-    PollAnswer, discards, freshness,
+    LIVE_PATH, LiveMark, LiveSnapshot, Liveness, POLL_GIVE_UP, POLL_TIMEOUT,
+    POLL_WHILE_ASKED_WITHIN, Pace, PollAnswer, discards, freshness,
 };
 
 /// More than any snapshot holds. Past it, the poll counts as unreadable.
@@ -39,8 +39,36 @@ enum InHand {
     Connecting(JoinHandle<std::io::Result<TcpStream>>),
     /// Open, with nothing sent on it. Where the next poll asks.
     Connected(TcpStream),
-    /// Sent, and what has come back so far.
-    Waiting(TcpStream, Vec<u8>),
+    /// Sent, and what has come back so far. Kept until it is answered, however late.
+    Waiting(Asked),
+}
+
+/// A poll sent and not yet answered: its connection, what has come back, and what its answer is
+/// judged by when it comes, its send time and its marker, so a late answer is taken as that poll's.
+#[derive(Debug)]
+struct Asked {
+    stream: TcpStream,
+    got: Vec<u8>,
+    sent: Instant,
+    marker: Option<Position>,
+}
+
+/// What one tick's poll came to.
+#[derive(Debug, PartialEq, Eq)]
+enum Outcome {
+    /// The poll sent at that moment came to this.
+    Came(Polled, Instant),
+    /// A poll is sent and unanswered, and stays in hand. `new` if it was sent this tick.
+    Pending { new: bool },
+}
+
+/// What listening between polls heard.
+#[derive(Debug, PartialEq, Eq)]
+enum Heard {
+    Nothing,
+    Gone,
+    /// The poll in hand, sent at that moment, came to this.
+    Late(Polled, Instant),
 }
 
 /// How reading an answer ended.
@@ -56,7 +84,8 @@ enum Read {
 #[derive(Clone)]
 enum Polled {
     /// A body that is the envelope of a schema this build reads, with where the record stood before
-    /// this poll asked. A late answer is discarded, so the two can't be from different polls.
+    /// this poll asked. A poll in hand keeps its own marker, so a late answer is still paired with
+    /// the marker of the poll that asked for it.
     Good(Box<LiveSnapshot>, Option<Position>),
     /// A schema this build doesn't read.
     UnknownSchema,
@@ -348,11 +377,17 @@ impl Snapshots {
     }
 
     /// Polls while pulses ask. Started once, by the front, and never returns.
+    ///
+    /// **Never more than one poll outstanding, and a sent poll is never abandoned for a slow
+    /// answer** (until [`POLL_GIVE_UP`]): a busy Python answers it when it can, and that answer is
+    /// taken, its age counted from when it was sent. While answers are slow the next poll waits
+    /// longer ([`Pace`]), and a prompt answer puts it back to [`POLL_EVERY`].
     pub async fn poll_while_asked(&self) {
         loop {
             self.wake.notified().await;
             let mut in_hand = None;
             let mut sampling = None;
+            let mut pace = Pace::default();
             loop {
                 let tick = Instant::now();
                 {
@@ -361,28 +396,52 @@ impl Snapshots {
                         break;
                     }
                 }
-                let polled = self.poll(&mut in_hand, &mut sampling).await;
-                {
-                    let mut state = self.state.lock().expect("no panic is held across this");
-                    if polled == Polled::Nothing {
-                        state.polls_timed_out += 1;
+                match self.poll(&mut in_hand, &mut sampling, tick).await {
+                    Outcome::Came(polled, sent) => self.settle(polled, sent, &mut pace),
+                    Outcome::Pending { new } => {
+                        if new {
+                            let mut state =
+                                self.state.lock().expect("no panic is held across this");
+                            state.polls_timed_out += 1;
+                        }
                     }
-                    state.apply(polled, tick);
                 }
-                let next = (tick + POLL_EVERY).into();
-                if self.listen_until(next, &mut in_hand).await {
-                    let mut state = self.state.lock().expect("no panic is held across this");
-                    state.apply(Polled::Gone, Instant::now());
+                let mut next = tick + pace.every();
+                loop {
+                    match self.listen_until(next.into(), &mut in_hand).await {
+                        Heard::Nothing => break,
+                        Heard::Gone => {
+                            let mut state =
+                                self.state.lock().expect("no panic is held across this");
+                            state.apply(Polled::Gone, Instant::now());
+                            break;
+                        }
+                        // Taken, and listening goes on: the next poll needs a connection in hand.
+                        Heard::Late(polled, sent) => {
+                            self.settle(polled, sent, &mut pace);
+                            if pace.is_slow() {
+                                next = next.max(Instant::now() + pace.every());
+                            }
+                        }
+                    }
                 }
-                tokio::time::sleep_until(next).await;
+                tokio::time::sleep_until(next.into()).await;
             }
         }
     }
 
-    /// One poll, within [`POLL_TIMEOUT`].
+    /// What a poll sent at `sent` came to, applied, and the pace it sets.
+    fn settle(&self, polled: Polled, sent: Instant, pace: &mut Pace) {
+        let answered = matches!(polled, Polled::Good(..) | Polled::UnknownSchema);
+        pace.heard(answered, sent.elapsed());
+        let mut state = self.state.lock().expect("no panic is held across this");
+        state.apply(polled, sent);
+    }
+
+    /// One tick's poll, waiting at most [`POLL_TIMEOUT`] for it.
     ///
-    /// **A poll that comes to nothing stays in hand, and the next tick looks at it rather than
-    /// starting another,** so it really is one at a time:
+    /// **A poll that comes to nothing in that time stays in hand, and the next tick looks at it
+    /// rather than starting another,** so it really is one at a time:
     ///
     /// - **A connection still being made.** Windows retries a refused loopback connection for about
     ///   2 s, far past the timeout, so a poll that gave up on it could never see the refusal that
@@ -390,26 +449,47 @@ impl Snapshots {
     /// - **A request sent and unanswered.** A suspended Python's port goes on accepting into its
     ///   backlog, and it can't accept any of them. A new connection each tick would fill that
     ///   backlog in seconds, and then be refused, and a suspended Python would read as a gone one.
+    ///   And a busy Python goes on working out an answer nobody waits for, and fails to send it.
     ///
-    /// An answer that comes on a later tick is late, so it is discarded, and this tick asks again.
+    /// An answer that comes later is that poll's, taken with its own send time and marker. A tick
+    /// that finds one doesn't ask again: the next tick does.
     async fn poll(
         &self,
         in_hand: &mut Option<InHand>,
         sampling: &mut Option<JoinHandle<Option<Position>>>,
-    ) -> Polled {
+        tick: Instant,
+    ) -> Outcome {
         let deadline = tokio::time::Instant::now() + POLL_TIMEOUT;
         let connecting = match in_hand.take() {
-            Some(InHand::Waiting(stream, got)) => match read_to_end(stream, got, deadline).await {
-                Read::NotYet(stream, got) => {
-                    *in_hand = Some(InHand::Waiting(stream, got));
-                    return Polled::Nothing;
+            Some(InHand::Waiting(asked)) => {
+                let Asked {
+                    stream,
+                    got,
+                    sent,
+                    marker,
+                } = asked;
+                if tick.saturating_duration_since(sent) > POLL_GIVE_UP {
+                    // Dropped, and the next poll asks on a new connection.
+                    return Outcome::Came(Polled::Nothing, sent);
                 }
-                Read::Gone => return Polled::Gone,
-                Read::Whole(_) | Read::Unreadable => None,
-            },
+                return match read_to_end(stream, got, deadline).await {
+                    Read::NotYet(stream, got) => {
+                        *in_hand = Some(InHand::Waiting(Asked {
+                            stream,
+                            got,
+                            sent,
+                            marker,
+                        }));
+                        Outcome::Pending { new: false }
+                    }
+                    Read::Gone => Outcome::Came(Polled::Gone, sent),
+                    Read::Whole(answer) => Outcome::Came(read_answer(&answer, marker), sent),
+                    Read::Unreadable => Outcome::Came(Polled::Nothing, sent),
+                };
+            }
             Some(InHand::Connecting(task)) => Some(task),
             Some(InHand::Connected(stream)) => {
-                return self.ask(stream, in_hand, sampling, deadline).await;
+                return self.ask(stream, in_hand, sampling, deadline, tick).await;
             }
             None => None,
         };
@@ -418,14 +498,14 @@ impl Snapshots {
         let stream = match tokio::time::timeout_at(deadline, &mut task).await {
             Err(_) => {
                 *in_hand = Some(InHand::Connecting(task));
-                return Polled::Nothing;
+                return Outcome::Came(Polled::Nothing, tick);
             }
-            Ok(Err(_)) => return Polled::Nothing,
-            Ok(Ok(Err(error))) if is_gone(&error) => return Polled::Gone,
-            Ok(Ok(Err(_))) => return Polled::Nothing,
+            Ok(Err(_)) => return Outcome::Came(Polled::Nothing, tick),
+            Ok(Ok(Err(error))) if is_gone(&error) => return Outcome::Came(Polled::Gone, tick),
+            Ok(Ok(Err(_))) => return Outcome::Came(Polled::Nothing, tick),
             Ok(Ok(Ok(stream))) => stream,
         };
-        self.ask(stream, in_hand, sampling, deadline).await
+        self.ask(stream, in_hand, sampling, deadline, tick).await
     }
 
     /// Where the record stands, for a poll about to ask on `stream`, within [`SAMPLE_WITHIN`].
@@ -465,50 +545,58 @@ impl Snapshots {
         }
     }
 
-    /// Asks on this connection, and reads what comes back until the deadline.
+    /// Asks on this connection, sent at `sent`, and reads what comes back until the deadline. Not
+    /// whole by then, it stays in hand with its send time and marker.
     async fn ask(
         &self,
         mut stream: TcpStream,
         in_hand: &mut Option<InHand>,
         sampling: &mut Option<JoinHandle<Option<Position>>>,
         deadline: tokio::time::Instant,
-    ) -> Polled {
+        sent: Instant,
+    ) -> Outcome {
         let _ = stream.set_nodelay(true);
         let marker = match self.sampled(&mut stream, sampling).await {
             Ok(marker) => marker,
-            Err(heard) => return heard,
+            Err(heard) => return Outcome::Came(heard, sent),
         };
         let request = format!(
             "GET {LIVE_PATH} HTTP/1.1\r\nHost: {}\r\n{SECRET_HEADER}: {}\r\nConnection: close\r\n\r\n",
             self.upstream, self.secret
         );
         match tokio::time::timeout_at(deadline, stream.write_all(request.as_bytes())).await {
-            Err(_) => return Polled::Nothing,
-            Ok(Err(error)) if is_gone(&error) => return Polled::Gone,
-            Ok(Err(_)) => return Polled::Nothing,
+            Err(_) => return Outcome::Came(Polled::Nothing, sent),
+            Ok(Err(error)) if is_gone(&error) => return Outcome::Came(Polled::Gone, sent),
+            Ok(Err(_)) => return Outcome::Came(Polled::Nothing, sent),
             Ok(Ok(())) => {}
         }
         match read_to_end(stream, Vec::new(), deadline).await {
-            Read::Whole(answer) => read_answer(&answer, marker),
+            Read::Whole(answer) => Outcome::Came(read_answer(&answer, marker), sent),
             Read::NotYet(stream, got) => {
-                *in_hand = Some(InHand::Waiting(stream, got));
-                Polled::Nothing
+                *in_hand = Some(InHand::Waiting(Asked {
+                    stream,
+                    got,
+                    sent,
+                    marker,
+                }));
+                Outcome::Pending { new: true }
             }
-            Read::Gone => Polled::Gone,
-            Read::Unreadable => Polled::Nothing,
+            Read::Gone => Outcome::Came(Polled::Gone, sent),
+            Read::Unreadable => Outcome::Came(Polled::Nothing, sent),
         }
     }
 
-    /// Between polls, until `until`, listens to what is in hand, and says whether that heard Python
-    /// go. **A connection is always in hand here, so a kill is heard as it happens,** rather than by
-    /// the next poll's new connection, which Windows would keep pending for about 2.5 s before
-    /// saying it was refused. With nothing sent on it, it isn't a poll, and nothing else is ever
-    /// open beside it, so a suspended Python's backlog holds only this one.
+    /// Between polls, until `until`, listens to what is in hand: whether that heard Python go, or
+    /// the answer to the poll in hand. **A connection is always in hand here, so a kill is heard as
+    /// it happens,** rather than by the next poll's new connection, which Windows would keep
+    /// pending for about 2.5 s before saying it was refused. With nothing sent on it, it isn't a
+    /// poll, and nothing else is ever open beside it, so a suspended Python's backlog holds only
+    /// this one.
     async fn listen_until(
         &self,
         until: tokio::time::Instant,
         in_hand: &mut Option<InHand>,
-    ) -> bool {
+    ) -> Heard {
         loop {
             match in_hand.take() {
                 None => {
@@ -519,11 +607,11 @@ impl Snapshots {
                     match tokio::time::timeout_at(until, &mut task).await {
                         Err(_) => {
                             *in_hand = Some(InHand::Connecting(task));
-                            return false;
+                            return Heard::Nothing;
                         }
                         Ok(Ok(Ok(stream))) => *in_hand = Some(InHand::Connected(stream)),
-                        Ok(Ok(Err(error))) => return is_gone(&error),
-                        Ok(Err(_)) => return false,
+                        Ok(Ok(Err(error))) if is_gone(&error) => return Heard::Gone,
+                        Ok(Ok(Err(_)) | Err(_)) => return Heard::Nothing,
                     }
                 }
                 Some(InHand::Connected(mut stream)) => {
@@ -532,24 +620,35 @@ impl Snapshots {
                     match tokio::time::timeout_at(until, read).await {
                         Err(_) => {
                             *in_hand = Some(InHand::Connected(stream));
-                            return false;
+                            return Heard::Nothing;
                         }
-                        Ok(Ok(0)) => return true,
-                        Ok(Err(error)) => return is_gone(&error),
+                        Ok(Ok(0)) => return Heard::Gone,
+                        Ok(Err(error)) if is_gone(&error) => return Heard::Gone,
                         // Something said unasked. This connection isn't used again.
-                        Ok(Ok(_)) => return false,
+                        Ok(Ok(_) | Err(_)) => return Heard::Nothing,
                     }
                 }
-                Some(InHand::Waiting(stream, got)) => {
-                    match read_to_end(stream, got, until).await {
+                Some(InHand::Waiting(asked)) => {
+                    let Asked {
+                        stream,
+                        got,
+                        sent,
+                        marker,
+                    } = asked;
+                    return match read_to_end(stream, got, until).await {
                         Read::NotYet(stream, got) => {
-                            *in_hand = Some(InHand::Waiting(stream, got));
-                            return false;
+                            *in_hand = Some(InHand::Waiting(Asked {
+                                stream,
+                                got,
+                                sent,
+                                marker,
+                            }));
+                            Heard::Nothing
                         }
-                        Read::Gone => return true,
-                        // Late, so discarded, and the next poll needs a connection.
-                        Read::Whole(_) | Read::Unreadable => {}
-                    }
+                        Read::Gone => Heard::Gone,
+                        Read::Whole(answer) => Heard::Late(read_answer(&answer, marker), sent),
+                        Read::Unreadable => Heard::Late(Polled::Nothing, sent),
+                    };
                 }
             }
         }
@@ -948,5 +1047,107 @@ mod tests {
             read_answer(b"HTTP/1.1 200 OK\r\n\r\n{\"schema\": 2}", None),
             Polled::UnknownSchema
         );
+    }
+
+    /// A Python that answers every `/private/live` `delay` after it is asked, one connection per
+    /// request, counting requests and the most ever unanswered at once.
+    struct SlowLive {
+        address: SocketAddr,
+        requests: Arc<std::sync::atomic::AtomicUsize>,
+        most_at_once: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    async fn slow_live(delay: Duration) -> SlowLive {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let most_at_once = Arc::new(AtomicUsize::new(0));
+        let now = Arc::new(AtomicUsize::new(0));
+        let (counted, most) = (requests.clone(), most_at_once.clone());
+        tokio::spawn(async move {
+            let mut generation = 0u64;
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                generation += 1;
+                let (counted, most, now) = (counted.clone(), most.clone(), now.clone());
+                tokio::spawn(async move {
+                    let mut got = Vec::new();
+                    let mut chunk = [0; 4096];
+                    while !got.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match stream.read(&mut chunk).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => got.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    let at_once = now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(at_once, Ordering::SeqCst);
+                    tokio::time::sleep(delay).await;
+                    let body = format!(
+                        r#"{{"schema":1,"boot_id":"b","generation":{generation},"live_hash":"h{generation}","taken_at":1.0,"fields":{{"live_now":[],"run_marks":[]}}}}"#
+                    );
+                    let answer = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(answer.as_bytes()).await;
+                    now.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+        SlowLive {
+            address,
+            requests,
+            most_at_once,
+        }
+    }
+
+    /// Polls `snapshots` for `run`, with a pulse asking every 200 ms so polling stays on.
+    async fn polled_for(snapshots: Arc<Snapshots>, run: Duration) {
+        let polling = {
+            let snapshots = snapshots.clone();
+            tokio::spawn(async move { snapshots.poll_while_asked().await })
+        };
+        let until = Instant::now() + run;
+        while Instant::now() < until {
+            snapshots.asked();
+            tokio::time::sleep(ms(200)).await;
+        }
+        polling.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_poll_past_its_timeout_is_kept_and_its_late_answer_taken_with_one_request_at_a_time()
+    {
+        use std::sync::atomic::Ordering;
+        // Late for the timeout, prompt enough to be held fresh.
+        let python = slow_live(ms(600)).await;
+        let snapshots = Arc::new(Snapshots::new(python.address, "s".into()));
+        polled_for(snapshots.clone(), ms(3000)).await;
+        let seen = snapshots.state.lock().unwrap().seen(Instant::now());
+        assert_eq!(seen.state, Liveness::Fresh, "{seen:?}");
+        assert!(seen.hash.is_some());
+        assert_eq!(python.most_at_once.load(Ordering::SeqCst), 1);
+        let requests = python.requests.load(Ordering::SeqCst);
+        // About one per 600 ms answer: never a new request beside one unanswered.
+        assert!((3..=6).contains(&requests), "{requests} requests");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn while_python_is_slow_polls_back_off() {
+        use std::sync::atomic::Ordering;
+        let python = slow_live(ms(1500)).await;
+        let snapshots = Arc::new(Snapshots::new(python.address, "s".into()));
+        polled_for(snapshots.clone(), ms(10_000)).await;
+        assert_eq!(python.most_at_once.load(Ordering::SeqCst), 1);
+        let requests = python.requests.load(Ordering::SeqCst);
+        // Back to back would be six or seven; with the backoff, sent at about 0, 2.5, 6 and 11.5 s.
+        assert!((2..=4).contains(&requests), "{requests} requests");
+        // Each answer was still taken: stale, not unavailable, and never fresh.
+        let seen = snapshots.state.lock().unwrap().seen(Instant::now());
+        assert_eq!(seen.state, Liveness::Stale, "{seen:?}");
     }
 }

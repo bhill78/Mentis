@@ -20,6 +20,7 @@ use mentis_server::launch::{
     DRAIN_LIMIT, EXIT_REFUSED, LaunchState, SECRET_BYTES, SECRET_ENV, SECRET_HEADER, STATE_FORMAT,
     STOP_PATH, Started, StartedWith, default_private_port,
 };
+use mentis_server::logs::{MOST_LOG_BYTES, OLD_LOGS_KEPT, Rotating, pipe};
 use serde::{Deserialize, Serialize};
 
 /// As the bench's own limit: a large Brain's start is slow.
@@ -30,9 +31,13 @@ const ASK_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long `stop` waits past the front's own limit, for it to exit having drained.
 const EXIT_MARGIN: Duration = Duration::from_secs(5);
 const LOG_TAIL_LINES: usize = 20;
+/// How long a refusal waits for a process's log writer to finish, once the process has exited.
+const LOG_WRITER_FINISH: Duration = Duration::from_secs(2);
 /// The port `stop`, with neither `--port` nor `--run-dir`, means, as the contract's command does.
 const DEFAULT_PUBLIC_PORT: u16 = 8760;
 const FLUID_DIST_ENV: &str = "MENTIS_FLUID_DIST";
+/// The verb this launcher starts itself with to write a process's log.
+const LOG_PIPE: &str = "log-pipe";
 const USAGE: &str = "\
 mentis-launch <brain> --port <port> [--host <host>] [--private-port <port>]
     --workspace <dir> [--writable-root <dir>]... [--mars <command>]
@@ -86,8 +91,16 @@ struct Given {
 #[derive(Debug, PartialEq, Eq)]
 enum Asked {
     Launch(Box<Given>),
-    StopFront { run_dir: Option<String>, port: u16 },
-    Recover { run_dir: Option<String>, port: u16 },
+    StopFront {
+        run_dir: Option<String>,
+        port: u16,
+    },
+    Recover {
+        run_dir: Option<String>,
+        port: u16,
+    },
+    /// Not for people: what this launcher starts to write a process's log (`logs.rs`).
+    LogPipe(PathBuf),
 }
 
 fn port_of(flag: &str, text: &str) -> Result<u16, Refused> {
@@ -132,6 +145,11 @@ fn parse_stop(verb: &str, args: &[String]) -> Result<Asked, Refused> {
 fn parse(args: &[String]) -> Result<Asked, Refused> {
     if let Some(verb @ ("stop" | "recover")) = args.first().map(String::as_str) {
         return parse_stop(verb, &args[1..]);
+    }
+    if let [verb, log] = args
+        && verb == LOG_PIPE
+    {
+        return Ok(Asked::LogPipe(PathBuf::from(log)));
     }
     let mut given = Given::default();
     let mut rest = args.iter();
@@ -435,6 +453,8 @@ struct Starting {
     who: &'static str,
     log: PathBuf,
     log_from: u64,
+    /// What writes its output to `log`.
+    log_writer: Child,
     start_time: u64,
 }
 
@@ -450,14 +470,25 @@ impl Starting {
         self.child.id()
     }
 
-    fn own_log_tail(&self) -> String {
+    fn own_log_tail(&mut self) -> String {
+        // Its log writer has the last of what it said until the pipe ends, which is once it has
+        // exited (and anything of its own still holding its output with it).
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            let until = Instant::now() + LOG_WRITER_FINISH;
+            while matches!(self.log_writer.try_wait(), Ok(None)) && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
         let Ok(mut file) = File::open(&self.log) else {
             return String::new();
         };
+        // Rotated since it started: what it said is all in the new file.
+        let from = match file.metadata() {
+            Ok(meta) if meta.len() < self.log_from => 0,
+            _ => self.log_from,
+        };
         let mut text = Vec::new();
-        if file.seek(SeekFrom::Start(self.log_from)).is_err()
-            || file.read_to_end(&mut text).is_err()
-        {
+        if file.seek(SeekFrom::Start(from)).is_err() || file.read_to_end(&mut text).is_err() {
             return String::new();
         }
         let text = String::from_utf8_lossy(&text);
@@ -480,18 +511,14 @@ fn start(
     log: &Path,
     attached: bool,
 ) -> Result<Starting, Refused> {
-    let open_log = || {
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log)
-            .map_err(|e| Refused(format!("can't open {}: {e}", log.display())))
-    };
-    let out = open_log()?;
-    let log_from = out.metadata().map(|m| m.len()).unwrap_or(0);
-    let err = out
-        .try_clone()
-        .map_err(|e| Refused(format!("can't share {}: {e}", log.display())))?;
+    // Made now if it isn't there, so a refusal can quote it from here.
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+        .map_err(|e| Refused(format!("can't open {}: {e}", log.display())))?;
+    let log_from = fs::metadata(log).map(|m| m.len()).unwrap_or(0);
+    let (log_writer, out, err) = log_pipe(log, attached)?;
     let mut command = Command::new(program);
     command
         .args(args)
@@ -531,8 +558,50 @@ fn start(
         who,
         log: log.to_owned(),
         log_from,
+        log_writer,
         start_time,
     })
+}
+
+/// A pipe whose other end a `log-pipe` of this launcher reads into `log`, rotating it
+/// (`contracts/launcher.md`, "Logs"), for a process's stdout and stderr. It outlives this launcher as
+/// the process does, and ends when every writer has: this launcher's copies go when the process has
+/// been started, or with this launcher if it is killed first.
+fn log_pipe(
+    log: &Path,
+    attached: bool,
+) -> Result<(Child, io::PipeWriter, io::PipeWriter), Refused> {
+    let (reader, writer) =
+        io::pipe().map_err(|e| Refused(format!("can't make a pipe for {}: {e}", log.display())))?;
+    let me = env::current_exe()
+        .map_err(|e| Refused(format!("can't say where this launcher is: {e}")))?;
+    let mut command = Command::new(me);
+    command
+        .arg(LOG_PIPE)
+        .arg(log)
+        .stdin(Stdio::from(reader))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    platform::outlive_the_launcher(&mut command, attached);
+    let helper = command.spawn().map_err(|e| {
+        Refused(format!(
+            "can't start the log writer for {}: {e}",
+            log.display()
+        ))
+    })?;
+    drop(command);
+    if let Err(e) = platform::let_run(&helper) {
+        let mut helper = helper;
+        let _ = helper.kill();
+        return refuse(format!(
+            "can't let the log writer for {} run: {e}",
+            log.display()
+        ));
+    }
+    let err = writer
+        .try_clone()
+        .map_err(|e| Refused(format!("can't share the pipe for {}: {e}", log.display())))?;
+    Ok((helper, writer, err))
 }
 
 /// One small request, by hand, so nothing else is needed. The status, or why there wasn't one.
@@ -596,10 +665,10 @@ fn wait_for_answer(
             .try_wait()
             .map_err(|e| Refused(format!("can't watch {}: {e}", starting.who)))?
         {
+            let tail = starting.own_log_tail();
             return refuse(format!(
-                "{} exited, {status}, before answering:\n{}",
-                starting.who,
-                starting.own_log_tail()
+                "{} exited, {status}, before answering:\n{tail}",
+                starting.who
             ));
         }
         let last = match ask_status(host, port, "GET", "/api/server", &[], ASK_TIMEOUT) {
@@ -608,11 +677,11 @@ fn wait_for_answer(
             Err(e) => e.to_string(),
         };
         if began.elapsed() > limit {
+            let tail = starting.own_log_tail();
             return refuse(format!(
-                "{} didn't answer on port {port} within {} s ({last}):\n{}",
+                "{} didn't answer on port {port} within {} s ({last}):\n{tail}",
                 starting.who,
-                limit.as_secs(),
-                starting.own_log_tail()
+                limit.as_secs()
             ));
         }
         std::thread::sleep(WAIT_STEP);
@@ -1242,6 +1311,21 @@ fn run(args: &[String]) -> Result<(), Refused> {
     match parse(args)? {
         Asked::StopFront { run_dir, port } => stop_front(run_dir, port),
         Asked::Recover { run_dir, port } => recover(run_dir, port),
+        Asked::LogPipe(log) => {
+            // Nobody reads what this says: it writes to its log, and if it can't open it, still
+            // reads its pipe to the end, so what writes to it is never held up.
+            let mut log = Rotating::open(&log, MOST_LOG_BYTES, OLD_LOGS_KEPT)
+                .or_else(|_| {
+                    Rotating::open(
+                        Path::new(if cfg!(windows) { "NUL" } else { "/dev/null" }),
+                        u64::MAX,
+                        0,
+                    )
+                })
+                .map_err(|e| Refused(format!("can't open a log: {e}")))?;
+            pipe(io::stdin().lock(), &mut log);
+            Ok(())
+        }
         Asked::Launch(given) => match given.only {
             Some(only) => launch_one(*given, only),
             None => launch_both(*given),

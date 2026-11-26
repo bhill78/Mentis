@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// How often a line is written, when anything changed.
+/// How often lines are written, one per route asked for since its last line.
 pub const LOG_EVERY: Duration = Duration::from_secs(10);
 
 /// Buckets double from 50 microseconds, so 25 of them reach about 28 minutes. A percentile is the
@@ -52,7 +52,8 @@ impl Route {
 #[derive(Debug, Default)]
 pub struct Latency {
     routes: Mutex<BTreeMap<String, Route>>,
-    written_at_total: Mutex<u64>,
+    /// Each route's count when its last line was written.
+    written: Mutex<BTreeMap<String, u64>>,
 }
 
 impl Latency {
@@ -68,20 +69,17 @@ impl Latency {
         }
     }
 
-    /// A line per route, each JSON, if anything happened since the last time.
+    /// A line, JSON, for each route asked for since its last line, and none for the others: the
+    /// counts are cumulative, so an unchanged route's line would only repeat the last one.
     pub fn lines_if_changed(&self) -> Vec<String> {
         let routes = self.routes.lock().expect("no panic is held across this");
-        let total: u64 = routes.values().map(|route| route.total).sum();
-        let mut written = self
-            .written_at_total
-            .lock()
-            .expect("no panic is held across this");
-        if total == *written {
-            return Vec::new();
-        }
-        *written = total;
+        let mut written = self.written.lock().expect("no panic is held across this");
         routes
             .iter()
+            .filter_map(|(name, route)| {
+                let before = written.insert(name.clone(), route.total);
+                (before != Some(route.total)).then_some((name, route))
+            })
             .map(|(name, route)| {
                 serde_json::json!({
                     "event": "latency",
@@ -146,6 +144,13 @@ mod tests {
         let line: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
         assert_eq!(line["route"], "static");
         assert_eq!(line["count"], 1);
+        assert!(log.lines_if_changed().is_empty());
+        log.record("static", Duration::from_millis(1));
+        let lines = log.lines_if_changed();
+        assert_eq!(lines.len(), 1, "only the route that moved: {lines:?}");
+        let line: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(line["route"], "static");
+        assert_eq!(line["count"], 2);
         assert!(log.lines_if_changed().is_empty());
     }
 

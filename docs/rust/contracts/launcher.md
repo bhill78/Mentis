@@ -42,7 +42,17 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 
 **A start that fails stops what this invocation started,** then exits 3 with the reason. It isn't recovery: nothing has been handed over yet, and no half-server is left behind. After step 5 it touches nothing.
 
-**Surviving the launcher.** Both processes must outlive the launcher and whatever started it, with no console attached and output appended to `<run dir>/front.log` and `<run dir>/python.log`. On Windows, `deploy-front.ps1`, `rollback-to-python.ps1` and `cutover.ps1` start what they leave running through `Win32_Process.Create`, as `mars-switch` does, to leave any job the caller is in (`Start-Outside`, `docs/cutover/launch-common.ps1`). `CREATE_NEW_PROCESS_GROUP` doesn't do that: **the launcher run directly stays in its caller's job, and so do both processes.** Whatever may be in a job starts it the same way. The POSIX path is `setsid`.
+**Surviving the launcher.** Both processes must outlive the launcher and whatever started it, with no console attached and output appended to `<run dir>/front.log` and `<run dir>/python.log`, each through its log writer ("Logs", below). On Windows, `deploy-front.ps1`, `rollback-to-python.ps1` and `cutover.ps1` start what they leave running through `Win32_Process.Create`, as `mars-switch` does, to leave any job the caller is in (`Start-Outside`, `docs/cutover/launch-common.ps1`). `CREATE_NEW_PROCESS_GROUP` doesn't do that: **the launcher run directly stays in its caller's job, and so do both processes.** Whatever may be in a job starts it the same way. The POSIX path is `setsid`.
+
+## Logs
+
+`front.log` and `python.log` are bounded (2026-11-25; before, they grew without limit: 231 MB and 173 MB in production). Code: `src/logs.rs`; tests `logs::tests`.
+
+- **A process's stdout and stderr go to a pipe, not the file.** Before starting it, the launcher starts itself as `mentis-launch log-pipe <log>`, with the pipe's reading end as its stdin, detached the same way as the process (`--attached`: in the launcher's tree). That writer is the only one writing the file.
+- **Rotation:** once the file has reached 20 MiB (`MOST_LOG_BYTES`), at the next line's end, `<log>` becomes `<log>.1`, each older one moves up one, and `<log>.3` (`OLD_LOGS_KEPT`) is the last kept. A file that can't be renamed (held open without sharing delete) is copied to `.1` and emptied. Because it rotates between lines and is the file's only writer, no line is split or lost; a line that never ends is cut at twice the size, so the bound holds whatever is written: at most four files of about 20 MiB.
+- **It never holds the server up.** It reads its pipe to the end whatever happens to the file: a write that fails is dropped and the file opened again on the next one, and a log it can't open at all is read into nothing.
+- **What it is not.** It watches nothing and restarts nothing. It isn't in the journal or `launch.json`: it holds no port and no lock, and it ends by itself when the last process that can write to its pipe has ended (the process and anything of its own that inherited its output), or, if the launcher dies before starting the process, when the launcher's end closes. A refusal that quotes a process's log waits up to 2 s for its writer to finish once the process has exited.
+- **Cost:** one small process per log, one pipe hop per write.
 
 ## The state: `launch.json`
 

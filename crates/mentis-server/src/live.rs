@@ -19,14 +19,76 @@ pub const SNAPSHOT_SCHEMA: u32 = 1;
 
 /// Poll this often...
 pub const POLL_EVERY: Duration = Duration::from_millis(500);
-/// ...each poll giving up after this...
+/// ...each poll counted as timed out after this, **though it is kept and its answer still taken**
+/// (age from its own send time) rather than abandoned and asked again...
 pub const POLL_TIMEOUT: Duration = Duration::from_millis(250);
+/// An answer later than this is slow: the next poll waits longer, doubling up to
+/// [`POLL_EVERY_MOST`]. An answer within it puts polling back to [`POLL_EVERY`]. Half of
+/// [`STALE_AFTER`], so a backend answering within it can still be held fresh.
+pub const POLL_PROMPT: Duration = Duration::from_secs(1);
+/// The longest wait between polls while Python is slow. Kept well inside [`UNAVAILABLE_AFTER`], so
+/// slowness alone reads as stale, never unavailable, while answers come within a few seconds.
+pub const POLL_EVERY_MOST: Duration = Duration::from_secs(4);
+/// A poll unanswered this long is given up, and the next one asks on a new connection: the only
+/// time a sent poll is abandoned.
+pub const POLL_GIVE_UP: Duration = Duration::from_secs(30);
 /// ...and only while a pulse was asked for this recently.
 pub const POLL_WHILE_ASKED_WITHIN: Duration = Duration::from_secs(5);
 
 /// A snapshot is fresh up to this age, inclusive. Past it, R1's pulse says so, and from R4 a read
 /// that shows run or work state forwards and never answers from the snapshot.
 pub const STALE_AFTER: Duration = Duration::from_secs(2);
+
+/// How long to wait before the next poll, by how the last ones went: the backoff of
+/// `contracts/live-snapshot.md`, "Polling". Pure, so it is tested at exact values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pace {
+    /// Slow or failed answers in a row.
+    slow: u32,
+    /// The wait while answers are prompt.
+    every: Duration,
+    /// The longest wait, however slow.
+    most: Duration,
+}
+
+impl Default for Pace {
+    /// `/private/live`'s: [`POLL_EVERY`] up to [`POLL_EVERY_MOST`].
+    fn default() -> Self {
+        Self::new(POLL_EVERY, POLL_EVERY_MOST)
+    }
+}
+
+impl Pace {
+    /// Every `every` while answers are prompt, doubling per slow one up to `most`.
+    pub const fn new(every: Duration, most: Duration) -> Self {
+        Self {
+            slow: 0,
+            every,
+            most,
+        }
+    }
+
+    /// A poll came to something, `took` after it was sent. `answered` is a usable answer.
+    pub fn heard(&mut self, answered: bool, took: Duration) {
+        if answered && took <= POLL_PROMPT {
+            self.slow = 0;
+        } else {
+            self.slow = self.slow.saturating_add(1).min(16);
+        }
+    }
+
+    /// Whether the last answers were slow, so the next poll waits [`Pace::every`] from the answer.
+    pub fn is_slow(&self) -> bool {
+        self.slow > 0
+    }
+
+    /// The wait between polls: the prompt one, doubling per slow answer, at most the longest.
+    pub fn every(&self) -> Duration {
+        self.every
+            .saturating_mul(1 << self.slow.min(8))
+            .min(self.most)
+    }
+}
 /// Stale up to this, inclusive, and unavailable past it. See [`freshness`] for what it is counted
 /// from.
 pub const UNAVAILABLE_AFTER: Duration = Duration::from_secs(10);
@@ -485,6 +547,31 @@ mod tests {
             freshness(secs(10) + Duration::from_millis(1), long),
             Liveness::Unavailable
         );
+    }
+
+    #[test]
+    fn polling_backs_off_while_slow_and_returns_on_a_prompt_answer() {
+        let mut pace = Pace::default();
+        assert_eq!(pace.every(), POLL_EVERY);
+        assert!(!pace.is_slow());
+        pace.heard(true, Duration::from_millis(800));
+        assert_eq!(
+            pace.every(),
+            POLL_EVERY,
+            "late but prompt enough to stay fresh"
+        );
+        pace.heard(true, POLL_PROMPT + Duration::from_millis(1));
+        assert_eq!(pace.every(), secs(1));
+        pace.heard(false, Duration::ZERO);
+        assert_eq!(pace.every(), secs(2));
+        for _ in 0..40 {
+            pace.heard(false, Duration::ZERO);
+        }
+        assert_eq!(pace.every(), POLL_EVERY_MOST, "bounded");
+        assert!(pace.is_slow());
+        pace.heard(true, Duration::from_millis(10));
+        assert_eq!(pace.every(), POLL_EVERY);
+        assert!(!pace.is_slow());
     }
 
     #[test]

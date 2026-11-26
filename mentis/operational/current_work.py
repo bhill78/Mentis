@@ -22,9 +22,14 @@ filtered (`of`) -- and an index of what each item read:
     waits on -- so a write under awaited work reaches the waiting item too.
   * REBUILT whole only for what a projection reads of entries (`REBUILDS`:
     people, Personas, governing material, placements, a Conversation's name),
-    a kind not yet classified, a gap longer than `CAP`, or a record that is
-    not at or past the cursor. And reconciled -- rebuilt and compared --
-    every `RECONCILE_S`. Read beside the writer, never under its lock.
+    a kind not yet classified, a gap longer than `CAP`, a failed pass, or a
+    record that is not at or past the cursor. Read beside the writer, never
+    under its lock. RECONCILING -- rebuilding and comparing -- is explicit
+    (`reconcile`): it is never on a timer. On a timer it was most of the
+    serving path's cost (2026-11-25: on the live Brain a build took ~60 s of
+    CPU and, beside the owner's reads, ~12 of every 15 minutes, holding the
+    interpreter lock the whole time); every reconcile since 10-31 had found
+    no difference.
   * GIT: items whose stage asked git are projected again every `GIT_S`.
   * TIME: an item whose stage is time-dependent (`stage.RESUME_GRACE_S` after
     its last act) is projected again until that window has passed.
@@ -72,9 +77,6 @@ from mentis.operational import work_overview as wo
 #: Rows of any one kind after the cursor beyond which the gap is not placed:
 #: the model is rebuilt.
 CAP = 2000
-
-#: How often the model is rebuilt and compared with what was kept.
-RECONCILE_S = 900.0
 
 #: How long a reader waits for the maintained model to catch up with the
 #: record as it stood when asked, before answering from it as it stands.
@@ -674,8 +676,6 @@ class CurrentWork:
                 self._build("first")
             elif self._broken:
                 self._build("after a failure")
-            elif time.time() - self._model.built_at >= RECONCILE_S:
-                self.reconcile(_held=True)
             else:
                 self._update()
             self._broken, self.failed = False, None
@@ -691,7 +691,11 @@ class CurrentWork:
 
     def reconcile(self, *, _held: bool = False) -> list[str]:
         """Rebuild in full and say which items differed from what was kept.
-        Every difference is counted: none is expected."""
+        Every difference is counted: none is expected.
+
+        EXPLICIT ONLY: a test, a diagnostic, or an operator who suspects the
+        model (`python -m mentis.operational.current_work reconcile <brain>`).
+        The serving path never calls it (see the module's docstring)."""
         if not _held:
             self._updating.acquire()
         try:
@@ -867,3 +871,31 @@ def _is_trunk(cv, act) -> bool:
         return is_trunk(cv, act)
     except Exception:                                     # noqa: BLE001
         return True
+
+
+def _main(argv=None) -> int:
+    """`python -m mentis.operational.current_work reconcile <brain>`: build the
+    model of a Brain, opened read-only, and reconcile it once -- the explicit
+    check that used to run on a timer. Prints what differed (nothing is
+    expected) and how long each took; writes nothing."""
+    import argparse
+    p = argparse.ArgumentParser(prog="python -m mentis.operational.current_work")
+    p.add_argument("command", choices=["reconcile"])
+    p.add_argument("brain")
+    a = p.parse_args(argv)
+    from mentis import api
+    cv = api.brain(api.open_corpus(a.brain, access="read")).conversations
+    kept = current_work(cv)
+    started = time.perf_counter()
+    kept.refresh(wait=True)
+    built = time.perf_counter()
+    differed = kept.reconcile()
+    print(json.dumps({"built_s": round(built - started, 1),
+                      "reconcile_s": round(time.perf_counter() - built, 1),
+                      "items": len(kept._model.items),
+                      "differed": differed}, indent=1))
+    return 1 if differed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
