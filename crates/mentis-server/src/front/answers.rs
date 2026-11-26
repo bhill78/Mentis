@@ -414,6 +414,29 @@ pub fn python_gone(why: PythonGone) -> Written {
     send_json(503, &json_object(&[("error", why.words())]), false, true)
 }
 
+/// Too many of the front's forwarded reads are already waiting on Python, so this one wasn't sent.
+/// `contracts/route-table.md`, "Forwarded reads". Nothing was done, so asking again is safe.
+pub fn busy(retry_after_s: u64) -> Written {
+    let body = json_object(&[
+        (
+            "error",
+            "Mentis is busy: too many reads are already waiting on Python, so this one was not sent and nothing was done. Ask again shortly.",
+        ),
+        ("kind", "Busy"),
+    ]);
+    let mut head = status_block(503, phrase(503), true);
+    head.push_str(&format!(
+        "Retry-After: {retry_after_s}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\r\n",
+        body.len()
+    ));
+    let mut bytes = head.into_bytes();
+    bytes.extend_from_slice(body.as_bytes());
+    Written {
+        bytes,
+        closes: true,
+    }
+}
+
 /// Why a forwarded request got no answer from Python.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PythonGone {

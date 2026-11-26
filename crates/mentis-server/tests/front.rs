@@ -246,8 +246,10 @@ async fn a_detached_report_is_forwarded_with_its_body_under_the_shipped_table() 
         body.len()
     );
     assert_eq!(exchange(front.address, request.as_bytes()).await, OK);
-    assert!(text(&python.seen.lock().unwrap()[0])
-        .starts_with("POST /api/detached/opr-arm/report HTTP/1.1\r\n"));
+    assert!(
+        text(&python.seen.lock().unwrap()[0])
+            .starts_with("POST /api/detached/opr-arm/report HTTP/1.1\r\n")
+    );
     assert_eq!(*python.bodies.lock().unwrap(), vec![body.len()]);
 }
 

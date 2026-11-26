@@ -18,6 +18,7 @@ use super::activate::{self, Ended};
 use super::answers::{self, Written};
 use super::checks;
 use super::door::{self, AbortedHold, Door};
+use super::flights::{self, Landed};
 use super::forward::{self, Body, Forwarded};
 use super::grants::GRANTS_PATH;
 use super::head::{self, Head, HeadEnd, Line, Reads, Refusal, python_reads};
@@ -152,6 +153,13 @@ async fn request(
     if matches!(head.line, Line::Empty) {
         return (Next::End, "refused".into());
     }
+    // Anything but a read, in hand: no forwarded read sent before it ends is shared after it.
+    let is_read = match &head.line {
+        Line::Plain { method, .. } => method == "GET" || method == "HEAD",
+        Line::Bare { .. } => true,
+        Line::Odd | Line::Empty => false,
+    };
+    let _other = (!is_read).then(|| shared.flights.other_in_hand());
     let (method, target) = match &head.line {
         Line::Plain { method, target, .. } => (method.clone(), target.clone()),
         Line::Bare { target } if python_reads(target) == Reads::Private => {
@@ -373,17 +381,18 @@ async fn request(
             }
             return (give(client, answer).await, filed);
         }
-        let next = send_on(
+        let (next, how) = send_on_shared(
             client,
             peer,
             &head,
+            &target,
             buffer,
             shared,
             client_closes,
             still_unread,
         )
         .await;
-        return (next, format!("{filed}:forwarded"));
+        return (next, format!("{filed}:{how}"));
     }
     let next = send_on(
         client,
@@ -521,6 +530,67 @@ async fn send_on(
         Ok(Forwarded::KeepOpen) => Next::Another,
         Ok(Forwarded::Close) => Next::End,
         Err(answer) => give(client, answer).await,
+    }
+}
+
+/// A read a route of the front's own didn't answer, to Python: shared with the same read already
+/// on its way there, and waiting for a place among [`super::flights::MOST_FORWARDED_READS`]
+/// (`front/flights.rs`). A read that can't be shared goes on as any forward does. Returns what
+/// the connection does next and how it went, for its time's name.
+#[allow(clippy::too_many_arguments)]
+async fn send_on_shared(
+    client: &mut TcpStream,
+    peer: SocketAddr,
+    head: &Head,
+    target: &str,
+    buffer: &mut Vec<u8>,
+    shared: &Shared,
+    client_closes: bool,
+    still_unread: &mut bool,
+) -> (Next, &'static str) {
+    let peer_ip = peer.ip().to_canonical().to_string();
+    let Some(key) = flights::key(head, target, &peer_ip) else {
+        let next = send_on(
+            client,
+            peer,
+            head,
+            buffer,
+            shared,
+            client_closes,
+            still_unread,
+        )
+        .await;
+        return (next, "forwarded");
+    };
+    let request = forward::for_python(head, &peer_ip, &shared.secret);
+    match shared.flights.read(key, request, client).await {
+        None => (Next::End, "forwarded:client gone"),
+        Some(Landed::Answer { bytes, says_close }) => {
+            let next = if client.write_all(&bytes).await.is_err() || says_close || client_closes {
+                Next::End
+            } else {
+                Next::Another
+            };
+            (next, "forwarded")
+        }
+        Some(Landed::Busy) => (
+            give(client, answers::busy(flights::RETRY_AFTER_S)).await,
+            "busy",
+        ),
+        Some(Landed::Gone(why)) => (give(client, answers::python_gone(why)).await, "forwarded"),
+        Some(Landed::NotShared) => {
+            let next = send_on(
+                client,
+                peer,
+                head,
+                buffer,
+                shared,
+                client_closes,
+                still_unread,
+            )
+            .await;
+            (next, "forwarded")
+        }
     }
 }
 
