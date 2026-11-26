@@ -125,7 +125,9 @@ def test_a_write_during_the_batch_falls_back_to_the_per_conversation_reads(
 
     monkeypatch.setattr(cv, "_conversation_summaries", racing)
     got = cv.conversation_summaries(cv.active_executions())
-    assert len(calls) == 3
+    # one try inside `Store.one_moment` (2026-11-26), where the write it makes
+    # is refused and so redone, then the three counted tries, as before
+    assert len(calls) == 4
     monkeypatch.undo()
     assert got == cv._conversation_summaries_each(cv.active_executions())
 
