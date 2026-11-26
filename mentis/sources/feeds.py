@@ -115,6 +115,8 @@ SWEEP_BYTES = 16 * 1024 * 1024
 #: One feed document. Smaller than `fetch.MAX_RESPONSE_BYTES` would allow,
 #: because a feed is a list of short entries and a 2 MiB one is a mistake.
 MAX_FEED_BYTES = 1024 * 1024
+#: Bound XML nesting before any recursive copy or serialization of content.
+MAX_XML_DEPTH = 128
 
 #: WHAT THE BINDING IS. See the module docstring and `fetch.NET_BINDING`:
 #: there is nothing machine-local to bind.
@@ -362,6 +364,13 @@ def parse_feed(data: bytes, *, charset: str | None = None) -> dict:
     except ET.ParseError as exc:
         raise Refused(f"this is not a feed Mentis could read as XML "
                       f"({exc})") from None
+    pending = [(root, 1)]
+    while pending:
+        element, depth = pending.pop()
+        if depth > MAX_XML_DEPTH:
+            raise Refused(f"this feed exceeds the XML nesting limit "
+                          f"of {MAX_XML_DEPTH}")
+        pending.extend((child, depth + 1) for child in element)
     name = _plain(root.tag).lower()
     if name == "feed":
         kind, items = "atom", [e for e in root.iter()

@@ -227,6 +227,35 @@ def test_inline_atom_content_takes_priority_and_uses_the_shared_reducer(kind, co
         assert text.startswith("Full ")
 
 
+@pytest.mark.parametrize("tag", ["script", "svg", "style", "iframe"])
+def test_self_closing_xhtml_preserves_following_prose_in_survey(brain, monkeypatch, tag):
+    from mentis.spine import held
+
+    document = ('<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>one</id>'
+                '<content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+                f'<p>Before.</p><{tag}/><p>After.</p>'
+                '<script>danger()</script></div></content></entry></feed>')
+    _serve(monkeypatch, {FEED: document})
+    scope = {"include": ["*"], "exclude": [], "options": {"feeds": [FEED]}}
+    survey = feeds.RSS._survey(brain["corpus"], scope, keep=True)
+    body = held.read(brain["corpus"].root, survey["observations"][0]["digest"]).decode()
+    assert "Before." in body and "After." in body
+    assert "danger()" not in body
+
+
+@pytest.mark.parametrize("field", ["content", "title", "id"])
+def test_deep_xml_is_refused_per_feed_and_other_feed_is_surveyed(brain, monkeypatch, field):
+    deep = '<x>' * 1100 + 'text' + '</x>' * 1100
+    document = f'<feed><entry><id>one</id><{field}>{deep}</{field}></entry></feed>'
+    bad = 'https://bad.example/feed.xml'
+    _serve(monkeypatch, {bad: document, FEED: RSS})
+    scope = {"include": ["*"], "exclude": [], "options": {"feeds": [bad, FEED]}}
+    survey = feeds.RSS._survey(brain["corpus"], scope, keep=False)
+    assert len(survey["observations"]) == 2
+    assert len(survey["refused"]) == 1
+    assert "nesting limit" in survey["refused"][0]["reason"]
+
+
 def test_larger_inline_content_still_obeys_the_held_limit(brain, monkeypatch):
     from mentis.spine import held
 

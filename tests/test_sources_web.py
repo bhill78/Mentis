@@ -480,6 +480,14 @@ def test_text_of_html_survives_malformed_markup():
     assert "hello" in fetch.text_of_html("<p>hello<p attr=<<>")
 
 
+@pytest.mark.parametrize("tag", ["script", "svg", "style", "iframe"])
+def test_self_closing_skipped_html_keeps_following_text(tag):
+    text = fetch.text_of_html(f'<p>Before</p><{tag}/><p>After</p>'
+                              '<script>danger()</script>')
+    assert "Before" in text and "After" in text
+    assert "danger()" not in text
+
+
 # -- the live check ------------------------------------------------------------
 
 @pytest.mark.live

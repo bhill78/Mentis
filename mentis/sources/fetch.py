@@ -684,6 +684,7 @@ class _Document(HTMLParser):
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
         if tag in _SKIP and self._skip:
