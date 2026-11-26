@@ -114,3 +114,80 @@ def test_a_finding_on_a_turn_with_other_acts_is_still_found(world):
     plain = cv.expect(turn, of=None, kind="result", by=owner, conversation=cid)
     assert cv.is_finding(found) is True
     assert cv.is_finding(plain) is False
+
+
+# -- abandoned and repeated requests -----------------------------------------
+
+def test_a_closed_peer_is_seen_without_reading_what_it_sent():
+    import socket
+    from mentis.web import _peer_gone
+    a, b = socket.socketpair()
+    try:
+        assert _peer_gone(a) is False            # open, nothing sent
+        b.sendall(b"GET / HTTP/1.1\r\n")         # a next request: not gone
+        assert _peer_gone(a) is False
+        assert a.recv(64).startswith(b"GET")     # and nothing was consumed
+        b.close()
+        assert _peer_gone(a) is True
+    finally:
+        a.close()
+
+
+def test_identical_polled_reads_in_flight_are_computed_once(world, monkeypatch):
+    """Concurrent identical polls share one computation (`_OneFlight`)."""
+    import json
+    import threading
+    import urllib.request
+    import mentis.web as web
+
+    started, release, computed = threading.Event(), threading.Event(), []
+    real = web._routes
+
+    def slow(st, path, *a, **kw):
+        if path == "/api/working":
+            computed.append(path)
+            started.set()
+            release.wait(10)
+        return real(st, path, *a, **kw)
+
+    monkeypatch.setattr(web, "_routes", slow)
+    # one second's key for all of them, whatever the clock does meanwhile
+    monkeypatch.setattr(web.time, "time", lambda: 1_800_000_000.0)
+    got = []
+
+    def ask():
+        req = urllib.request.Request(world["base"] + "/api/working",
+                                     headers={"X-Mentis-Client": "1"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            got.append((r.status, json.loads(r.read())))
+
+    first = threading.Thread(target=ask)
+    first.start()
+    assert started.wait(10)
+    others = [threading.Thread(target=ask) for _ in range(4)]
+    for t in others:
+        t.start()
+    time.sleep(0.5)                               # all four are waiting now
+    release.set()
+    for t in (first, *others):
+        t.join(30)
+    assert [s for s, _ in got] == [200] * 5
+    assert computed == ["/api/working"], computed
+    assert len({json.dumps(b, sort_keys=True) for _, b in got}) == 1
+
+
+def test_a_caller_that_hung_up_is_not_logged_as_a_failure(world, capsys):
+    """A connection reset mid-answer ends quietly: no traceback per request."""
+    import socket
+    from urllib.parse import urlparse
+    u = urlparse(world["base"])
+    for _ in range(3):
+        s = socket.create_connection((u.hostname, u.port))
+        s.sendall(b"GET /api/working HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                  b"X-Mentis-Client: 1\r\n\r\n")
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                     __import__("struct").pack("ii", 1, 0))   # reset on close
+        s.close()
+    time.sleep(1.0)
+    err = capsys.readouterr().err
+    assert "ConnectionAbortedError" not in err and "ConnectionResetError" not in err

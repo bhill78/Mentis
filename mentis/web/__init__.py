@@ -217,6 +217,62 @@ class _Kept:
 _POLLED = _Kept()
 
 
+class _OneFlight:
+    """ONE COMPUTATION PER POLLED QUESTION IN FLIGHT. While one request works
+    out a polled answer, others asking the same question (the same
+    `_polled_key`: the same record positions, runs and second) wait for it
+    instead of computing it again beside it. Measured on the live Brain
+    (2026-11-25): with the interpreter busy, every view's poll arrived while
+    the last was still being answered and each began the same work again.
+
+    A waiter waits at most `WAIT_S`, then computes for itself, so one stuck
+    answer delays nobody for long; nothing is kept beyond `_POLLED`'s rules."""
+
+    WAIT_S = 30.0
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._busy = {}
+
+    def claim(self, key):
+        """(True, None) to compute it; (False, event) to wait on `event`."""
+        with self._lock:
+            ev = self._busy.get(key)
+            if ev is None:
+                self._busy[key] = threading.Event()
+                return True, None
+            return False, ev
+
+    def done(self, key) -> None:
+        with self._lock:
+            ev = self._busy.pop(key, None)
+        if ev is not None:
+            ev.set()
+
+
+_IN_FLIGHT = _OneFlight()
+
+
+class _ClientGone(Exception):
+    """The caller hung up before the work began: nothing to answer."""
+
+
+def _peer_gone(sock) -> bool:
+    """Whether the other end has closed this connection, without reading
+    anything it sent: a closed socket is readable and peeks empty. Asked
+    before work that costs seconds, never as a substitute for answering."""
+    import select
+    try:
+        ready, _, _ = select.select([sock], [], [], 0)
+        if not ready:
+            return False
+        return sock.recv(1, socket.MSG_PEEK) == b""
+    except (BlockingIOError, InterruptedError):
+        return False
+    except (OSError, ValueError):
+        return True
+
+
 def _live_hash(live) -> str:
     """The live half of a pulse token. `/api/pulse` and `/private/live` both
     say it, so what Python alone answers and what the front is told can't
@@ -7139,6 +7195,12 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             try:
                 super().handle_one_request()
+            except _CLIENT_GONE:
+                # THE CALLER HUNG UP: nothing to answer and nothing to log.
+                # Printed whole, these were most of python.log (23,500 on
+                # 2026-11-25, each a traceback written under the lock).
+                self.close_connection = True
+                return
             except Exception as failed:
                 self._answer_failure(failed)
                 # Logged as `socketserver` would, and the connection ends, but
@@ -7993,6 +8055,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
         query = urllib.parse.parse_qs(parsed.query)
+        memo_key, mine = None, False
         try:
             # ONE ANSWER PER QUESTION, FOR THIS READ ONLY. `status_of` is asked
             # about the same (Turn, addressee) up to three times in a single read
@@ -8018,14 +8081,26 @@ class _Handler(BaseHTTPRequestHandler):
             memo_key = (_polled_key(self.state, parsed.path, query)
                         if method == "GET" else None)
             kept = _POLLED.get(memo_key) if memo_key else None
+            if memo_key and kept is None:
+                mine, flying = _IN_FLIGHT.claim(memo_key)
+                if not mine:
+                    flying.wait(_OneFlight.WAIT_S)
+                    kept = _POLLED.get(memo_key)
             if kept is not None:
                 result = kept
             elif method == "GET" or worker_read:
                 try:
                     with (_read_gate(body) if worker_read else contextlib.nullcontext(),
                           reading_beside_writer(), self.state.cv.reading()):
+                        # NOBODY WAITING, NOTHING DONE: a caller that hung up
+                        # while this waited for its turn (the front gives up on
+                        # a slow answer) is not answered at the cost of seconds.
+                        if _peer_gone(self.connection):
+                            raise _ClientGone()
                         result = _routes(self.state, parsed.path, query, body,
                                          method, presented, peer=self._peer())
+                except _ClientGone:
+                    raise
                 except Exception:                 # noqa: BLE001
                     # the refusal itself, or anything after a swallowed one:
                     # that attempt is void and answered again below
@@ -8042,6 +8117,9 @@ class _Handler(BaseHTTPRequestHandler):
                     and not getattr(self.state.corpus, "uncommitted", False)
                     and _polled_key(self.state, parsed.path, query) == memo_key):
                 _POLLED.put(memo_key, result)
+        except _ClientGone:
+            self.close_connection = True
+            return None
         except _StructuredRefusal as exc:
             # A STRUCTURED REFUSAL CARRIES ITS FIELDS (`mentis.refusal`, WS-I):
             # `{error, kind}` as below, plus `refusal` when it has them. The
@@ -8069,6 +8147,9 @@ class _Handler(BaseHTTPRequestHandler):
             refused = isinstance(exc, _BadRequest)
             return self._send(400 if method == "POST" or refused else 500,
                               {"error": str(exc), "kind": type(exc).__name__})
+        finally:
+            if mine:
+                _IN_FLIGHT.done(memo_key)
         if result is None:
             return self._send(404, {"error": "no such semantic surface"})
         from mentis.conversation.erasure import status_of as _nw
