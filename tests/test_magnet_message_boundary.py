@@ -344,18 +344,38 @@ def test_native_and_fresh_continuations_share_context_or_refuse(world, native, e
 
 
 @pytest.mark.parametrize("door", ["magnet-extract", "magnet-perspective"])
-def test_retained_pool_attachment_cannot_bypass_gate(world, door):
+def test_a_retained_pool_attachment_is_held_to_the_magnet_scope(world, door):
+    """REVISED BY PART A. This used to assert `require_grounded` refused any
+    message carrying retained collection material, because nothing decided
+    what the run could then read. `mentis.magnet.scope` decides it now, so the
+    boundary moved to where the owner's correction `ent-d85254fe5e1b` put it:
+    the owner may attach THIS Magnet's own retained material to their own
+    message, and the run carrying that exchange may read that Magnet's own
+    material -- while material held under the same door by somebody else is
+    outside its collection scope.
+    """
     from mentis import artifacts
+    from mentis.magnet import scope as S
+    from mentis.web import _surface
     mid = a_magnet(world)
     b = request(world, mid)
     held = artifacts.hold(world["cv"]._c, world["cv"], b"pool", act=artifacts.SUBMITTED,
         actor=b["author"], source=f"magnet:{mid}", door=door,
         claimed_media_type="application/json")
+    foreign = artifacts.hold(world["cv"]._c, world["cv"], b"somebody else's pool",
+        act=artifacts.SUBMITTED, actor=b["author"], source="magnet:mag-elsewhere",
+        door=door, claimed_media_type="application/json")
     b["parts"].append({"type": "file", "ref": held["admission"]})
-    before = world["cv"]._c.advance()
     status, out = send(world, b)
-    assert status == 422 and out["code"] == "grounded-answers-blocked"
-    assert world["cv"]._c.advance() == before
+    assert status == 200, out
+    confined = S.parsed("magnet:" + mid)
+    grant = {"expectation": None, "conversation": out["home"]}
+    surface = _surface(world["state"])
+    assert S.why_not(surface, confined, grant, "read_artifact",
+                     {"ref": held["admission"]}) is None
+    why = S.why_not(surface, confined, grant, "read_artifact",
+                    {"ref": foreign["admission"]})
+    assert why and f"outside Magnet {mid}'s collection scope" in why
 
 
 def test_receipt_replay_does_not_hand_on_owner_stopped_unstarted_work(world):

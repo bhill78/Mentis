@@ -106,7 +106,11 @@ def test_delivery_reports_keep_reservation_identity_and_actual_grant(world, outc
     assert detail["authored_version"] == answer["post"]
     assert detail["grant"] == reserved["detail"]["grant"]
     assert detail["grant"]["expectation"] == answer["expectations"][0]
-    assert detail["grant"]["scope"] == "worker"
+    # REVISED BY PART A: a run carrying a managed Magnet exchange is dispatched
+    # confined to that Magnet's collection scope (`mentis.magnet.scope`,
+    # `dispatch._magnet_scope`), not with the ordinary worker scope. What the
+    # audit must carry -- the ACTUAL grant, whatever it is -- is unchanged.
+    assert detail["grant"]["scope"] == "magnet:" + body["from"]["magnet"]
     assert detail["grant"]["run"] == detail["run"]
     assert detail["grant"]["instance"] == supplied["execution"]
     assert reserved["detail"]["prepared_payloads"]["full"] == MC.text_digest(seen[0].prompt)

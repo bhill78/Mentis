@@ -857,7 +857,13 @@ def test_a_retry_answers_where_it_went_but_the_file_says_the_claim(world):  # no
                     {"_magnetAssistance": {}},
                     {"dispatch": [{"participant": agent, "work": "generated"}]}):
         status, refused = ask(world, {"magnet": mid}, op="first", **changed)
-        assert status == 422 and refused["code"] == "grounded-answers-blocked", refused
+        # REVISED BY PART A: the grounded-answers gate is open now that the
+        # configured-source scope is enforced (`mentis.magnet.scope`), and the
+        # retired generated-work adapter is still refused on its own terms --
+        # the refusal `message_context.gate` always had behind the gate for
+        # exactly this. Nothing is started and neither Conversation changes,
+        # which is what this test is about.
+        assert status == 422 and refused["code"] == "invalid-managed-intent", refused
     status, refused = ask(world, {"magnet": mid}, op="first", magnet_context={})
     assert status == 409 and refused["code"] == "conflicting-replay", refused
     assert len(world["sent"]) == sent
