@@ -102,7 +102,7 @@ def test_a_declared_page_acquires_one_object_keyed_by_its_url(brain,
     plan, out = _acquire(brain, {"urls": [HOME]})
     assert plan["counts"]["new"] == 1
     rows = reading.objects(brain["corpus"], out["collection"])["objects"]
-    assert [r["key"] for r in rows] == [HOME]
+    assert [r["key"] for r in rows] == [web.object_key(HOME)]
     assert rows[0]["label"] == "The orchard"
     assert rows[0]["state"] == "present"
 
@@ -146,7 +146,9 @@ def test_an_address_normalises_to_one_key(brain, monkeypatch, given, key):
     _serve(monkeypatch, {key: PAGE})
     _, out = _acquire(brain, {"urls": [given]})
     assert [r["key"] for r in reading.objects(
-        brain["corpus"], out["collection"])["objects"]] == [key]
+        brain["corpus"], out["collection"])["objects"]] == [web.object_key(key)]
+    # the two spellings of the one address reach the one object
+    assert web.object_key(given) == web.object_key(key)
 
 
 # -- depth: the field that turns a page fetch into a crawler -------------------
@@ -182,12 +184,13 @@ def test_depth_one_follows_only_links_the_page_states_on_its_own_host(
     plan, out = _acquire(brain, {"urls": [HOME], "depth": 1})
     keys = sorted(r["key"] for r in reading.objects(
         brain["corpus"], out["collection"])["objects"])
-    assert keys == [HOME, "https://orchard.example/pruning"]
+    assert keys == sorted([web.object_key(HOME),
+                           web.object_key("https://orchard.example/pruning")])
     assert not any("elsewhere.example" in a for a in stub.asked)
     # mailto: and javascript: are not addresses this fetches at all
     assert not any(a.startswith(("mailto", "javascript")) for a in stub.asked)
     # depth 1 stops at depth 1: /deeper is stated by /pruning and not taken
-    assert "https://orchard.example/deeper" not in keys
+    assert web.object_key("https://orchard.example/deeper") not in keys
 
 
 def test_depth_two_follows_two_hops(brain, monkeypatch):
@@ -197,7 +200,7 @@ def test_depth_two_follows_two_hops(brain, monkeypatch):
     _, out = _acquire(brain, {"urls": [HOME], "depth": 2})
     keys = sorted(r["key"] for r in reading.objects(
         brain["corpus"], out["collection"])["objects"])
-    assert "https://orchard.example/deeper" in keys
+    assert web.object_key("https://orchard.example/deeper") in keys
 
 
 def test_depth_has_a_hard_maximum():
@@ -273,7 +276,9 @@ def test_robots_txt_is_respected_for_a_declared_page(brain, monkeypatch):
         connector="web", name="Orchard",
         options={"urls": [HOME, "https://orchard.example/private/notes"]})
     assert plan["counts"]["new"] == 1
-    barred = [n for n in plan["not_acquired"] if "private" in n["path"]]
+    barred = [n for n in plan["not_acquired"]
+              if n["path"] == web.object_key(
+                  "https://orchard.example/private/notes")]
     assert barred and "robots.txt" in barred[0]["reason"]
 
 
@@ -354,7 +359,8 @@ def test_a_page_that_404s_is_reported_and_is_not_absent(brain, monkeypatch):
     again = brain["src"].plan(out["collection"])
     assert again["absent"] == []                 # never inferred absent
     assert again["counts"]["absent"] == 0
-    gone = [n for n in again["not_acquired"] if n["path"].endswith("/gone")]
+    gone = [n for n in again["not_acquired"]
+            if n["path"] == web.object_key("https://orchard.example/gone")]
     assert gone and "404" in gone[0]["reason"]
     assert [r for r in again["at"]["read"]
             if r["status"] == "failed"][0]["http"] == 404
@@ -369,7 +375,9 @@ def test_something_that_is_not_a_page_is_reported_as_what_it_is(brain,
         connector="web", name="Orchard",
         options={"urls": [HOME, "https://orchard.example/map.pdf"]})
     assert plan["counts"]["new"] == 1
-    said = [n for n in plan["not_acquired"] if n["path"].endswith(".pdf")]
+    said = [n for n in plan["not_acquired"]
+            if n["path"] == web.object_key(
+                "https://orchard.example/map.pdf")]
     assert said and "application/pdf" in said[0]["reason"]
     assert "extractor" in said[0]["reason"]
 
@@ -421,6 +429,47 @@ def test_a_web_collection_is_not_bound_to_this_machine(brain, monkeypatch):
 
 # -- the HTML reduction itself --------------------------------------------------
 
+def test_a_key_is_one_a_magnet_can_actually_read(brain, monkeypatch):
+    """WHY THE KEY IS NOT THE LITERAL URL. A Magnet reads a collection
+    through a `file` source, and the one rule that decides what that may
+    name -- `mentis.magnet.activation.file_choice`, with its Rust twin
+    `held_file::choice` -- refuses a key holding `:` or `?`. A literal URL
+    would be acquired and then unreadable by the thing Part W exists to
+    feed, so the key is the host plus a digest of the normalised URL, and
+    the URL itself is recorded beside it."""
+    from mentis.magnet.activation import file_choice
+
+    assert file_choice({"collection": "col-x", "path": HOME}) is None
+    assert file_choice({"collection": "col-x",
+                        "path": "https://e.example/s?q=1"}) is None
+    for url in (HOME, "https://e.example/s?q=1",
+                "https://e.example/a/b/c.html"):
+        key = web.object_key(url)
+        assert file_choice({"collection": "col-x", "path": key}) == \
+            ("exact", key)
+    _serve(monkeypatch, {HOME: PAGE})
+    _, out = _acquire(brain, {"urls": [HOME]})
+    for row in reading.objects(brain["corpus"], out["collection"])["objects"]:
+        assert file_choice({"collection": out["collection"],
+                            "path": row["key"]}) == ("exact", row["key"])
+
+
+def test_a_page_is_found_by_the_address_that_was_declared(brain, monkeypatch):
+    """The descriptor's `normalise` hook is the connector's own key rule, so
+    nothing has to know the digest to read a page."""
+    from mentis.sources import registry
+    _serve(monkeypatch, {HOME: PAGE})
+    _, out = _acquire(brain, {"urls": [HOME]})
+    assert registry.normalise("web", HOME) == web.object_key(HOME)
+    assert registry.normalise("web", "https://Orchard.Example") == \
+        web.object_key(HOME)
+    got = brain["src"].read(collection=out["collection"], path=HOME)
+    assert "We grow pears" in got["text"]
+    # and normalising a key is idempotent
+    key = web.object_key(HOME)
+    assert web.object_key(key) == key
+
+
 def test_links_in_html_keeps_only_https_addresses_the_page_states():
     got = fetch.links_in_html(PAGE, HOME)
     assert got == ["https://orchard.example/pruning",
@@ -453,6 +502,7 @@ def test_live_a_declared_page_acquires_a_real_object(brain):
         web.source_of(out["collection"]))][0][
             "body"]["envelope"]["bulk_source"]["native"]
     assert native["link"] == "https://example.com/"
+    assert native["url"] == "https://example.com/"
     assert native["depth"] == 0
     print(f"\nLIVE web: 1 object, {plan['at']['spent']['bytes']} bytes from "
           f"{plan['at']['spent']['fetches']} fetches")

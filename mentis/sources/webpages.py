@@ -194,6 +194,36 @@ def _host(url: str) -> str:
     return urllib.parse.urlsplit(url).netloc
 
 
+def object_key(given) -> str:
+    """ONE OBJECT PER URL, keyed by its normalised URL -- as the host it is
+    on, then a digest of the whole normalised address.
+
+    WHY NOT THE URL ITSELF, WHICH READS BETTER. A Magnet's `file` source is
+    how a collection is read into a Magnet, and the one rule that decides
+    what it may name (`mentis.magnet.activation.file_choice` and its Rust
+    twin `held_file::choice`) refuses a key holding `:`, `?`, `*`, `[`, `]`
+    or an empty component -- so `https://host/a?b=1` could be acquired and
+    then never read by the thing this part exists to feed. CHECKED, not
+    assumed: `file_choice` accepts this shape and refuses a literal URL.
+
+    Nothing is lost by it. `https` is the only scheme there is here, the
+    normalised URL is recorded as `native.url`, it is the page's own
+    permalink in `native.link`, it is the second line of the acquired text,
+    and this hook is the descriptor's `normalise`, so asking for a page BY
+    ITS URL still finds its object. A feed entry's key is the same shape for
+    the same reason -- a guid can hold anything at all.
+
+    Given something that is already a key, it is returned unchanged, so
+    normalising is idempotent."""
+    text = str(given or "").strip()
+    try:
+        url = fetch.canonical_url(text)
+    except Refused:
+        return text
+    return (f"{_host(url)}/"
+            + hashlib.sha256(url.encode("utf-8")).hexdigest()[:16])
+
+
 def _page_body(url: str, title: str, text: str) -> bytes:
     """The bytes acquired for one page.
 
@@ -222,26 +252,28 @@ def _survey(corpus, scope, *, keep: bool, progress=None) -> dict:
         if url in done:
             continue
         done.add(url)
+        # THE ADDRESS IS WHAT IS FETCHED; THE KEY IS WHAT IS RECORDED. See
+        # `object_key` for why they are not the same string.
+        key = object_key(url)
         progress.check()
         progress.folder(_host(url))
         if fetched >= MAX_PAGES_PER_SWEEP:
-            where = withheld if at == 0 else None
             note = (f"not acquired: this sweep has already fetched "
                     f"{fetched} pages, its limit of {MAX_PAGES_PER_SWEEP}")
-            if where is not None:
-                where[url] = note
+            if at == 0:
+                withheld[key] = note
             else:
                 refused.append({"path": url, "reason": note})
             continue
-        if not selected(scope, url):
-            visible.append(url)
+        if not selected(scope, key):
+            visible.append(key)
             continue
         rules = fetch.robots(url, budget=budget, cache=robots_cache)
         barred = rules.may(url)
         if barred is not None:
-            withheld[url] = f"not acquired: {barred}"
-            read.append({"url": url, "depth": at, "status": "robots",
-                         "why": barred})
+            withheld[key] = f"not acquired: {barred}"
+            read.append({"url": url, "key": key, "depth": at,
+                         "status": "robots", "why": barred})
             continue
         try:
             answer = fetch.get(url, accept=ACCEPT, budget=budget,
@@ -268,9 +300,9 @@ def _survey(corpus, scope, *, keep: bool, progress=None) -> dict:
         except Refused as exc:
             # REPORTED AGAINST THE PAGE'S OWN IDENTITY, and nothing is
             # inferred absent from it: its latest observation stands.
-            withheld[url] = f"not acquired: {exc}"
-            read.append({"url": url, "depth": at, "status": "failed",
-                         "why": str(exc),
+            withheld[key] = f"not acquired: {exc}"
+            read.append({"url": url, "key": key, "depth": at,
+                         "status": "failed", "why": str(exc),
                          **({"http": exc.status}
                             if getattr(exc, "status", None) else {})})
             continue
@@ -278,7 +310,7 @@ def _survey(corpus, scope, *, keep: bool, progress=None) -> dict:
         text, title, _ = fetch.read_html(raw) if answer.media_type != \
             "text/plain" else (raw.strip(), "", [])
         data = _page_body(answer.final_url, title, text)
-        got = _observed(corpus, url, data, keep=keep, withheld=withheld,
+        got = _observed(corpus, key, data, keep=keep, withheld=withheld,
                         native={"label": title or url, "title": title,
                                 "link": answer.final_url, "url": url,
                                 "depth": at, "followed_from": came_from,
@@ -287,7 +319,7 @@ def _survey(corpus, scope, *, keep: bool, progress=None) -> dict:
         if got is not None:
             observations.append(got)
             progress.read(len(data))
-        read.append({"url": url, "depth": at, "status": "read",
+        read.append({"url": url, "key": key, "depth": at, "status": "read",
                      "title": title, "bytes": len(answer.body)})
         if at < depth:
             # ONLY WHAT THE PAGE ITSELF STATES, only https, only this host.

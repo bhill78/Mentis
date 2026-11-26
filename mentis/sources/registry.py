@@ -170,6 +170,14 @@ _GIT_PRESETS = [
 ]
 
 
+def _web_key(key):
+    """A web page object's key, from its URL or from the key itself: the
+    connector's own rule (`mentis.sources.webpages.object_key`), so asking
+    for a page by the address you declared finds its object."""
+    from mentis.sources.webpages import object_key
+    return object_key(key)
+
+
 def _providers() -> list[dict]:
     """The search providers, FROM THE CONNECTOR'S OWN TABLE rather than
     copied here (amendment §2: "the provider table is data in the module"),
@@ -287,12 +295,12 @@ REGISTRY: dict[str, Descriptor] = {d.id: d for d in [
                      "and 40 pages a sweep"}],
         preview="bounded", modes=("one-time", "manual-refresh"),
         live="permalink", browse="hierarchy",
-        key="a normalised https URL",
+        key="the page's host and a digest of its normalised URL",
         connect="type https addresses. Each is fetched once with a plain "
                 "GET -- no credential of any kind is sent or kept, "
                 "robots.txt is respected, no JavaScript runs and nothing a "
                 "page references is fetched",
-        normalise=_opaque_key, labelled=_native_label),
+        normalise=_web_key, labelled=_native_label),
     Descriptor(
         summary="Entries from RSS and Atom feeds you name",
         id="rss-atom", label="RSS / Atom feeds", available=True,

@@ -452,6 +452,24 @@ def test_a_search_result_key_reads_as_its_query(brain, monkeypatch):
     assert all(k.startswith("roof-tiles/") for k in keys)
 
 
+def test_a_feed_entry_key_is_one_a_magnet_can_actually_read(brain,
+                                                            monkeypatch):
+    """A Magnet reads a collection through a `file` source, and the rule
+    that decides what that may name (`magnet.activation.file_choice`, with
+    its Rust twin `held_file::choice`) refuses a key holding `:` or `?` --
+    which is why an entry is keyed by a digest of its own id and not by the
+    id itself, a guid being able to hold anything at all."""
+    from mentis.magnet.activation import file_choice
+
+    _serve(monkeypatch, {FEED: RSS})
+    _, out = _acquire(brain, connector="rss-atom", options={"feeds": [FEED]})
+    rows = reading.objects(brain["corpus"], out["collection"])["objects"]
+    assert rows
+    for row in rows:
+        assert file_choice({"collection": out["collection"],
+                            "path": row["key"]}) == ("exact", row["key"])
+
+
 def test_search_and_feeds_are_one_implementation():
     """The amendment's words: "this is one implementation, not two"."""
     assert type(feeds.RSS) is type(feeds.SEARCH)
