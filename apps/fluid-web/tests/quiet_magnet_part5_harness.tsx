@@ -20,6 +20,11 @@
  *    briefing   an answer written as a document: prose, a heading and a table,
  *               drawn by `Prose` -- the presentation Part 3's dispatched run
  *               produces, shown now over a recorded answer of that shape
+ *    briefing-multi the same document, but recorded as review `ent-19c3c55af28c`
+ *               found a real one can be: a paragraph cut off mid-sentence and
+ *               continued in the next entry, a table with one entry per row,
+ *               and an ordered list with one entry per item -- each entry
+ *               naming only the record it was actually written from
  *    unanswered no answer recorded: the lead is what the material NAMES, and no
  *               count is above the fold
  *    inspect    one collected record opened: its headline a heading, its address
@@ -136,6 +141,31 @@ const BRIEFING = [
   'all between November 2025 and March 2026.',
 ].join('\n')
 
+/** THE SAME BRIEFING, RECORDED THE WAY A TABLE, A LIST AND A PARAGRAPH CAN
+ *  ACTUALLY ARRIVE: as several recorded entries, each with its own citation,
+ *  rather than the whole document in one entry. The fixture the independent
+ *  review found (`02-summary-briefing.png`) could not show per-statement
+ *  citation mapping or Markdown spanning entries, because it put the whole
+ *  document in one `lines` entry. This one cannot make that mistake: the
+ *  heading, the paragraph (cut off mid-sentence, continued in the next
+ *  entry), the table (one entry per row) and the ordered list (one entry per
+ *  item) are each split exactly where review `ent-19c3c55af28c` asked for --
+ *  and each entry still names only the record it was actually written from. */
+const BRIEFING_MULTI: { text: string; cites: string[] }[] = [
+  { text: '## What launched, and what was found', cites: [] },
+  { text: 'The **Roman Space Telescope** finished thermal vacuum testing at Goddard and is cleared to ship, and',
+    cites: ['adm-aaa111111111'] },
+  { text: '**Europa Clipper** trimmed its Mars gravity assist and still arrives at Jupiter in 2030.',
+    cites: ['adm-bbb222222222'] },
+  { text: '| Published | Mission | What the record says |\n|---|---|---|\n| 2026-03-27 | Roman Space Telescope | Thermal vacuum testing complete |',
+    cites: ['adm-aaa111111111'] },
+  { text: '| 2025-11-02 | Europa Clipper | Gravity assist refined; Jupiter arrival 2030 |', cites: ['adm-bbb222222222'] },
+  { text: '| 2024-08-20 | JUICE | First lunar-Earth assist flown |', cites: ['adm-eee444444444'] },
+  { text: '1. Thermal vacuum testing completed for Roman Space Telescope.', cites: ['adm-aaa111111111'] },
+  { text: '2. Mars gravity assist refined for Europa Clipper.', cites: ['adm-bbb222222222'] },
+  { text: '3. First lunar-Earth gravity assist flown for JUICE.', cites: ['adm-eee444444444'] },
+]
+
 const answered = (seq: number, post: string, lines: { text: string; cites: string[] }[]) => ({
   seq, post, event: 'answered', perspective: STANDING,
   snapshot: { ref: `adm-p5snap${seq}11111`, digest: 'b'.repeat(64), size: 512, media_type: 'application/json' },
@@ -151,7 +181,8 @@ const standingDetail = { magnet: mid, perspective: STANDING, name: 'What this Ma
 
 const events = state === 'unanswered' ? []
   : state === 'briefing' ? [answered(1, 'ent-p5event111111', [{ text: BRIEFING, cites: ['adm-aaa111111111', 'adm-bbb222222222'] }])]
-    : [answered(1, 'ent-p5event111111', SYNTHESIS)]
+    : state === 'briefing-multi' ? [answered(1, 'ent-p5event111111', BRIEFING_MULTI)]
+      : [answered(1, 'ent-p5event111111', SYNTHESIS)]
 
 const activation = { post: 'ent-p5act1111111',
   artifact: { ref: batchRef, digest: 'd'.repeat(64), size: 4096, media_type: 'application/json' },

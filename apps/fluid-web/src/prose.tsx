@@ -9,7 +9,7 @@ import { nameOf, RenderableBlock, type RBlock } from './experimental/renderable'
 import { keyOf, namesFor, type Names } from './experimental/objects'
 import { blocksOf, placedRef, type Block } from './blocks'
 
-export { blocksAt, blocksOf, placedRef, type Block, type PlacedBlock } from './blocks'
+export { blocksAt, blocksOf, isTableRow, placedRef, type Block, type PlacedBlock } from './blocks'
 
 /* ------------------------------------------------------------------------ *
  * WHAT AN AGENT ACTUALLY WROTE, RENDERED AS THEY WROTE IT.

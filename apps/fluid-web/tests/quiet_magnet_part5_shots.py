@@ -1,7 +1,7 @@
 """Part 5's screenshots: information presented by what it represents.
 
 Headless Chromium over `quiet_magnet_part5_harness.tsx`, on this checkout's own
-dev server. It photographs the four states the owner will judge:
+dev server. It photographs the states the owner will judge:
 
   01-summary-synthesis.png  the Python synthesis as statements, each with the
                             collected records it was written from as presses,
@@ -12,6 +12,12 @@ dev server. It photographs the four states the owner will judge:
                             NAMES, and no count is above the fold
   04-record-as-prose.png    one collected record opened: its headline a
                             heading, its address a link, its words prose
+  05-summary-briefing-multi.png  the same document recorded across several
+                            entries -- a paragraph cut off mid-sentence and
+                            continued in the next, a table with one entry per
+                            row, an ordered list with one entry per item --
+                            each still naming only the record it cites
+                            (correction for review `ent-19c3c55af28c`)
 
 It asserts nothing about behaviour -- `quiet_magnet_presentation_unit.ts` does
 that. It fails loudly if the page logs an error or the expected words are not on
@@ -76,6 +82,11 @@ def main():
                 ("04-record-as-prose.png", "inspect", [
                     "Roman Space Telescope passes its final thermal test",
                     "Open at example.org",
+                ]),
+                ("05-summary-briefing-multi.png", "briefing-multi", [
+                    "What launched, and what was found",
+                    "First lunar-Earth assist flown",
+                    "Mars gravity assist refined for Europa Clipper",
                 ]),
             ]:
                 page.goto(f"{BASE}?state={state}")

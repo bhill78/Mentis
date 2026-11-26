@@ -61,7 +61,7 @@
  *  bytes it is stored as. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
-import { Prose, isStructured } from '../../prose'
+import { Prose, blocksOf, isStructured, isTableRow } from '../../prose'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
 import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
@@ -796,6 +796,73 @@ function Cites({ resource, cites }: { resource: MagnetResource; cites: string[] 
         onClick={() => inspect(resource, c.id, `cite-${c.id}`)}>{c.title}</button></span>)}</p>
 }
 
+/** What a recorded entry's own text, read alone, leaves open for the entry
+ *  right after it to continue: the kind of thing its last block is, and --
+ *  for a paragraph -- whether that block's last line stops at a sentence's
+ *  end or is cut off mid-construct. An entry whose own text holds more than
+ *  one block (a heading followed by a paragraph) can still leave its last
+ *  block open; a heading, quote, code or rule can't be continued into, so it
+ *  closes whatever follows. */
+type Tail = { kind: 'table' } | { kind: 'list'; ordered: boolean } | { kind: 'para'; open: boolean } | null
+
+const ENDS_A_SENTENCE = /[.!?:;]['"’”)\]]*$/
+
+function tailOf(text: string): Tail {
+  const read = blocksOf(text)
+  const last = read[read.length - 1]
+  if (!last) return null
+  if (last.kind === 'table') return { kind: 'table' }
+  if (last.kind === 'list') return { kind: 'list', ordered: last.ordered }
+  if (last.kind === 'para') return { kind: 'para', open: !ENDS_A_SENTENCE.test(last.text.trim()) }
+  return null
+}
+
+/** Whether a recorded entry, read alone, is itself nothing but a fragment
+ *  that completes the kind of thing `tail` left open: an orphan table row (a
+ *  row with no header of its own, so `blocksOf` reads it as a lone paragraph
+ *  that happens to be shaped like one), a list item of the same ordering, or
+ *  plain prose continuing a paragraph that did not end at a sentence. */
+function continuesTail(tail: Tail, text: string): boolean {
+  if (!tail) return false
+  const read = blocksOf(text)
+  if (read.length !== 1) return false
+  const only = read[0]
+  if (tail.kind === 'table') return only.kind === 'table' || (only.kind === 'para' && !text.includes('\n') && isTableRow(text))
+  if (tail.kind === 'list') return only.kind === 'list' && only.ordered === tail.ordered
+  return tail.open && only.kind === 'para'
+}
+
+/** A GROUP OF RECORDED ENTRIES THAT ARE ONE MARKDOWN CONSTRUCT.
+ *
+ *  `blocks.ts`'s reader takes one body at a time, so a pipe table, an ordered
+ *  list or a paragraph that the server split across separate recorded entries
+ *  -- each with its own citations -- loses its adjacency when each entry is
+ *  handed to `Prose` on its own (review `ent-19c3c55af28c`). This groups
+ *  consecutive entries only where one is nothing but a fragment continuing
+ *  the one before it (an orphan table row, a list item of the same order, an
+ *  unfinished sentence), and joins their text with the single newline that
+ *  keeps the construct one block when the group is read as one body. Two
+ *  complete statements -- the ordinary case, each ending its own sentence --
+ *  are never merged into one paragraph: nothing here implies a citation
+ *  supports a statement it was not recorded against. Each entry keeps its
+ *  own citations, listed in order; they are never pooled into one set. */
+export interface BriefingGroup { lines: AnswerLine[]; src: string }
+export function briefingGroups(lines: AnswerLine[]): BriefingGroup[] {
+  const groups: BriefingGroup[] = []
+  let tail: Tail = null
+  for (const line of lines) {
+    const group = groups[groups.length - 1]
+    if (group && continuesTail(tail, line.text)) {
+      group.lines.push(line)
+      group.src += '\n' + line.text
+    } else {
+      groups.push({ lines: [line], src: line.text })
+    }
+    tail = tailOf(groups[groups.length - 1].src)
+  }
+  return groups
+}
+
 /** THE ANSWER, PRESENTED AS WHAT IT IS.
  *
  *  A written briefing is prose: `Prose` draws its headings, paragraphs, lists
@@ -804,25 +871,28 @@ function Cites({ resource, cites }: { resource: MagnetResource; cites: string[] 
  *  (0e's structured contract), each recorded line is drawn as its own prose
  *  block with the records it was written from as presses beneath it --
  *  `Prose` still draws the Markdown each block holds, and a block spanning a
- *  multi-line construct (a pipe table, a list) keeps its own lines together,
- *  because the server recorded it as one line of the contract. An answer with
- *  no recorded `lines` (written before the contract existed) still reads
- *  whole, the one case nothing can be cited against. A statement-per-line
- *  synthesis keeps the layout that suits it -- the statement, the record's
- *  own words under it (`AnswerStatement`, `links.tsx`), and the records it
- *  was written from as presses -- with its trailing record-count line held
- *  back for the facts disclosure instead of shown here (plan Part 5,
- *  `answerRecordCount`). Either way the recorded characters are the recorded
- *  ones. */
+ *  multi-line construct (a pipe table, a list) keeps its own lines together
+ *  when the server recorded it as one line of the contract, or when it was
+ *  split across several (`briefingGroups`): either way those lines are
+ *  grouped and read as one body before `Prose` sees them, and each
+ *  contributing entry still shows the records it was written from beneath the
+ *  group, never blended into one set. An answer with no recorded `lines`
+ *  (written before the contract existed) still reads whole, the one case
+ *  nothing can be cited against. A statement-per-line synthesis keeps the
+ *  layout that suits it -- the statement, the record's own words under it
+ *  (`AnswerStatement`, `links.tsx`), and the records it was written from as
+ *  presses -- with its trailing record-count line held back for the facts
+ *  disclosure instead of shown here (plan Part 5, `answerRecordCount`).
+ *  Either way the recorded characters are the recorded ones. */
 export function Briefing({ resource, answer }: { resource: MagnetResource; answer: InquiryEvent | null }) {
   const words = answerText(answer)
   if (!words) return null
   if (isWrittenBriefing(words)) {
     if (!Array.isArray(answer?.data?.lines) || !answer.data.lines.length)
       return <div className="q2-prose"><Prose src={words} scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
-    return <>{answerLines(answer).map((line, i) => <div key={`answer-${i}`} className="q2-prose">
-      <Prose src={line.text} scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
-      <Cites resource={resource} cites={line.cites} />
+    return <>{briefingGroups(answerLines(answer)).map((group, i) => <div key={`answer-${i}`} className="q2-prose">
+      <Prose src={group.src} scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
+      {group.lines.map((line, j) => <Cites key={j} resource={resource} cites={line.cites} />)}
     </div>)}</>
   }
   return <>{withoutRecordCount(answerLines(answer)).map((line, i) => <div key={`answer-${i}`}>

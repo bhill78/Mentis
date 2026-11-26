@@ -49,6 +49,12 @@ const cells = (line: string): string[] =>
     .split('|')
     .map((c) => c.trim())
 
+/** A line shaped like a pipe table row, on its own -- what a table row recorded
+ *  without its header beside it reads as (a `para` block in `blocksOf`, since a
+ *  lone row has no divider under it). Read by callers that reassemble a table
+ *  split across separately recorded entries, never by `placedIn` itself. */
+export const isTableRow = (line: string): boolean => ROW.test(line)
+
 /* AN IMAGE PLACED IN THE POST. A paragraph that holds nothing but one
    Admission -- `![alt](adm-…)`, or the bare `adm-…` -- is where the author
    put a figure, the way a figure sits in a source document. It is drawn as

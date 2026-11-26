@@ -226,6 +226,67 @@ test('a written briefing keeps each recorded block’s own citations (review ent
   assert.ok(rendered.includes(`id="cite-${CLIPPER}"`), 'and so is the second block’s')
 })
 
+test('a table split across recorded entries stays one table, each row’s own citations kept distinct (review ent-19c3c55af28c)', async () => {
+  store()
+  const r = resource('mag-ptablespan')
+  await r.read()
+  const ARTEMIS = ROWS[2].id
+  // Three recorded entries: a header-and-divider-and-first-row entry, then two
+  // orphan rows -- each citing a different record, the way different rows of
+  // one table can be written from different sources.
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '| Mission | Agency |\n|---|---|\n| Roman Space Telescope | NASA |', cites: [ROMAN] },
+    { text: '| Europa Clipper | NASA |', cites: [CLIPPER] },
+    { text: '| Artemis Programme | NASA |', cites: [ARTEMIS] },
+  ]) }))
+  assert.equal((rendered.match(/<table class="pr-table">/g) ?? []).length, 1,
+    'the three recorded rows read as one table, not three broken fragments')
+  assert.equal((rendered.match(/<tr>/g) ?? []).length, 4, 'header row plus all three data rows survive')
+  assert.ok(rendered.includes('Artemis Programme'), 'the last orphan row is still in the table')
+  assert.equal((rendered.match(new RegExp(WRITTEN_FROM, 'g')) ?? []).length, 3,
+    'each row’s own citation is still shown, not merged into one set for the whole table')
+  for (const id of [ROMAN, CLIPPER, ARTEMIS])
+    assert.ok(rendered.includes(`id="cite-${id}"`), `${id}’s citation is still a press`)
+})
+
+test('an ordered list split across recorded entries keeps its numbering, each item’s own citations kept distinct', async () => {
+  store()
+  const r = resource('mag-plistspan')
+  await r.read()
+  const ARTEMIS = ROWS[2].id
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '1. Roman Space Telescope cleared thermal testing.', cites: [ROMAN] },
+    { text: '2. Europa Clipper refined its Mars gravity assist.', cites: [CLIPPER] },
+    { text: '3. Artemis Programme narrowed its landing site.', cites: [ARTEMIS] },
+  ]) }))
+  assert.equal((rendered.match(/<ol class="pr-list">/g) ?? []).length, 1,
+    'the three recorded items read as one list, not three separate one-item lists')
+  assert.equal((rendered.match(/<li>/g) ?? []).length, 3, 'all three items survive in the one list')
+  assert.equal((rendered.match(new RegExp(WRITTEN_FROM, 'g')) ?? []).length, 3,
+    'each item’s own citation is still shown, not merged into one set for the whole list')
+})
+
+test('a paragraph split across recorded entries stays one paragraph, and complete statements never merge', async () => {
+  store()
+  const r = resource('mag-pparaspan')
+  await r.read()
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '## What launched', cites: [] },
+    // Cut off mid-sentence (no terminal punctuation): continues into the next entry.
+    { text: 'The **Roman Space Telescope** cleared thermal testing, and', cites: [ROMAN] },
+    { text: 'Europa Clipper refined its Mars gravity assist.', cites: [CLIPPER] },
+    // A complete sentence ending its own thought: never merged into what follows.
+    { text: 'Both records were collected from the web search.', cites: [ROMAN, CLIPPER] },
+  ]) }))
+  assert.equal((rendered.match(/<p>/g) ?? []).length, 2,
+    'the cut-off sentence and its continuation are one paragraph; the complete sentence after it is its own')
+  assert.ok(/cleared thermal testing, and\s*\nEuropa Clipper refined/.test(rendered) ||
+    rendered.includes('cleared thermal testing, and\nEuropa Clipper refined'),
+    'the continuation reads as part of the same paragraph as what it continues')
+  assert.equal((rendered.match(new RegExp(WRITTEN_FROM, 'g')) ?? []).length, 3,
+    'each of the three recorded entries keeps its own citations, none implied for a statement it was not recorded against')
+})
+
 test('a written answer’s change is not a diff of its Markdown lines', async () => {
   store()
   const r = resource('mag-pchange')
