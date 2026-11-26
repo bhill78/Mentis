@@ -48,7 +48,8 @@ INTAKE_REQUIRES = ("call_mentis_tools",)
 
 # -- the post -----------------------------------------------------------------
 
-def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]:
+def post(cv, corpus, cid, body, *, agents=None, written_by,
+         defer=None) -> tuple[dict, list]:
     """Record the Turn, then do only what the AUTHOR asked for.
 
     THE ONE THING DECIDED MECHANICALLY is which of three authored
@@ -70,6 +71,12 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
     `written_by` is called once, where the route used to observe the writer:
     after every refusal that needs no write, before staged bytes are checked.
     `agents` is the agent service each dispatch's runtime is judged by.
+
+    `defer`, a list: what need not hold up the answer -- reconciling a claim
+    of met an answered question was holding -- is appended to it as
+    callables instead of being done inside the transaction; the caller runs
+    them once this has committed, before it starts the dispatches. Without
+    it everything is done here, as before.
     """
     from mentis import artifacts as _artifacts
     from mentis.conversation import anchors as _anchors
@@ -622,7 +629,16 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
             if cleared:
                 from mentis.operational import completion as _completion
                 for e in dict.fromkeys(cleared):
-                    _completion.reconcile_held_by_quietly(cv, e)
+                    if defer is None:
+                        _completion.reconcile_held_by_quietly(cv, e)
+                    else:
+                        # ONCE THE ANSWER IS DURABLE, NOT BEFORE IT IS SAID
+                        # (2026-11-26): reconciling a claim the answer held
+                        # is idempotent, takes its own write lock and never
+                        # fails the answer (`_quietly`); the caller runs it
+                        # after this commits, ahead of the dispatches.
+                        defer.append(lambda e=e: _completion
+                                     .reconcile_held_by_quietly(cv, e))
             # THE KEY ANSWERS FOR THE WHOLE REQUEST, so it is written
             # last, beside everything it answers for, and a retry is
             # given back exactly the response this one gives.
@@ -630,8 +646,13 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                 _anchors.record_outcome(cv, body["author"], op,
                                         keyed_request, out,
                                         conversation=cid)
-    except _AnchorRefused as refused:
-        return refused.refusal, []
+    except BaseException as exc:
+        # NOTHING DEFERRED OUTLIVES A TRANSACTION THAT DID NOT COMMIT
+        if defer is not None:
+            defer.clear()
+        if isinstance(exc, _AnchorRefused):
+            return exc.refusal, []
+        raise
     # STARTED ONLY ONCE ALL OF IT IS DURABLE, by the caller. `dispatch_soon`
     # starts a thread and records its own failures, so what is owed is never
     # left without either a run or a recorded reason there is none.

@@ -4064,9 +4064,19 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             thread and records its own failures, so what is owed is never
             left without either a run or a recorded reason there is none.
             """
+            # THE ANSWER IS ACKNOWLEDGED ONCE IT IS DURABLE (2026-11-26):
+            # what `post` defers -- reconciling a claim an answered
+            # question held -- runs after this returns, on a thread of its
+            # own, never inside the answer's transaction.
+            deferred = []
             out, later = _posting.post(
                 cv, corpus, cid, body, agents=st.agents,
-                written_by=lambda: _observed_writer(st, presented))
+                written_by=lambda: _observed_writer(st, presented),
+                defer=deferred)
+            if deferred:
+                threading.Thread(
+                    target=lambda: [f() for f in deferred],
+                    name="after-answer", daemon=True).start()
             for kw in later:
                 (_enqueue_dispatch or dispatch_soon)(st, **kw)
             return out

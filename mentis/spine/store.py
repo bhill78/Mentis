@@ -158,6 +158,12 @@ def beside_writer_refused() -> bool:
 def _reading_beside() -> bool:
     return getattr(_beside, "depth", 0) > 0
 
+
+def _pinned(store):
+    """The read connection this thread holds open for `store` in
+    `Store.one_moment()`, or None."""
+    return (getattr(_beside, "pinned", None) or {}).get(id(store))
+
 #: THE SCHEMA IS NOT DEFINED HERE. It is the ordered migration list in
 #: `mentis.spine.migrations`, and a Brain is made by `migrations.create_brain`.
 #: Opening one never runs DDL (D2, adm-8ac4ef2f4866).
@@ -370,6 +376,13 @@ class Store:
         moment. A single statement is one already, and skips the BEGIN and
         COMMIT that cost every read about 3 us (measured).
         """
+        pinned = _pinned(self)
+        if pinned is not None and self._writer != threading.get_ident():
+            # INSIDE `one_moment()`: every statement through the one read
+            # transaction it holds, so all of them see one moment
+            self._watch(pinned)
+            yield pinned
+            return
         if (not _reading_beside()
                 or self._writer == threading.get_ident()):
             with self._lock:
@@ -407,6 +420,67 @@ class Store:
     def _rows(self, sql, args=()) -> list:
         with self._reading(together=False) as conn:
             return conn.execute(sql, args).fetchall()
+
+    @contextlib.contextmanager
+    def one_moment(self):
+        """Every read this thread makes of this Store, for the block, from ONE
+        read transaction: one committed moment of the record, whatever other
+        threads or processes commit meanwhile, and without waiting on the
+        writer's lock.
+
+        FOR A READ THAT MUST BE ONE MOMENT (`Corpus.settled`). Before this,
+        such a read was taken between two equal write counts and taken again
+        whenever a write landed in between; with agents writing every few
+        seconds it rarely held, and the whole-record fallback answered
+        instead (DAY-TO-DAY 2026-11-26: Needs You 3-9 s). A read
+        transaction on a WAL database is that one moment by construction.
+
+        It is `reading_beside_writer()` for the block, so a write in it is
+        REFUSED (`WriteWhileReadingBeside`) and remembered
+        (`beside_writer_refused`), exactly as there: what was read may
+        predate another transaction's commit, and nothing is appended on it.
+        Not for a thread inside its own write transaction, which must see its
+        own appends (`ValueError`; `Corpus.settled` does not ask). Nested, the
+        outer block's moment is kept."""
+        if self._writer == threading.get_ident():
+            raise ValueError("a snapshot inside this thread's own write "
+                             "transaction would not see its appends")
+        if _pinned(self) is not None:
+            with reading_beside_writer():
+                yield
+            return
+        with reading_beside_writer():
+            with self._idle_lock:
+                if self._closed:
+                    raise sqlite3.ProgrammingError(
+                        "Cannot operate on a closed database.")
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                conn = self._read_connection()
+            pins = getattr(_beside, "pinned", None)
+            if pins is None:
+                pins = _beside.pinned = {}
+            ok = False
+            try:
+                conn.execute("BEGIN")
+                self._watch(conn)
+                pins[id(self)] = conn
+                yield
+                ok = True
+            finally:
+                pins.pop(id(self), None)
+                try:
+                    if conn.in_transaction:
+                        conn.execute("COMMIT")
+                except sqlite3.Error:
+                    ok = False
+                with self._idle_lock:
+                    keep = (ok and not self._closed
+                            and len(self._idle) < _IDLE_READERS)
+                    if keep:
+                        self._idle.append(conn)
+                if not keep:
+                    conn.close()
 
     # -- transactions -------------------------------------------------------
 
@@ -1690,6 +1764,22 @@ class Store:
             SELECT id, n FROM numbered
             WHERE id IN (SELECT value FROM json_each(?))""",
             (to, home, kind, json.dumps(ids)))
+        return {r[0]: r[1] for r in rows}
+
+    def home_ranks(self, to, *, home, kind) -> dict:
+        """Every node of `kind` linked to `to` by `home`, and its rank among
+        them in (recorded_at, seq) order: id -> number. `home_numbers` for all
+        of them, in one statement, reading ids and times only -- never a
+        body."""
+        rows = self._rows("""
+            WITH home AS (
+                SELECT DISTINCT e.id, e.seq, e.recorded_at
+                FROM entry l JOIN entry e ON e.id = l.link_from
+                WHERE l.link_to = ? AND l.link_relation = ?
+                  AND e.family = 'entry' AND e.def_name = ?
+                  AND e.link_relation IS NULL)
+            SELECT id, ROW_NUMBER() OVER (ORDER BY recorded_at, seq)
+            FROM home""", (to, home, kind))
         return {r[0]: r[1] for r in rows}
 
     def reply_closure(self, root, *, replies, home, max_depth=500) -> list:

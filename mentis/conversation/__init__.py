@@ -3902,13 +3902,15 @@ class Conversations:
         # view shows re-sorted the whole Conversation to find one Turn in it
         # -- 250 sorts for one large Conversation's work (R3). The first row
         # for a Turn is its number, as the scan below it took.
-        def numbering():
-            out = {}
-            for row in self.turns(conversation):
-                out.setdefault(row["turn"], row["number"])
-            return out
+        # AND NOT FROM EVERY TURN'S BODY (2026-11-26): `turns()` reads and
+        # decodes the whole Conversation (2.6 MB for a 930-Turn one) to
+        # number it. The rank is the same (recorded_at, seq) order over the
+        # same Turns, asked of the store with ids and times only -- checked
+        # equal on every Conversation of the live Brain (12,035 Turns).
         return self._recall(("turn_numbers", conversation),
-                            numbering).get(contribution)
+                            lambda: self._c.home_ranks(
+                                conversation, home=IN_CONVERSATION,
+                                kind=CONTRIBUTION)).get(contribution)
 
     def turn_at(self, conversation, number: int) -> str | None:
         rows = self.turns(conversation)

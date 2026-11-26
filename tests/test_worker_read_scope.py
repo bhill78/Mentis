@@ -171,12 +171,14 @@ def test_the_work_a_read_repeats_is_done_once(owner, monkeypatch):
                     [text(f"scopecount marker {i}")]) for i in range(4)]
     store = owner["state"].corpus._store
     reads = []
-    real = type(store)._entries
+    # EVERY STATEMENT, not `_entries`: a Turn's number has been asked of the
+    # store by rank since 2026-11-26 and reads no entry at all
+    real = type(store)._rows
 
     def counted(self, *a, **kw):
         reads.append(1)
         return real(self, *a, **kw)
-    monkeypatch.setattr(type(store), "_entries", counted)
+    monkeypatch.setattr(type(store), "_rows", counted)
     plain = [cv.turn_number(t) for t in marks]
     unscoped = len(reads)
     reads.clear()

@@ -340,9 +340,17 @@ def asking_owner(cv, owner) -> list[tuple[tuple, str]]:
     nobody has answered (`/api/owed`'s rule, `work.owed_by`) -- each with
     its place in Home's order, newest first: `((-at, write order), id)`,
     sorted. Home's Needs you pages it; What needs you on a post (#576) keeps
-    the ones on that post's thread. Neither restates it."""
-    ids = [s["expectation"] for s in cv.expectations(of=owner)
-           if not s["response_present"]]
+    the ones on that post's thread. Neither restates it.
+
+    FROM THE KEPT MODEL, AS THE RECORD STANDS NOW (2026-11-26): its states,
+    with whatever moved since it caught up read afresh
+    (`CurrentWork.owed_now`). Where that cannot answer, the record is asked
+    as before."""
+    from mentis.operational import current_work as cw
+    ids = cw.current_work(cv).owed_now(owner)
+    if ids is None:
+        ids = [s["expectation"] for s in cv.expectations(of=owner)
+               if not s["response_present"]]
     seq = cv._write_order(ids)
     return sorted((((-((cv._act(i) or {}).get("at") or 0.0), seq.get(i, -1)), i)
                    for i in ids))
