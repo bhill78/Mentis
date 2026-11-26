@@ -22,6 +22,7 @@ import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from
 import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
 import { MAGNET_COLLECTION_FILTERS, goTab, inspect, place, placeKeyOf, writePlace } from './places'
 import { SUPPORTING_WHY } from './perspectives'
+import { SourceLink, linkHost, rowBody, rowHeadline, rowLink } from './links'
 import CollectionConfiguration from './CollectionConfiguration'
 import { SearchToolbar } from './SearchView'
 import { magnetName, supportsManualCollection } from './configuration'
@@ -92,7 +93,11 @@ const RECORDED_ID = /^(?:ent|adm|col|mag|opr|def)-[a-z0-9]{6,}$/i
 
 export function rowByline(r: RouteResult, named?: Map<string, string>): string {
   const when = rowWhen(r.at)
-  if (isHeldSource(r)) return ['Held file', when].filter(Boolean).join(' · ')
+  // A ROW THAT RECORDED ITS OWN ADDRESS SAYS WHERE IT CAME FROM (owner
+  // ent-0b4f3f69b836). "Held file" is how the collection stores a web page or a
+  // feed entry, not what a reader recognises it as; the site is, and a domain
+  // name is not a recorded identity. Every other held file keeps "Held file".
+  if (isHeldSource(r)) return [linkHost(rowLink(r)) || 'Held file', when].filter(Boolean).join(' · ')
   // The participants read states aliases with their leading @; a byline is a
   // name, not a mention, and a caller that hands over an unstripped map gets
   // the same clean row. Failing a name, the stated author is used only when it
@@ -104,13 +109,27 @@ export function rowByline(r: RouteResult, named?: Map<string, string>): string {
   return [r.post ? 'From the collected post' : 'Collected file', when].filter(Boolean).join(' · ')
 }
 
+/** THE ROW LEADS WITH THE HEADLINE, NOT THE KEY (owner ent-0b4f3f69b836).
+ *
+ *  A collected web row's object key is how the collection stores it -- the
+ *  owner read rows titled "space-missions-and-astronomy-what-launch/
+ *  a733ec1ec5e51a4b" -- and the article's own headline was sitting in the row's
+ *  captured bytes. `rowHeadline` reads it from there; nothing else changes, so
+ *  a README, a Git file and a collected post keep the titles they had. */
 export function resultTitle(r: RouteResult): string {
   const v = object(r.value)
-  return words(v.title) || words(v.name) || words(v.path) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
+  return rowHeadline(r) || words(v.title) || words(v.name) || words(v.path) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
 }
+/** The row's own words. For a web row that is the material under the recorded
+ *  header, because the headline is now the title and the address is now a link:
+ *  a preview that repeated both ran "Juno - NASA Science (.gov)
+ *  https://news.google.com/rss/articles/CBMiT0FV…" and said nothing at all. It
+ *  can be empty -- a feed entry that recorded only a headline and a link shows
+ *  neither a restated headline nor empty quotation marks. */
 export function resultPreview(r: RouteResult): string {
   const v = object(r.value), p = object(v.preview)
-  return (capturedText(r) || words(v.text) || words(v.preview) || words(p.text)).replace(/\s+/g, ' ').slice(0, 180)
+  const body = rowBody(r)
+  return (body ?? (capturedText(r) || words(v.text) || words(v.preview) || words(p.text))).replace(/\s+/g, ' ').trim().slice(0, 180)
 }
 export const isCollectedFile = (r: RouteResult) => ['file', 'attachment', 'image'].includes(r.kind)
 
@@ -132,7 +151,10 @@ export function evidenceSource(resource: MagnetResource): SearchSource {
         key: `evidence:${r.kind}:${r.id}`,
         kind: (r.kind === 'post' ? 'Posts' : 'Files') as MagnetSearchKind,
         title: resultTitle(r),
-        text: [evidenceOrigin(r), capturedText(r), r.id, r.version ?? '', evidenceBounds(r)].join(' '),
+        // The headline and the address are searched too: a reader who knows the
+        // site or the headline of a collected article can now find its row by
+        // either. `capturedText` still carries the whole captured range.
+        text: [resultTitle(r), rowLink(r) ?? '', evidenceOrigin(r), capturedText(r), r.id, r.version ?? '', evidenceBounds(r)].join(' '),
         open: () => inspect(resource, r.id, `item-${r.id}`),
       }))
     },
@@ -167,6 +189,9 @@ export function SupportingItems({ resource, question, onOpen }: {
       <p className="q2-magnet-supporting-head"><strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {rowByline(r, named)}</small></p>
       {resultPreview(r) && <p className="q2-magnet-quote">“{resultPreview(r)}”</p>}
       <button type="button" className="q2-magnet-link" onClick={() => onOpen(r.id)}>Open this item</button>
+      {/* Reading the captured copy and going to the thing itself are two
+          different acts, and both are offered. */}
+      {!!rowLink(r) && <SourceLink url={rowLink(r)!} />}
     </li>)}</ul>
       : <p className="q2-magnet-muted">{s.activation ? 'Nothing is collected here to explore this question against yet.'
         : 'This Magnet has collected nothing yet. Choose sources in Settings, then collect.'}</p>}
@@ -219,6 +244,13 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
           <small className="mgd-subtle">{rowByline(r, named)}</small>
         </span>
       </button>
+      {/* THE ADDRESS THE ROW RECORDED, FOLLOWABLE. Beside the row, not inside
+          it: the row is the press that opens the captured copy in the card, and
+          a link nested in a button is neither valid nor pressable. The owner
+          was reading about launches with no way through to the launch report;
+          this is that way, and it is the address Part W recorded, never one
+          built from a key. */}
+      {!!rowLink(r) && <SourceLink url={rowLink(r)!} />}
       {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
       {r.kind !== 'post' && (r.post || words(object(r.value).post)) && here.inspected !== r.id &&
         <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>View the collected post</button>}

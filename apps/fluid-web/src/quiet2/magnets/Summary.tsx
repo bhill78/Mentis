@@ -36,6 +36,7 @@ import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLab
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { goTab, inspect, openOverlay, place } from './places'
 import { resultTitle } from './EvidenceViews'
+import { AnswerStatement, Linked, SourceLink, linkHost, rowBody, rowLink } from './links'
 import { collectionRows } from './collectionRows'
 import { supportsManualCollection } from './configuration'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
@@ -167,7 +168,14 @@ export function collectedSpan(results: RouteResult[]): { first: number; last: nu
   return times.length ? { first: Math.min(...times), last: Math.max(...times) } : null
 }
 
-export interface Excerpt { id: string; title: string; origin: string; text: string }
+export interface Excerpt {
+  id: string; title: string; origin: string; text: string
+  /** The address this record recorded for itself, where it has one, so an
+   *  excerpt of a collected article can be followed to the article (owner
+   *  ent-0b4f3f69b836). It is Part W's recorded permalink, read out of the
+   *  row's own verified bytes (`links.tsx`), never built from a key. */
+  link?: string
+}
 /** The records' own opening words, quoted. The one honest kind of "summary" a
  *  surface that has read nothing can offer: it shows the material instead of
  *  describing it, and every excerpt opens the record it came from.
@@ -177,9 +185,24 @@ export interface Excerpt { id: string; title: string; origin: string; text: stri
  *  from, never the recorded Conversation or collection id. The exact captured
  *  key stays one press away, in the inspection's provenance disclosure. */
 export function collectedExcerpts(results: RouteResult[], limit = 4, length = 220): Excerpt[] {
-  return results.map((r) => ({ id: r.id, title: resultTitle(r), origin: plainEvidenceOrigin(r),
-    text: (capturedText(r) || (typeof object(r.value).text === 'string' ? object(r.value).text : '')).replace(/\s+/g, ' ').trim().slice(0, length) }))
-    .filter((e) => !!e.text).slice(0, limit)
+  return results.map((r) => {
+    // For a collected web row the quoted words are the material under the
+    // recorded header: its headline is already `resultTitle` and its address is
+    // already the link, so an excerpt that restated both read "Juno - NASA
+    // Science (.gov) https://news.google.com/rss/articles/CBMiT0FV…".
+    const body = rowBody(r), link = rowLink(r)
+    // And its origin is the site, not the object key the collection stores it
+    // under: this line was reading "Held file ·
+    // space-missions-and-astronomy-what-launch/a733ec1ec5e51a4b" under a
+    // headline the reader had just read. Every other record keeps
+    // `plainEvidenceOrigin` exactly, and neither says a recorded identity.
+    return { id: r.id, title: resultTitle(r), origin: linkHost(link) ?? plainEvidenceOrigin(r),
+      text: (body ?? (capturedText(r) || (typeof object(r.value).text === 'string' ? object(r.value).text : ''))).replace(/\s+/g, ' ').trim().slice(0, length),
+      ...(link ? { link } : {}) }
+  })
+    // A record with an address but no retained words of its own is still a
+    // record worth showing -- it is the one thing the reader can open.
+    .filter((e) => !!e.text || !!e.link).slice(0, limit)
 }
 
 /** THE WRITTEN OVERVIEW. Sentences, not a counts table -- and every one of them
@@ -501,9 +524,12 @@ function RecordRow({ excerpt, expanded, onOpen }: { excerpt: Excerpt; expanded: 
   return <div className="mgd-item">
     <button type="button" className="q2-magnet-quote-row" id={`excerpt-${excerpt.id}`} aria-expanded={expanded} onClick={onOpen}>
       <b>{excerpt.title}</b>
-      <span className="q2-magnet-quote">“{excerpt.text}{excerpt.text.length >= 220 ? '…' : ''}”</span>
+      {!!excerpt.text && <span className="q2-magnet-quote">“{excerpt.text}{excerpt.text.length >= 220 ? '…' : ''}”</span>}
       <small className="mgd-subtle">{excerpt.origin}</small>
     </button>
+    {/* Outside the press, for the same reason the Collection's rows put it
+        there: this row already opens the captured copy inside the card. */}
+    {!!excerpt.link && <SourceLink url={excerpt.link} />}
   </div>
 }
 
@@ -679,8 +705,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
             counted lead is shown instead, saying which of the two it is. */}
         {answered
           ? <section className="q2-magnet-answer" aria-label="What this Magnet has gathered">
+              {/* STATEMENT, THEN WHAT IT QUOTED, THEN AIR (owner
+                  ent-0b4f3f69b836). The recorded characters are unchanged:
+                  `AnswerStatement` lays one statement out and makes the
+                  addresses in it followable. What was grounded in what is said
+                  by `Grounded`, below, exactly as before. */}
               {statements(answered).map((line, i) =>
-                <p className={`mgd-p${i ? '' : ' q2-magnet-lead'}`} key={`answer-${i}`}>{line}</p>)}
+                <AnswerStatement key={`answer-${i}`} line={line} lead={!i} />)}
               <Grounded answer={summary?.current ?? null} />
               {/* Who wrote it is said ONCE, by the grounding statement above
                   ("Written from this Magnet's collected records and nothing
@@ -741,8 +772,8 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                 below it, as the measured detail it is. */}
             {!!summary?.current && <>
               <p className="mgd-p">{changeWords(change)}</p>
-              {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span>{line}</p>)}
-              {change?.gone.map((line) => <p className="mgd-item" key={`gone-${line}`}><span className="mgd-subtle">No longer says · </span>{line}</p>)}
+              {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span><Linked text={line} /></p>)}
+              {change?.gone.map((line) => <p className="mgd-item" key={`gone-${line}`}><span className="mgd-subtle">No longer says · </span><Linked text={line} /></p>)}
               {!summary.superseded.length && <p className="mgd-subtle">This is the first answer recorded against this Magnet's standing question, so there is nothing before it to differ from.</p>}
               <div className="mgd-divider" />
             </>}
@@ -750,7 +781,8 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
               ? <><p className="mgd-p">{comparison.words}</p>
                 {comparison.added.map((e) => <div className="mgd-item" key={e.id}>
                   <button type="button" className="mgd-link" onClick={() => inspect(resource, e.id, `excerpt-${e.id}`)}>{e.title}</button>
-                  <p className="q2-magnet-quote">“{e.text}”</p>
+                  {!!e.link && <SourceLink url={e.link} />}
+                  {!!e.text && <p className="q2-magnet-quote">“{e.text}”</p>}
                 </div>)}
                 <p className="mgd-subtle">Compared against the collection from {when(comparison.at) ?? 'earlier'}. Both are captured copies; neither source was read again.</p></>
               : <><p className="mgd-subtle">{NO_COMPARISON}</p>

@@ -85,6 +85,84 @@ def _excerpt(words, limit=EXCERPT_CHARS):
     return one[:limit] + ("…" if len(one) > limit else "")
 
 
+def _row_said(row):
+    """One collected row told apart: (its headline, its address, its material).
+
+    THE ADDRESS IS READ, NEVER BUILT (owner ent-0b4f3f69b836: "Include
+    clickable links"). Part W's three web connectors write the acquired bytes
+    with one header -- the thing's own headline, a blank line, its permalink, a
+    blank line, then the material (`mentis.sources.webpages._page_body`,
+    `mentis.sources.feeds._entry_body`). Those bytes ARE the row's captured
+    range, verified whole by `activation._verified_file` against its recorded
+    digest, length and citation, so reading them back reports what was
+    recorded. Nothing is fetched and no address is derived from an object key.
+
+    `(None, None, text)` for every row that is not web-shaped, so a collected
+    post, a README, a Git file and a feed entry that recorded no link of its
+    own are quoted exactly as they were.
+    """
+    text = _row_text(row)
+    lines = text.split("\n")
+    if len(lines) < 3 or lines[1].strip():
+        return None, None, text
+    link = lines[2].strip()
+    if not link.startswith("https://") or len(link.split()) != 1:
+        return None, None, text
+    # `_page_body` writes the material directly after the address; `_entry_body`
+    # leaves a blank line between them. One optional blank line covers both.
+    rest = lines[3:]
+    if rest and not rest[0].strip():
+        rest = rest[1:]
+    # A feed entry records what the feed stated about it under a `--` rule
+    # (`_entry_body`): published date, publisher, the provider's terms note, the
+    # entry id. That is provenance, and the answer states its own provenance;
+    # what is quoted is the entry's words. The whole captured range stays
+    # readable in the collection and through the answer's own citation.
+    for i, one in enumerate(rest):
+        if one.strip() == "--" and rest[i + 1:] and rest[i + 1].strip().startswith("Published:"):
+            rest = rest[:i]
+            break
+    first = lines[0].strip()
+    # A page with no title of its own has its address written on the headline
+    # line instead (`_page_body`: `title or url`), and an address is not a
+    # headline -- it is already the link.
+    headline = first if first and first != link else None
+    return headline, link, "\n".join(rest).strip()
+
+
+def _squeezed(words):
+    return "".join(c for c in str(words).lower() if c.isalnum())
+
+
+def _restates(headline, words):
+    """Whether quoting `words` under `headline` would say the same thing twice.
+
+    A news feed commonly records an entry's title as its summary as well, so a
+    statement naming the headline and then quoting the material printed one
+    sentence twice. The headline IS the row's own words in that case, quoted
+    once; the whole captured text is still one press away.
+    """
+    a, b = _squeezed(headline), _squeezed(words)
+    return bool(a) and bool(b) and (a in b or b in a)
+
+
+def _points_at(words, headline, link):
+    """A quoted row's `where it came from`, with its own headline and its own
+    address where it recorded them, so a reader can reach the thing itself."""
+    out = words
+    if headline:
+        out += f" · “{headline}”"
+    if link:
+        out += f" · {link}"
+    return out
+
+
+def _closed(said, link):
+    """A statement's closing stop -- omitted after an address, which would
+    otherwise end in a full stop a reader cannot tell from the address."""
+    return said if link else f"{said}."
+
+
 def _source_words(one, seen):
     """A captured source in ordinary words, never its recorded id (owner
     ent-1e82a8786c37). Several of a kind are numbered so they stay apart."""
@@ -157,11 +235,14 @@ def _state_of(rows, new_ids, activation, page):
                               f"the one before it.",
                       "cites": [got["row"]["id"] for got in fresh[:ROWS_NAMED_MOST]]})
         for got in fresh[:ROWS_NAMED_MOST]:
-            words = _excerpt(_row_text(got["row"]))
-            if words:
+            headline, link, material = _row_said(got["row"])
+            words = _excerpt(material)
+            if words or headline or link:
                 day = _when(got["row"].get("at"))
-                lines.append({"text": f"New, from the {got['words']}"
-                                      + (f" ({day})" if day else "") + f": “{words}”",
+                where = _points_at(f"New, from the {got['words']}"
+                                   + (f" ({day})" if day else ""), headline, link)
+                lines.append({"text": f"{where}: “{words}”" if words and not _restates(headline, words)
+                                      else _closed(where, link),
                               "cites": [got["row"]["id"]]})
     for words, got_rows in list(kinds.items())[:SOURCES_NAMED_MOST]:
         # The most recent row THAT RETAINED WORDS, so a source is quoted
@@ -171,11 +252,16 @@ def _state_of(rows, new_ids, activation, page):
             at = got["row"].get("at")
             return at if isinstance(at, (int, float)) and not isinstance(at, bool) else 0
         spoken = sorted((g for g in got_rows if _row_text(g["row"]).strip()), key=_at)
-        quoted = _excerpt(_row_text(spoken[-1]["row"]), 160) if spoken else ""
-        lines.append({"text": f"From the {words}: {len(got_rows)} "
-                              f"{'record' if len(got_rows) == 1 else 'records'}"
-                              + (f", most recently “{quoted}”" if quoted
-                                 else ", none of which retained any words") + ".",
+        headline, link, material = _row_said(spoken[-1]["row"]) if spoken else (None, None, "")
+        quoted = headline or _excerpt(material, 160)
+        said = (f"From the {words}: {len(got_rows)} "
+                f"{'record' if len(got_rows) == 1 else 'records'}")
+        # The newest row this source retained words for, named by its headline
+        # where it has one and pointed at by its own address, so the one record
+        # this line names is a record the reader can open.
+        lines.append({"text": _closed(f"{said}, most recently “{quoted}”"
+                                      + (f" · {link}" if link else ""), link) if quoted
+                              else f"{said}, none of which retained any words.",
                       "cites": [(spoken[-1] if spoken else sorted(got_rows, key=_at)[-1])["row"]["id"]]})
     days = sorted(d for d in (_when(got["row"].get("at")) for got in rows) if d)
     if days:
@@ -218,8 +304,12 @@ def _about(question, rows):
               "cites": [got["row"]["id"] for _, got, _ in scored[:ROWS_NAMED_MOST]]}]
     for _, got, hits in scored[:ROWS_NAMED_MOST]:
         day = _when(got["row"].get("at"))
-        lines.append({"text": f"From the {got['words']}" + (f" ({day})" if day else "")
-                              + f", on {_named(hits)}: “{_excerpt(_row_text(got['row']))}”",
+        headline, link, material = _row_said(got["row"])
+        words = _excerpt(material)
+        where = _points_at(f"From the {got['words']}" + (f" ({day})" if day else "")
+                           + f", on {_named(hits)}", headline, link)
+        lines.append({"text": f"{where}: “{words}”" if words and not _restates(headline, words)
+                              else _closed(where, link),
                       "cites": [got["row"]["id"]]})
     if len(scored) > ROWS_NAMED_MOST:
         lines.append({"text": f"{len(scored) - ROWS_NAMED_MOST} further collected records mention "

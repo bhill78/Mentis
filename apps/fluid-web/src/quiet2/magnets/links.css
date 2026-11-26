@@ -1,0 +1,58 @@
+/* Links, and the air a recorded statement needs to be read (owner
+ * ent-0b4f3f69b836: "Include clickable links and maybe slightly better
+ * formatting for reading").
+ *
+ * THE DESIGN IS `design.css`, as everywhere else on this card: a link is the
+ * approved gold (`mgd-link`'s `#edc35d`) and a quotation the approved quote ink
+ * (`mgd-item p`'s `#c4b6b0`). Nothing here is a new colour, a new type scale or
+ * a new shape -- it is the same vocabulary, given the two things the mockups
+ * draw with plain text and a working card needs as elements: an address that is
+ * followable, and a statement with its quotation set under it instead of run
+ * into it.
+ */
+
+/* -- an address inside prose ------------------------------------------------ *
+   `overflow-wrap` matters: a feed permalink is 200 opaque characters and must
+   never push the card wide. The whole address is the `href` and the `title`;
+   what is drawn is `shortLink`'s site and path. */
+.q2-magnet-card .q2-magnet-url {
+  color: #edc35d;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, #edc35d 45%, transparent);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.q2-magnet-card .q2-magnet-url:hover { color: #f6d47d; text-decoration-color: #f6d47d; }
+.q2-magnet-card .q2-magnet-url:focus-visible { outline: 2px solid #e6bc50; outline-offset: 2px; border-radius: 3px; }
+
+/* -- a collected row's own address ------------------------------------------ *
+   Its own line under the row, so the row stays one press and the link stays
+   another. */
+.q2-magnet-card .q2-magnet-row-link {
+  display: inline-block;
+  margin: 2px 0 0 6px;
+  color: #edc35d;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.q2-magnet-card .q2-magnet-row-link:hover { color: #f6d47d; text-decoration: underline; text-underline-offset: 2px; }
+.q2-magnet-card .q2-magnet-row-link:focus-visible { outline: 2px solid #e6bc50; outline-offset: 2px; border-radius: 3px; }
+
+/* -- a statement, and the words it quoted ----------------------------------- *
+   One statement is a block: what it says, then what the record said. The space
+   between two statements is what makes a four-statement answer readable; the
+   space inside one is tighter, so a statement and its own quotation read as one
+   thing rather than as two. */
+.q2-magnet-card .q2-magnet-statement { margin: 0 0 15px; }
+.q2-magnet-card .q2-magnet-statement:last-child { margin-bottom: 0; }
+.q2-magnet-card .q2-magnet-statement > .mgd-p { margin: 0; line-height: 1.6; }
+.q2-magnet-card .q2-magnet-said {
+  margin: 6px 0 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid #5c4d45;
+  color: #c4b6b0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}

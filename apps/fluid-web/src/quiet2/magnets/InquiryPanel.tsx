@@ -74,6 +74,7 @@ import {
 } from './perspectives'
 import { offeredQuestions } from './Summary'
 import { retainedItems, resultPreview, resultTitle, rowByline, usePeople } from './EvidenceViews'
+import { AnswerStatement, Linked } from './links'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { goTab, setOpen } from './places'
 import {
@@ -506,14 +507,18 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             {answers.current || told.challenges.length ? <>
               {answers.current && <>
                 {/* THE ANSWER STANDING NOW, statement by statement as it was
-                    recorded, then what it was grounded in. */}
+                    recorded, then what it was grounded in. Each statement is
+                    laid out with the record's own words quoted under it and the
+                    addresses in it followable (owner ent-0b4f3f69b836,
+                    `links.tsx`): the recorded characters, given room to be
+                    read. */}
                 {statements(answerText(answers.current) || 'An answer is recorded against this question.')
-                  .map((line, i) => <p key={`now-${i}`}>{line}</p>)}
+                  .map((line, i) => <AnswerStatement key={`now-${i}`} line={line} />)}
                 <AnswerGrounding answer={answers.current} />
                 <p className="mgd-small mgd-muted">{ANSWER_WRITTEN_BY(answers.current)}
                   {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
               </>}
-              {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span>{wordingOf(e) ?? ''}</p>)}
+              {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span><Linked text={wordingOf(e) ?? ''} /></p>)}
             </> : <>
               <p>{NOTHING_RECORDED_YET}</p>
               <button type="button" className="mgd-button" disabled={!mayWrite} onClick={answerAgain}>{ANSWER_FROM_COLLECTION}</button>
@@ -522,7 +527,11 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
               <summary>{EARLIER_ANSWERS} ({answers.superseded.length})</summary>
               <ol className="q2p-answers">{answers.superseded.map((e, i) => <li key={`s:${e.post}`}>
                 <span className="mgd-subtle">{EARLIER_ANSWERS} {answers.superseded.length - i}</span>
-                <p>{wordingOf(e) ?? 'An answer is recorded against this question.'}</p>
+                {/* An earlier answer is a whole answer, and was arriving as one
+                    paragraph. It is laid out exactly as the one standing now,
+                    and is still the characters that were recorded. */}
+                {statements(wordingOf(e) ?? 'An answer is recorded against this question.')
+                  .map((line, j) => <AnswerStatement key={`s${i}-${j}`} line={line} />)}
                 <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(e.data.answer?.ref ?? e.snapshot.ref)}>View it as it was recorded</button>
               </li>)}</ol>
             </details>}
