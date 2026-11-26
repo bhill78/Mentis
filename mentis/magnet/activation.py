@@ -104,7 +104,7 @@ def _reasoned(mid, code, words, *, retryable=False, kind=None) -> dict:
 _CANNOT_RUN = {
     "schema-version-not-supported": "this Magnet definition is from a later schema than this build reads, so it is not run",
     "activation-not-supported": "this build activates a Magnet only by hand: its activation must be manual",
-    "collection-not-supported": "this build collects only once per activation: its collection must be one-time",
+    "collection-not-supported": "this build collects once per activation, by hand or when its schedule says it is due: its collection may not be continuous or paused",
     "synthesis-not-supported": "this build synthesizes nothing by itself: its synthesis must be manual",
     "notifications-not-supported": "this build sends no notifications: every notification must be off",
     "pipeline-not-supported": "this build runs one operation, extract, and nothing else",

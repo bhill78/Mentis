@@ -202,16 +202,16 @@
   "status": 422,
   "said_by": "python",
   "body": {
-   "error": "this build collects only once per activation: its collection must be one-time",
+   "error": "this build collects once per activation, by hand or when its schedule says it is due: its collection may not be continuous or paused",
    "refused": true,
    "magnet": "mag-a1c7e2f09b3d4e68",
    "reason": {
     "code": "collection-not-supported",
-    "message": "this build collects only once per activation: its collection must be one-time",
+    "message": "this build collects once per activation, by hand or when its schedule says it is due: its collection may not be continuous or paused",
     "retryable": false
    }
   },
-  "bytes": "{\"error\": \"this build collects only once per activation: its collection must be one-time\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"collection-not-supported\", \"message\": \"this build collects only once per activation: its collection must be one-time\", \"retryable\": false}}"
+  "bytes": "{\"error\": \"this build collects once per activation, by hand or when its schedule says it is due: its collection may not be continuous or paused\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"collection-not-supported\", \"message\": \"this build collects once per activation, by hand or when its schedule says it is due: its collection may not be continuous or paused\", \"retryable\": false}}"
  },
  "synthesis-not-supported": {
   "status": 422,
