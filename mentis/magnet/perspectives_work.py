@@ -228,58 +228,163 @@ def _named(terms):
     return ", ".join(f"“{t}”" for t in terms[:-1]) + f" and “{terms[-1]}”"
 
 
+#: Leading words stripped off a capitalised run before it is offered as a
+#: subject -- a sentence-initial "The" or a question word is grammar, not a
+#: name.
+_LEADING_STOP = set((
+    "the a an this that these those is are was were it its new from for with on at to in of as by "
+    "what how why when where who which and or but not here there").split())
+
+
+def _subject_candidates(text):
+    """The named subjects a piece of captured text actually states: runs of
+    two or more consecutive capitalised words ("Roman Space Telescope",
+    "Artemis Programme"), stripped of a leading grammatical word.
+
+    This is content read, not a keyword matched -- a row that names nothing
+    beyond an ordinary sentence contributes no candidate at all, which is the
+    honest outcome for a row whose own words do not name a subject.
+    """
+    runs, run = [], []
+    for raw in str(text).split():
+        token = raw.strip("\"'“”‘’.,:;!?()[]{}«»")
+        if token and token[:1].isalpha() and token[:1].isupper():
+            run.append(token)
+            continue
+        if len(run) >= 2:
+            runs.append(list(run))
+        run = []
+    if len(run) >= 2:
+        runs.append(run)
+    out = []
+    for run in runs:
+        while run and run[0].lower() in _LEADING_STOP:
+            run = run[1:]
+        if len(run) >= 2:
+            out.append(" ".join(run))
+    return out
+
+
+def _subjects(texts, most=4):
+    """The `most` subjects named most often across `texts`, in the order each
+    was first seen among ties -- so the lede is read from what the collected
+    material actually repeats, not from a single row's phrasing."""
+    order, counts = [], {}
+    for text in texts:
+        for phrase in _subject_candidates(text):
+            if phrase not in counts:
+                order.append(phrase)
+            counts[phrase] = counts.get(phrase, 0) + 1
+    ranked = sorted(dict.fromkeys(order), key=lambda p: (-counts[p], order.index(p)))
+    return ranked[:most]
+
+
+def _published(row):
+    """The date the row's own material says it was published, read from the
+    feed's recorded `Published:` line (`mentis.sources.feeds._entry_body`) --
+    never the collection timestamp, which is when Mentis fetched it, not when
+    the material was written. `None` where the row carries no such line (a
+    web page, a post, an ordinary held file): nothing is inferred for it."""
+    import datetime
+    for raw in _row_text(row).split("\n"):
+        line = raw.strip()
+        if line.startswith("Published:"):
+            try:
+                return datetime.datetime.fromisoformat(line[len("Published:"):].strip()).date().isoformat()
+            except ValueError:
+                return None
+    return None
+
+
+def _publisher(row):
+    """The publisher a feed entry recorded about itself, from its own
+    `Publisher:` line -- so its name can be told apart from the subject the
+    row actually speaks about, which a feed title commonly appends it to
+    (`"<title> - <publisher>"`). `None` where the row recorded none."""
+    for raw in _row_text(row).split("\n"):
+        line = raw.strip()
+        if line.startswith("Publisher:"):
+            return line[len("Publisher:"):].strip()
+    return None
+
+
+def _unbylined(text, publisher):
+    """`text` with a trailing `" - <publisher>"` removed, so a byline is never
+    read as the subject it is appended to."""
+    if text and publisher and text.endswith(f" - {publisher}"):
+        return text[:-(len(publisher) + 3)].rstrip()
+    return text
+
+
 def _state_of(rows, new_ids, activation, page):
     """THE EVOLVING SUMMARY: what this Magnet has gathered, said once.
 
     Every line is a statement about the rows this answer read, and every line
     names the rows it was written from, so the citation is the statement's own
-    and not a list stapled underneath it.
+    and not a list stapled underneath it. It leads with what the collected
+    material actually names, and closes with the one line that counts it --
+    counting is bookkeeping, not the thing the material says.
     """
     lines = []
     kinds = {}
     for got in rows:
         kinds.setdefault(got["words"], []).append(got)
-    collected = _when(activation.get("at"))
-    lines.append({"text": f"This Magnet has gathered {len(rows)} "
-                          f"{'record' if len(rows) == 1 else 'records'} from {len(kinds)} "
-                          f"{'source' if len(kinds) == 1 else 'sources'}"
-                          + (f", collected {collected}." if collected else "."),
-                  "cites": [got["row"]["id"] for got in rows[:ROWS_NAMED_MOST]]})
-    if new_ids:
-        fresh = [got for got in rows if got["row"]["id"] in set(new_ids)]
-        lines.append({"text": f"{len(new_ids)} of them arrived in this collection and were not in "
-                              f"the one before it.",
-                      "cites": [got["row"]["id"] for got in fresh[:ROWS_NAMED_MOST]]})
-        for got in fresh[:ROWS_NAMED_MOST]:
-            headline, link, material = _row_said(got["row"])
-            words = _excerpt(material)
-            if words or headline or link:
-                day = _when(got["row"].get("at"))
-                where = _points_at(f"New, from the {got['words']}"
-                                   + (f" ({day})" if day else ""), headline, link)
-                lines.append({"text": f"{where}: “{words}”" if words and not _restates(headline, words)
-                                      else _closed(where, link),
-                              "cites": [got["row"]["id"]]})
+
+    def _at(got):
+        at = got["row"].get("at")
+        return at if isinstance(at, (int, float)) and not isinstance(at, bool) else 0
+
+    # -- lead with what the material names, drawn from its own captured words --
+    said_of = {got["row"]["id"]: _row_said(got["row"]) for got in rows}
+
+    def _subject_text(got):
+        headline, _, material = said_of[got["row"]["id"]]
+        return _unbylined(headline or material, _publisher(got["row"]))
+
+    texts_of = {got["row"]["id"]: _subject_text(got) for got in rows}
+    subjects = _subjects([texts_of[got["row"]["id"]] for got in rows], most=4)
+    if subjects:
+        named_in = [got["row"]["id"] for got in rows
+                   if any(_squeezed(s) in _squeezed(texts_of[got["row"]["id"]] or "") for s in subjects)]
+        lines.append({"text": f"This Magnet's collected material speaks mainly about "
+                              f"{_named(subjects)}.",
+                      "cites": (named_in or [got["row"]["id"] for got in rows])[:ROWS_NAMED_MOST]})
+    else:
+        lines.append({"text": "This Magnet's collected material is mostly headlines, with no "
+                              "named subject standing out of it yet.",
+                      "cites": [got["row"]["id"] for got in rows[:ROWS_NAMED_MOST]]})
+
+    # -- a concrete development: what is new, or failing that, the newest --
+    fresh = [got for got in rows if new_ids and got["row"]["id"] in set(new_ids)]
+    highlighted, label = (fresh, "New, from the") if fresh \
+        else (sorted(rows, key=_at, reverse=True)[:1], "Most recently, from the")
+    for got in highlighted[:ROWS_NAMED_MOST]:
+        headline, link, material = said_of[got["row"]["id"]]
+        words = _excerpt(material)
+        if words or headline or link:
+            published = _published(got["row"])
+            where = _points_at(f"{label} {got['words']}"
+                               + (f" ({published})" if published else ""), headline, link)
+            lines.append({"text": f"{where}: “{words}”" if words and not _restates(headline, words)
+                                  else _closed(where, link),
+                          "cites": [got["row"]["id"]]})
+
     for words, got_rows in list(kinds.items())[:SOURCES_NAMED_MOST]:
         # The most recent row THAT RETAINED WORDS, so a source is quoted
         # wherever it can be; a source whose newest row kept no text is still
         # counted, and says that rather than appearing to hold nothing.
-        def _at(got):
-            at = got["row"].get("at")
-            return at if isinstance(at, (int, float)) and not isinstance(at, bool) else 0
         spoken = sorted((g for g in got_rows if _row_text(g["row"]).strip()), key=_at)
-        headline, link, material = _row_said(spoken[-1]["row"]) if spoken else (None, None, "")
+        headline, link, material = said_of[spoken[-1]["row"]["id"]] if spoken else (None, None, "")
         quoted = headline or _excerpt(material, 160)
-        said = (f"From the {words}: {len(got_rows)} "
-                f"{'record' if len(got_rows) == 1 else 'records'}")
+        said = f"From the {words}:"
         # The newest row this source retained words for, named by its headline
         # where it has one and pointed at by its own address, so the one record
         # this line names is a record the reader can open.
-        lines.append({"text": _closed(f"{said}, most recently “{quoted}”"
+        lines.append({"text": _closed(f"{said} most recently “{quoted}”"
                                       + (f" · {link}" if link else ""), link) if quoted
-                              else f"{said}, none of which retained any words.",
+                              else f"{said} none of which retained any words.",
                       "cites": [(spoken[-1] if spoken else sorted(got_rows, key=_at)[-1])["row"]["id"]]})
-    days = sorted(d for d in (_when(got["row"].get("at")) for got in rows) if d)
+    days = sorted(d for d in (_published(got["row"]) for got in rows) if d)
     if days:
         lines.append({"text": f"The material it holds was written on {days[0]}." if days[0] == days[-1]
                       else f"The material it holds was written between {days[0]} and {days[-1]}.",
@@ -288,16 +393,32 @@ def _state_of(rows, new_ids, activation, page):
         lines.append({"text": f"Not every source reported its whole selected scope, so this is what "
                               f"was collected and not everything that exists (recorded state "
                               f"{page['state']}).", "cites": []})
+
+    # -- the one counts line, last --
+    collected = _when(activation.get("at"))
+    total = (f"This Magnet has gathered {len(rows)} "
+             f"{'record' if len(rows) == 1 else 'records'} from {len(kinds)} "
+             f"{'source' if len(kinds) == 1 else 'sources'}"
+             + (f", collected {collected}." if collected else "."))
+    if new_ids:
+        total += (f" {len(new_ids)} of them arrived in this collection and were not in "
+                  f"the one before it.")
+    lines.append({"text": total, "cites": [got["row"]["id"] for got in rows[:ROWS_NAMED_MOST]]})
     return lines
 
 
 def _about(question, rows):
     """AN OWNER'S QUESTION, ANSWERED FROM THE COLLECTED ROWS.
 
-    It says plainly what it did: which of the collected records bear on the
-    question's own words, and what those records say, quoted. Where none of
-    them do, it says that instead of writing something that sounds like an
-    answer -- which is the one thing #521 §7 forbids.
+    Rows are selected by what their own captured words say -- co-occurrence of
+    the question's significant terms over the row's readable material, never
+    its recorded provenance (a feed entry's footer restates the configured
+    search itself, and matching that would answer every row identically,
+    whatever was asked). What those records say is then quoted, led by the
+    subjects their own words name -- never by reporting which of the
+    question's words were found, which is what #521 §7 forbids sounding like
+    an answer without being one. Where nothing in the collection bears on it,
+    it says that instead.
     """
     terms = _terms(question)
     if not terms:
@@ -305,20 +426,35 @@ def _about(question, rows):
                          "searched on, so nothing was read to answer it.", "cites": []}]
     scored = []
     for got in rows:
-        words = _row_text(got["row"]).lower()
-        hits = [t for t in terms if t in words]
+        headline, _, material = _row_said(got["row"])
+        content = " ".join(filter(None, [headline, material]))
+        unbylined = _unbylined(headline, _publisher(got["row"])) or headline or material
+        hits = [t for t in terms if t in content.lower()]
         if hits:
-            scored.append((len(hits), got, hits))
-    scored.sort(key=lambda s: (-s[0], str(s[1]["row"]["id"])))
+            # Co-occurrence of the question's terms ranks first; a row whose
+            # own words also name a subject (a capitalised run, not a term
+            # hit, and not the byline a feed appends) ranks next, so a row
+            # that actually names something is read before one that merely
+            # shares a generic word.
+            scored.append((len(hits), 1 if _subject_candidates(unbylined) else 0, got, hits))
+    scored.sort(key=lambda s: (-s[0], -s[1], str(s[2]["row"]["id"])))
     if not scored:
         return [{"text": f"None of the {len(rows)} records this Magnet has collected mention "
                          f"{_named(terms)}. Nothing outside this collection was read, so this is "
                          f"what the collection can answer and not an answer from elsewhere.",
                  "cites": []}]
-    lines = [{"text": f"{len(scored)} of the {len(rows)} records this Magnet has collected mention "
-                      f"{_named(terms)}. Here is what they say.",
-              "cites": [got["row"]["id"] for _, got, _ in scored[:ROWS_NAMED_MOST]]}]
-    for _, got, hits in scored[:ROWS_NAMED_MOST]:
+    top = scored[:ROWS_NAMED_MOST]
+    subject_texts = []
+    for _, _, got, _ in top:
+        headline, _, material = _row_said(got["row"])
+        subject_texts.append(_unbylined(headline, _publisher(got["row"])) or headline or material)
+    subjects = _subjects(subject_texts, most=3)
+    lede = (f"This Magnet's collected material speaks to {_named(subjects)}. Here is what it says."
+            if subjects else
+            "This Magnet's collected material holds statements that bear on that; here is what "
+            "it says.")
+    lines = [{"text": lede, "cites": [got["row"]["id"] for _, _, got, _ in top]}]
+    for _, _, got, hits in top:
         day = _when(got["row"].get("at"))
         headline, link, material = _row_said(got["row"])
         words = _excerpt(material)
@@ -328,9 +464,9 @@ def _about(question, rows):
                               else _closed(where, link),
                       "cites": [got["row"]["id"]]})
     if len(scored) > ROWS_NAMED_MOST:
-        lines.append({"text": f"{len(scored) - ROWS_NAMED_MOST} further collected records mention "
-                              f"the same words and are not quoted here.",
-                      "cites": [got["row"]["id"] for _, got, _ in scored[ROWS_NAMED_MOST:]][:ROWS_NAMED_MOST]})
+        lines.append({"text": f"{len(scored) - ROWS_NAMED_MOST} further collected records bear on "
+                              f"the same subject and are not quoted here.",
+                      "cites": [got["row"]["id"] for _, _, got, _ in scored[ROWS_NAMED_MOST:]][:ROWS_NAMED_MOST]})
     return lines
 
 
