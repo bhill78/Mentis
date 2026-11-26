@@ -178,6 +178,42 @@ def read(st, mid, *, batch=None, digest=None):
             "references": references(activation, page)}
 
 
+def new_since(st, mid, *, since):
+    """Rows present in the latest batch but absent from an earlier named one.
+
+    Identity is `row_digest`, the same content identity `references()` already
+    serves beside every batch -- there is no second notion of "new". `since`
+    names the collection batch (`adm-ref`) last shown to the viewer, as
+    `history()` lists it; the caller holds that state, not this read. A
+    `since` this Magnet never recorded, or whose retained batch no longer
+    verifies, is refused -- never treated as empty, which would overstate
+    what is new.
+    """
+    _config(st, mid)
+    if not isinstance(since, str) or not re.fullmatch(r"adm-[0-9a-f]{12}", since):
+        raise fluid.BadRequest("since=<adm-ref> names the collection batch last shown")
+    filters = {"magnet": mid}
+    acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is=filters,
+                                 newest_first=True, limit=1)
+    if not acts:
+        raise fluid.NotFound(since)
+    activation, page = _retained(st, mid, acts[0])
+    current = references(activation, page)
+    latest_ref = activation["artifact"]["ref"]
+    if since == latest_ref:
+        earlier_digests = {v["digest"] for v in current.values()}
+    else:
+        earlier_acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is=filters,
+                                             about=since, newest_first=True, limit=1)
+        if (not earlier_acts
+                or earlier_acts[0]["detail"].get("artifact", {}).get("ref") != since):
+            raise fluid.NotFound(since)
+        earlier_activation, earlier_page = _retained(st, mid, earlier_acts[0])
+        earlier_digests = {v["digest"] for v in references(earlier_activation, earlier_page).values()}
+    new_ids = sorted(rid for rid, v in current.items() if v["digest"] not in earlier_digests)
+    return {"magnet": mid, "batch": latest_ref, "new_count": len(new_ids), "new": new_ids}
+
+
 def history(st, mid, *, limit=20, cursor=None):
     _config(st, mid)
     if isinstance(limit, str) and re.fullmatch(r"[0-9]{1,2}", limit):

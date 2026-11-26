@@ -42,3 +42,26 @@ def test_collection_router_refuses_worker_credentials(world, tail):
     before = record_size(world)
     assert get(world, tail, [['X-Mentis-Worker', 'forged']])['status'] == 403
     assert record_size(world) == before
+
+
+def test_new_route_reports_true_new_items_over_http(world):
+    first = commit(world, 'new-route-first')
+    second = commit(world, 'new-route-second')
+    before = record_size(world)
+    same = get(world, f'/new?since={second["artifact"]["ref"]}')
+    assert same['status'] == 200
+    assert json.loads(same['body'])['new_count'] == 0
+    earlier = get(world, f'/new?since={first["artifact"]["ref"]}')
+    assert earlier['status'] == 200
+    body = json.loads(earlier['body'])
+    assert body['batch'] == second['artifact']['ref'] and body['new_count'] == len(body['new'])
+    assert get(world, '/new')['status'] == 400
+    assert get(world, '/new?since=not-a-batch')['status'] == 400
+    assert get(world, '/new?since=adm-000000000000')['status'] == 404
+    assert record_size(world) == before
+
+
+def test_new_route_refuses_worker_credentials(world):
+    commit(world, 'new-worker-route')
+    assert get(world, '/new?since=adm-000000000000',
+               [['X-Mentis-Worker', 'forged']])['status'] == 403

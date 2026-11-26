@@ -332,6 +332,12 @@ def route(st, path: str, query: dict) -> dict:
             and rest.endswith("/collection/history")):
         from mentis.magnet.collection import history as collection_history
         return collection_history(st, rest.split("/")[1], limit=one("limit", "20"), cursor=one("cursor"))
+    if (rest.startswith("magnets/") and rest.count("/") == 3
+            and rest.endswith("/collection/new")):
+        from mentis.magnet.collection import new_since
+        if not one("since"):
+            raise _read.BadRequest("since=<adm-ref> names the collection batch last shown")
+        return new_since(st, rest.split("/")[1], since=one("since"))
     bits = rest.split("/")
     if len(bits) >= 3 and bits[0] == "magnets" and bits[2] == "perspectives":
         from mentis.magnet.perspectives import route_read

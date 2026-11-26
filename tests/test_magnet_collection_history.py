@@ -76,6 +76,35 @@ def test_history_bad_parameters_refuse(world, kwargs):
         C.history(world.state, MAGNET, **kwargs)
 
 
+def test_new_since_counts_only_rows_absent_from_the_earlier_batch(world):
+    first = commit(world, "first")
+    second = commit(world, "second")
+    first_ref, second_ref = first["artifact"]["ref"], second["artifact"]["ref"]
+
+    same = C.new_since(world.state, MAGNET, since=second_ref)
+    assert same == {"magnet": MAGNET, "batch": second_ref, "new_count": 0, "new": []}
+
+    from_first = C.new_since(world.state, MAGNET, since=first_ref)
+    assert from_first["magnet"] == MAGNET and from_first["batch"] == second_ref
+    first_rows = set(C.read(world.state, MAGNET, batch=first_ref, digest=first["artifact"]["digest"])["references"])
+    second_rows = set(C.read(world.state, MAGNET, batch=second_ref, digest=second["artifact"]["digest"])["references"])
+    assert set(from_first["new"]) == second_rows - first_rows
+    assert from_first["new_count"] == len(from_first["new"])
+
+
+def test_new_since_requires_a_real_earlier_batch(world):
+    commit(world, "only")
+    with pytest.raises(fluid.BadRequest):
+        C.new_since(world.state, MAGNET, since="not-a-batch")
+    with pytest.raises(fluid.NotFound):
+        C.new_since(world.state, MAGNET, since="adm-000000000000")
+
+
+def test_new_since_refuses_when_nothing_is_collected_yet(world):
+    with pytest.raises(fluid.NotFound):
+        C.new_since(world.state, MAGNET, since="adm-000000000000")
+
+
 @pytest.mark.parametrize("bound", [-1, True, 2**63, "10"])
 def test_operational_sequence_bounds_are_checked(world, bound):
     with pytest.raises(ValueError):
