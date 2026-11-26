@@ -129,6 +129,25 @@ export async function takeToConversation(resource: MagnetResource, store: Perspe
   if (s.selected !== viewed) await store.select(viewed)
   return discussSelectedQuestion(resource, store)
 }
+/** AN AGENT-WRITTEN ANSWER, ASKED FROM THIS QUESTION. `ANSWER_FROM_COLLECTION`
+ *  writes an answer from this Magnet's own collected rows alone; this press
+ *  is the other kind -- the words are frozen as this Perspective's immutable
+ *  input package (`store.prepare`, which revises the saved question to these
+ *  exact words first), and the frozen intent then travels through the
+ *  Conversation's own composer and its `beforeRequest` hook, which attaches
+ *  it to the actual request so the server can bind and reconcile it. Nothing
+ *  is dispatched from here: the owner still chooses the recipient and presses
+ *  Send in the Conversation, exactly as `TAKE_TO_CONVERSATION` already hands
+ *  off there. */
+export const ASK_AN_AGENT = 'Ask an agent about this'
+export async function askAnAgent(resource: MagnetResource, store: PerspectiveStore, text: string) {
+  const s = store.snapshot()
+  const topic = s.viewed ?? s.selected
+  if (!topic) throw new Error('Open a question before asking it of an agent.')
+  if (!text.trim()) throw new Error('Write a question before asking an agent.')
+  await store.prepare(text, `perspective-ask:${topic}:${crypto.randomUUID()}`)
+  return discussSelectedQuestion(resource, store)
+}
 /** What the answer block says about who wrote the answer standing now. */
 export const ANSWER_WRITTEN_BY = (e: InquiryEvent | null): string =>
   typeof e?.data?.written_by === 'string' ? e.data.written_by : WRITTEN_BY_MENTIS
@@ -425,6 +444,15 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
     await store.ask()
     setMessage(store.snapshot().error ?? 'Answered from this collection again. The earlier answer is kept.')
   })
+  /** FREEZE THESE WORDS FOR AN AGENT, and hand off to the Conversation to send
+   *  them. Unlike `sendAsk`, nothing is answered here: the agent's own answer
+   *  is what will be recorded, once the owner addresses one and presses Send. */
+  const askAgent = () => void run(async () => {
+    const words = drafts.question
+    await askAnAgent(resource, store, words)
+    clearQuestionDraft(at)
+    setMessage('Frozen for an agent. Choose a recipient and press Send in the Conversation.')
+  })
 
   /* `q2p-open-past` is the hook the wide layout drops this on: once the aside
      stands beside the work, the list it leads to is already on the surface
@@ -464,6 +492,9 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             await record()
             if (!store.snapshot().pending) clearQuestionDraft(at)
           })}>Save for later</button>}
+          {/* THE AGENT-WRITTEN PATH: offered only once there is a kept
+              question to freeze, and only beside the words it would freeze. */}
+          {asked && drafts.question.trim() && <button type="button" className="mgd-link mgd-small" disabled={busy} onClick={askAgent}>{ASK_AN_AGENT}</button>}
           <button type="button" className="mgd-button" disabled={!drafts.question.trim()} onClick={sendAsk}>{asked ? 'Send ↑' : 'Ask →'}</button>
         </span>
       </div>

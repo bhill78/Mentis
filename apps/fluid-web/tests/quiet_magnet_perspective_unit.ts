@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
 import { answerHistory, derivedPerspectiveName, PerspectiveStore, STANDING_QUESTION, standingAnswerOp, standingOp } from '../src/quiet2/magnets/perspectives'
-import { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
+import { askAnAgent, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { miniComposerDraft, removeContext, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
@@ -69,6 +69,50 @@ test('discussion uses selected saved wording rather than viewed history and keep
   saveMiniComposer(f.r, { ...draft, text: 'Do not discard this draft' })
   await assert.rejects(discussSelectedQuestion(f.r, f.store), /different draft/)
   assert.equal(miniComposerDraft(f.r).text, 'Do not discard this draft')
+})
+
+/* -- the agent-written path: freeze with `prepare`, hand off to discuss ---- */
+
+test('asking an agent refuses without an open question or without words', async () => {
+  const f = fixture()
+  f.store.update({ selected: null, viewed: null })
+  await assert.rejects(askAnAgent(f.r, f.store, 'Anything'), /Open a question/)
+  f.store.update({ selected: A, viewed: A })
+  await assert.rejects(askAnAgent(f.r, f.store, '   '), /Write a question/)
+})
+
+test('asking an agent freezes the exact words with `prepare`, then hands off to the Conversation composer', async () => {
+  const f = fixture()
+  f.r.update({ activation: { post: 'ent-batch1111111', artifact: { ref: 'adm-batch111111' }, at: 0, state: 'collected' }, results: [] })
+  f.store.update({ selected: A, viewed: A })
+  const sent: any[] = []
+  f.store.write = async (...args) => {
+    sent.push(args)
+    if (args[0] === `/${A}/question`) return { perspective: A, question: { ref: 'adm-newrev111' } }
+    if (args[0] === `/${A}/prepare`) {
+      return { intent: 'ent-intent1111', perspective: A, brain: page.bound(), question: { ref: 'adm-newrev111', digest: 'd'.repeat(64), size: 1, media_type: 'application/json' },
+        manifest: { ref: 'adm-manifest11', digest: 'e'.repeat(64), size: 1, media_type: 'application/json' },
+        records: { ref: 'adm-records111', digest: 'f'.repeat(64), size: 1, media_type: 'application/json' },
+        artifacts: [], parts: [], reach: 'work' as const, request_op: 'perspective-request:ent-intent1111',
+        text: 'A fresh agent question', closure: { count: 0, bytes: 0 }, disclosure: '' }
+    }
+    throw new Error(`unexpected write ${args[0]}`)
+  }
+  await askAnAgent(f.r, f.store, 'A fresh agent question')
+  // The words are frozen as a new question revision before anything is prepared.
+  assert.equal(sent[0][0], `/${A}/question`)
+  assert.equal(sent[0][1].text, 'A fresh agent question')
+  assert.match(sent[0][2], new RegExp(`^perspective-ask:${A}`))
+  // Preparation freezes the input package from that exact revision.
+  assert.equal(sent[1][0], `/${A}/prepare`)
+  assert.equal(sent[1][1].question, 'adm-newrev111')
+  assert.equal(sent[1][1].batches[0], 'adm-batch111111')
+  assert.equal(sent.length, 2, 'asking an agent is one revision write and one prepare write, never a third')
+  // The frozen intent is kept, for `beforeRequest` to carry through on send.
+  assert.equal(f.store.snapshot().active?.intent, 'ent-intent1111')
+  assert.equal(f.store.snapshot().active?.reach, 'work')
+  // And the hand-off to the Conversation composer is the same one `TAKE_TO_CONVERSATION` uses.
+  assert.equal(f.r.snapshot().tab, 'Conversation')
 })
 
 test('uncertain edit survives remount and freezes original target, text and key after viewed lens changes', async () => {
