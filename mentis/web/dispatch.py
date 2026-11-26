@@ -4398,7 +4398,11 @@ def _offer(corpus, refs) -> str:
             + "\n".join(lines))
 
 
-def dispatch_soon(st, **kw) -> None:
+#: at most this long a dispatch handed off with `after` waits for it
+AFTER_WAIT_S = 60.0
+
+
+def dispatch_soon(st, *, after=None, **kw) -> None:
     """Run a dispatch without holding the request open.
 
     `Execution.perform` blocks until the agent's turn ends,
@@ -4447,6 +4451,13 @@ def dispatch_soon(st, **kw) -> None:
                 return
             turn_of["begun"] = True
         try:
+            # HANDED OFF NOW, STARTED AFTER `after` (2026-11-26): an answer
+            # is acknowledged once durable and the claim it held reconciled
+            # just after; the run it resumes is reserved here at once (Trash
+            # and the work view see it dispatching) and begins once that
+            # reconciliation has run, as it always followed it. Bounded.
+            if after is not None:
+                after.wait(AFTER_WAIT_S)
             dispatch(st, **kw)
         except Exception as exc:
             # NEVER ONLY A TRACEBACK. `dispatch` records its own failures now,

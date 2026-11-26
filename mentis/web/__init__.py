@@ -4134,13 +4134,26 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 defer=deferred)
             if deferred:
                 # IN THE ORDER IT ALWAYS HAD: the claim the answer held is
-                # reconciled, then the work it resumes is started -- both
-                # after the answer is acknowledged (review of 8becfbe0)
-                def after(deferred=deferred, later=later):
-                    for f in deferred:
-                        f()
-                    for kw in later:
-                        (_enqueue_dispatch or dispatch_soon)(st, **kw)
+                # reconciled, then the work it resumes starts -- both after
+                # the answer is acknowledged. Each dispatch is handed off
+                # (reserved) NOW, before acknowledging, and waits for the
+                # reconciliation only to begin (review of 8becfbe0, 02a14e6f).
+                gate = threading.Event()
+
+                def after(deferred=deferred, gate=gate):
+                    try:
+                        for f in deferred:
+                            f()
+                    finally:
+                        gate.set()
+                from mentis.web import dispatch as _dispatching
+                for kw in later:
+                    if _enqueue_dispatch is not None:
+                        _enqueue_dispatch(st, **kw)
+                    elif dispatch_soon is _dispatching.dispatch_soon:
+                        dispatch_soon(st, after=gate, **kw)
+                    else:                       # a stand-in takes the hand-off
+                        dispatch_soon(st, **kw)
                 t = threading.Thread(target=after, name="after-answer",
                                      daemon=True)
                 _AFTER_ANSWERS.add(t)
