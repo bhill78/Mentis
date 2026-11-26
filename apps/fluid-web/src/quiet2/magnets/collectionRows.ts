@@ -14,6 +14,26 @@ const referenceOf = (served: any, id: string, batch: string): RouteResult['refer
   served && served.kind === 'collected_item' && served.ref === id && served.version === batch
     && typeof served.digest === 'string' && /^[0-9a-f]{64}$/.test(served.digest)
     ? { kind: 'collected_item', ref: id, version: batch, digest: served.digest } : undefined
+/** WHICH PATH A ROW MAY CARRY, the client's mirror of
+ * `mentis.magnet.activation.file_choice` and Rust's `held_file::choice`: an
+ * exact source's rows are that one object, a prefix source's rows are objects
+ * under that prefix, and a whole-collection source's rows are any object the
+ * collection holds. The row always states its OWN key, never the source's
+ * choice (`crates/mentis-ops/src/magnet/held_file.rs`, `path: path.to_owned()`).
+ *
+ * FOUND ON THE OWNER'S PATH, and fixed here because it blocked it: this
+ * demanded `row === source.path`, which only the exact case satisfies, so once
+ * Part C widened a `file` source server-side EVERY whole-collection and prefix
+ * source's rows were refused here -- a collection that really had been
+ * collected rendered as "A held-file range or its immutable provenance is
+ * invalid." Seen with 50 acquired web-search rows behind a whole-collection
+ * source; it is not web-specific, and a folder or Git collection read whole
+ * was refused the same way. Nothing else about the row contract is relaxed. */
+export const rowPathFits = (row: unknown, chosen: string | null | undefined): boolean =>
+  typeof row === 'string' && !!row
+  && (chosen === undefined || chosen === null ? true
+    : chosen.endsWith('/') ? row.startsWith(chosen) && row.length > chosen.length
+      : row === chosen)
 /** The server has verified the whole immutable batch. Inspect its captured
  * sources, which may predate the current configuration; never substitute it. */
 export function collectionRows(page: any, references?: any, batch?: string): { results: RouteResult[]; status: string; reason?: string; posts: number; sources: any[] } {
@@ -38,7 +58,7 @@ export function collectionRows(page: any, references?: any, batch?: string): { r
       } else {
         const v = r.value
         if (r.kind !== 'file' || r.via !== 'held-source' || !admission(r.id) || r.version !== r.id || r.conversation !== null || r.author !== null
-          || !v || v.ref !== r.id || v.collection !== source.collection || v.path !== source.path || typeof v.text !== 'string'
+          || !v || v.ref !== r.id || v.collection !== source.collection || !rowPathFits(v.path, source.path) || typeof v.text !== 'string'
           || typeof v.digest !== 'string' || !/^[0-9a-f]{64}$/.test(v.digest) || v.offset !== 0
           || !integer(v.end) || v.end > 65536 || !integer(v.size) || v.end > v.size || new TextEncoder().encode(v.text).length !== v.end
           || v.shortened !== (v.end < v.size) || v.omitted_bytes !== v.size - v.end || v.next_offset !== (v.shortened ? v.end : null)

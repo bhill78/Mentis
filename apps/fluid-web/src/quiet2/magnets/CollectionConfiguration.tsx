@@ -181,7 +181,15 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     const ctl = new AbortController()
     void Promise.all([configurationRead('/api/sources', ctl.signal), configurationRead('/fluid/api/workspaces', ctl.signal)]).then(([s, w]) => {
       if (ctl.signal.aborted) return
-      setCollections((s.collections ?? []).filter((c: any) => c.connector === 'filesystem').map((c: any) => ({ id: c.collection, name: c.name || c.collection })))
+      // WHICH COLLECTIONS MAY BE NAMED IS THE REGISTRY'S ANSWER, read from the
+      // same reply (`descriptors`), not a connector listed here. This was
+      // `c.connector === 'filesystem'`, which hid every Git, SQLite, feed, web
+      // search and web page collection -- including, after Part W, ones a
+      // Magnet reads perfectly well, and the one a Magnet created from a
+      // sentence declares for itself. An unavailable connector's collection is
+      // still not offered, because the registry still says so.
+      const readable = new Set(((s.descriptors ?? []) as any[]).filter((d) => d?.available).map((d) => d.id))
+      setCollections((s.collections ?? []).filter((c: any) => readable.has(c.connector)).map((c: any) => ({ id: c.collection, name: c.name || c.collection })))
       setArrangements([{ id: 'home', name: 'Brain Home' }, ...(w.workspaces ?? []).map((v: any) => ({ id: v.id, name: v.name }))])
       setLocations(true)
     }).catch((e) => { if (!ctl.signal.aborted) { setMessage(e.message); setLocations(true) } })
@@ -229,10 +237,20 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   // THE CLEAN ROW (approved mockup round 3, 03-sources.png): a title a reader
   // recognises, and what kind it is underneath -- never the source's raw
   // identity (a Conversation entry id, a collection key) on the row itself.
+  /** A CONFIGURED SOURCE, SAID AS WHAT IT READS. A `file` source names one
+   *  path, everything under a path prefix, or the whole collection (Part C,
+   *  `activation.file_choice`), so a path-less one is the collection itself
+   *  and not a half-finished choice -- it used to read "Choose one exact
+   *  file", which told the owner to finish something that was already done,
+   *  and a web search declared at creation is exactly that shape. */
+  const collectionName = (id: string | undefined) => collections.find((c) => c.id === id)?.name ?? 'Held collection'
   const sourceTitle = (s: MagnetSource) => s.kind === 'conversation' ? conversations.find((c) => c.id === s.conversation)?.name || 'Saved Conversation'
-    : s.kind === 'file' ? s.path || 'Choose one exact file' : `${s.kind} (unavailable)`
+    : s.kind === 'file' ? s.path || collectionName(s.collection) : `${s.kind} (unavailable)`
   const sourceSubtitle = (s: MagnetSource) => s.kind === 'conversation' ? 'Conversation · posts and attachments'
-    : s.kind === 'file' ? `Held file · ${collections.find((c) => c.id === s.collection)?.name ?? 'Held collection'}` : 'Unavailable in this build'
+    : s.kind === 'file' ? (s.path === undefined ? 'Everything in this collection'
+      : s.path.endsWith('/') ? `Everything under this path · ${collectionName(s.collection)}`
+        : `Held file · ${collectionName(s.collection)}`)
+      : 'Unavailable in this build'
   const add = (s: MagnetSource) => {
     if (locked) return
     setAlert('')

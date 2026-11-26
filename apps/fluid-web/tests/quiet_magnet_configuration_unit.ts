@@ -237,6 +237,26 @@ test('a scheduled Magnet can be collected by hand, and says that it also looks o
   assert.ok(paused.includes('Paused — it is not collecting'))
 })
 
+/** A CONFIGURED SOURCE IS SAID AS WHAT IT READS, not as an unfinished choice.
+ *  A path-less `file` source is the whole collection (Part C), and a Magnet
+ *  made from a sentence carries exactly that shape for the web collection it
+ *  declared -- so the row that read "Choose one exact file" was telling the
+ *  owner to finish something already done. */
+test('a whole-collection source row says what it reads, not that a file is unchosen', () => {
+  store()
+  const row = (s: MagnetSource) => renderToStaticMarkup(createElement(CollectionConfiguration, {
+    magnet: 'mag-partb', config: config({ sources: [s] }), brainKey, canWrite: () => true, onSaved: () => {},
+  }))
+  const whole = row({ kind: 'file', collection: 'col-held' })
+  assert.ok(!whole.includes('Choose one exact file'), 'the whole collection is a complete choice')
+  assert.ok(whole.includes('Held collection') && whole.includes('Everything in this collection'), whole.slice(0, 200))
+  const prefix = row({ kind: 'file', collection: 'col-held', path: 'search/' })
+  assert.ok(prefix.includes('Everything under this path'))
+  assert.ok(prefix.includes('search/'), 'and the prefix itself is the row title')
+  const exact = row(HELD)
+  assert.ok(exact.includes('notes/a.txt') && exact.includes('Held file'))
+})
+
 /** The configured-source line and the identity of a collection-scoped source.
  *  `sourceIdentity` is what the panel lists and what `collectionChange` refuses
  *  twice over, so a whole-collection source and an exact one under it are two

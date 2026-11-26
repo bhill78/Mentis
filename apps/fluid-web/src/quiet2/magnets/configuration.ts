@@ -28,6 +28,29 @@ export const COLLECTABLE_MODES = ['one-time', 'scheduled'] as const
  *  client's mirror of `activation._cannot_run_code`. Collecting by hand and
  *  collecting on a cadence are not alternatives: a scheduled Magnet answers
  *  true here, because the owner may always ask for it sooner. */
+/** WHICH PATHS A CONFIGURED `file` SOURCE MAY NAME, the client's mirror of
+ *  `mentis.magnet.activation.file_choice` and Rust's `held_file::choice`: no
+ *  path at all is the whole collection, a path ending in `/` is a prefix, and
+ *  anything else is one object. A component is never empty, `.` or `..`, and
+ *  no path carries a separator, wildcard, drive letter or NUL.
+ *
+ *  FOUND ON THE OWNER'S CREATION PATH, and fixed here because it blocked it:
+ *  this used to be `exactFileIssue` for every source, whose refusal
+ *  ("whole-collection file reads are unavailable") stopped being true when
+ *  Part C widened the server. A Magnet created from a sentence carries a
+ *  whole-collection source for the web collection it declared, so Settings
+ *  refused to save ANY later change to such a Magnet, with a false reason.
+ *  `exactFileIssue` is unchanged and still what the file picker asks, because
+ *  a picked file is one object. */
+export function fileChoiceIssue(collection: string, path: string | undefined): string | null {
+  if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(collection)) return 'This collection name cannot be saved by this Magnet schema (80 characters maximum).'
+  if (path === undefined) return null
+  if (Array.from(path).length > 300) return 'This file path exceeds the Magnet limit of 300 characters.'
+  if (!path.trim() || path !== path.trim() || /[\\:*?\[\]\u0000]/.test(path)
+    || path.replace(/\/$/, '').split('/').some((p) => !p || p === '.' || p === '..'))
+    return 'Choose one file path, a path prefix ending in “/”, or the whole collection — without a wildcard or traversal.'
+  return null
+}
 export function supportsManualCollection(config: MagnetConfig): boolean {
   const operations = config.processing?.operations
   return config.activation?.mode === 'manual'
@@ -45,7 +68,7 @@ export function collectionChange(config: MagnetConfig, sources: MagnetSource[], 
   if (new Set(sources.map(sourceIdentity)).size !== sources.length) throw new Error('Each source can be selected once.')
   for (const s of sources) {
     if (s.kind === 'conversation') { if (!/^ent-[a-zA-Z0-9]{6,40}$/.test(s.conversation)) throw new Error('Choose an existing Conversation.') }
-    else if (s.kind === 'file') { const issue = exactFileIssue(s.collection, s.path ?? ''); if (issue) throw new Error(issue) }
+    else if (s.kind === 'file') { const issue = fileChoiceIssue(s.collection, s.path); if (issue) throw new Error(issue) }
     else throw new Error(`${s.kind} collection is unavailable in this milestone.`)
   }
   if (types.some((t) => !['post', 'file', 'image', 'attachment'].includes(t))) throw new Error('Choose supported Conversation information types.')

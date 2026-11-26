@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { collectionRows } from '../src/quiet2/magnets/collectionRows'
-import { collectionChange, exactFileIssue, supportsManualCollection } from '../src/quiet2/magnets/configuration'
+import { collectionRows, rowPathFits } from '../src/quiet2/magnets/collectionRows'
+import { collectionChange, exactFileIssue, fileChoiceIssue, supportsManualCollection } from '../src/quiet2/magnets/configuration'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { PerspectiveStore, perspectiveRequest, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
@@ -63,12 +63,69 @@ test('held-file range corruption, original size mismatch and forged Conversation
   const p = page(); (p.sources[2].results[0] as any) = { ...file, conversation: 'ent-fabricated111111' }
   assert.throws(() => collectionRows(p), /range|provenance/)
 })
-test('legacy path-less unavailable file rows remain inspectable while new collection refuses them', () => {
+/** A WHOLE-COLLECTION AND A PREFIX SOURCE'S ROWS, which this validator used to
+ *  refuse (found on the owner's creation path, G1/G2 correction). A row states
+ *  its OWN object key; the source states which of the three choices was made
+ *  (`mentis.magnet.activation.file_choice`). Fifty acquired web-search rows
+ *  behind a whole-collection source rendered as "A held-file range or its
+ *  immutable provenance is invalid" until this was mirrored here. */
+test('a whole-collection and a prefix file source carry rows keyed by their own path', () => {
+  const held = (path: string) => ({ ...file, id: 'adm-' + path.replace(/[^a-z0-9]/g, '').slice(0, 10).padEnd(10, 'x'),
+    version: 'adm-' + path.replace(/[^a-z0-9]/g, '').slice(0, 10).padEnd(10, 'x'),
+    value: { ...file.value, path, ref: 'adm-' + path.replace(/[^a-z0-9]/g, '').slice(0, 10).padEnd(10, 'x'),
+      citation: `adm-${path.replace(/[^a-z0-9]/g, '').slice(0, 10).padEnd(10, 'x')}@${digest.slice(0, 12)}[0:6]` } })
+  // Whole collection: any key the collection holds.
+  const whole = page()
+  whole.sources[2] = { source: { kind: 'file', collection: 'col-held' }, key: 'file:col-held:', status: 'ok',
+    results: [held('search/one'), held('deep/under/two')] } as any
+  const got = collectionRows(whole)
+  assert.equal(got.results.length, 3)
+  assert.deepEqual(got.results.slice(1).map((r) => (r.value as any).path), ['search/one', 'deep/under/two'])
+  // A prefix: keys under it, and nothing else.
+  const prefix = page()
+  prefix.sources[2] = { source: { kind: 'file', collection: 'col-held', path: 'search/' }, key: 'file:col-held:search/',
+    status: 'ok', results: [held('search/one')] } as any
+  assert.equal(collectionRows(prefix).results.length, 2)
+  const outside = page()
+  outside.sources[2] = { source: { kind: 'file', collection: 'col-held', path: 'search/' }, key: 'file:col-held:search/',
+    status: 'ok', results: [held('elsewhere/one')] } as any
+  assert.throws(() => collectionRows(outside), /range|provenance/, 'a row outside the chosen prefix is still refused')
+  // An exact source still takes that one object and no other, and a row with
+  // no path of its own is refused whichever choice was made.
+  assert.equal(rowPathFits('nested/file.txt', 'nested/file.txt'), true)
+  assert.equal(rowPathFits('nested/other.txt', 'nested/file.txt'), false)
+  assert.equal(rowPathFits('search/', 'search/'), false, 'the prefix itself is not an object under it')
+  for (const empty of ['', null, undefined, 7]) {
+    assert.equal(rowPathFits(empty, undefined), false, String(empty))
+    assert.equal(rowPathFits(empty, 'nested/file.txt'), false, String(empty))
+  }
+})
+
+/** REVISED BY THE G1/G2 CORRECTION. A path-less file source used to be
+ *  inspectable but unsavable: `collectionChange` refused it with "Choose one
+ *  file; whole-collection file reads are unavailable", which stopped being
+ *  true when Part C widened the server, and which then refused every save of
+ *  a Magnet created from a sentence (its declared web collection is read
+ *  whole). What is still refused is a path that names nothing readable, which
+ *  is what `fileChoiceIssue` mirrors from `activation.file_choice`. */
+test('a whole-collection or prefix file source is savable, and a malformed path is not', () => {
   const sources: MagnetConfig['sources'] = [...config.sources, { kind: 'file', collection: 'col-held' }]
   assert.equal(unsupportedMagnet({ ...config, sources }, config.id), undefined)
   const old = page(); old.sources[2] = { source: { kind: 'file', collection: 'col-held' }, key: 'file:col-held:', status: 'unavailable', results: [] } as any
   assert.equal(collectionRows(old).results.length, 1)
-  assert.throws(() => collectionChange(config, sources, ['post'], '', ''), /Choose one file/)
+  assert.deepEqual(collectionChange(config, sources, ['post'], '', '').sources, sources)
+  const prefix: MagnetConfig['sources'] = [{ kind: 'file', collection: 'col-held', path: 'search/' }]
+  assert.deepEqual(collectionChange(config, prefix, [], '', '').sources, prefix)
+  assert.equal(fileChoiceIssue('col-held', undefined), null, 'the whole collection is a complete choice')
+  assert.equal(fileChoiceIssue('col-held', 'search/'), null)
+  assert.equal(fileChoiceIssue('col-held', 'nested/file.txt'), null)
+  for (const path of ['', ' ', '../file', '*.txt', 'C:\\absolute', 'a//b', 'a/./b', '[abc].txt', 'nested:stream', ' file.txt', 'a'.repeat(301), '/absolute', '//', '/']) {
+    assert.ok(fileChoiceIssue('col-held', path), path)
+  }
+  assert.ok(fileChoiceIssue('bad collection', undefined))
+  for (const bad of [[{ kind: 'file' as const, collection: 'col-held', path: '../x' }], [{ kind: 'file' as const, collection: 'col-held', path: '*' }]]) {
+    assert.throws(() => collectionChange(config, bad, [], '', ''), /without a wildcard or traversal/)
+  }
 })
 test('exact file selection refuses expansion, traversal, directories and schema overflow', () => {
   for (const path of ['', '../file', 'folder/', '*.txt', '/absolute', 'C:\\absolute', 'a//b', 'a/./b', 'a'.repeat(301), '[abc].txt', 'nested:stream', ' file.txt', 'file.txt ']) assert.ok(exactFileIssue('col-held', path), path)
