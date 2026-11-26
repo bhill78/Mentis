@@ -505,6 +505,12 @@ class Sources:
         """Refuse malformed descriptor fields before starting background work."""
         return _options(connector, options)
 
+    def checked_options(self, connector, options):
+        """Whether `options` are a scope the connector itself would take --
+        an address's transport, length, credential fields, counts -- the rule
+        `check_options` does not reach, since it checks field NAMES only."""
+        return _module(connector).checked_options(options)
+
     def _conn(self, collection):
         return _module(connector_of(self.corpus, collection)).Connector(
             self.corpus, self.cv)

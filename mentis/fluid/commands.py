@@ -982,7 +982,7 @@ def _web_draft(sentence: str, subject: str):
     return "web-search", {"queries": [subject]}
 
 
-def _proposed_collection(sentence: str, subject: str) -> dict | None:
+def _proposed_collection(st, sentence: str, subject: str) -> dict | None:
     """A COLLECTION THIS BRAIN DOES NOT HOLD YET, proposed from the sentence.
 
     The owner's second correction: the proposal ranked collections that
@@ -1001,13 +1001,11 @@ def _proposed_collection(sentence: str, subject: str) -> dict | None:
     read the collection that results. A kind that fails any of them is not
     proposed, so this can never show a draft the declaring door would refuse.
 
-    SEAM, as `reads_here` has one: the only pure check of a connector's option
-    values is `registry._module(connector).checked_options`, which is private
-    to that module -- `Sources.check_options` checks the field NAMES only, and
-    the value check otherwise happens inside `preview_new`, which fetches. A
-    public `Sources.checked_options(connector, options)` belongs on the
-    registry; named for its owner or the integrator."""
-    from mentis.sources.registry import _module, descriptors
+    The pure check of a connector's option values is `Sources.checked_options`
+    on the registry, beside `check_options` (which checks the field NAMES
+    only); the value check otherwise happens inside `preview_new`, which
+    fetches."""
+    from mentis.sources.registry import Sources, descriptors
     drafted = _web_draft(sentence, subject)
     if drafted is None:
         return None
@@ -1020,7 +1018,7 @@ def _proposed_collection(sentence: str, subject: str) -> dict | None:
     if not set(asked) <= fields:
         return None
     try:
-        options = _module(connector).checked_options(dict(asked))
+        options = Sources(st.corpus, st.cv).checked_options(connector, dict(asked))
     except Exception:                                         # noqa: BLE001
         return None
     # The source the press will carry, which must be one this build collects.
@@ -1108,7 +1106,7 @@ def magnet_proposal(st, body) -> tuple[int, dict, list]:
         # AND WHAT THE SENTENCE ASKS FOR THAT THIS BRAIN HAS NOT GOT. Derived
         # after the name, because the name is the subject the sentence is
         # about, and that is what a search would be for.
-        declare = _proposed_collection(sentence, name)
+        declare = _proposed_collection(st, sentence, name)
     except S.Refused as exc:
         return _bad(str(exc))
     change = {k: value[k] for k in
