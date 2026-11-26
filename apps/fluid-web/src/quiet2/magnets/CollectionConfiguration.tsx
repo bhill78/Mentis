@@ -49,7 +49,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { MagnetConfig, MagnetSource } from '../../fluid/surface/magnet/types'
 import type { MagnetResource } from './contract'
 import { conversationChoices, type ConversationChoice } from './managementApi'
-import { collectionChange, collectionIssue, collectionRhythm, configurationRead, dayOf, exactFileIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
+import { collectionChange, collectionIssue, collectionRhythm, collectsOnlyByHand, configurationRead, dayOf, exactFileIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, sourceRowName, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
 import { discardStagedSettings, panelDrafts, requestSettingsReturn, stageSettings, subscribePanelDrafts, type StagedSettings } from './panelDrafts'
 import './design.css'
 import './configuration.css'
@@ -351,6 +351,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   </>
 
   const collectable = supportsManualCollection(p.config)
+  const byHandOnly = collectsOnlyByHand(p.config)
   const collecting = !!live?.collecting
   const mayCollect = p.canWrite('home') && collectable && !collecting && !!p.resource?.collect
   /** Collecting, where the Magnet itself was supplied. Settings has no resource
@@ -359,14 +360,16 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     <div className="mgd-divider" />
     <div className="mgd-row mgd-spread">
       <div className="mgd-grow">
-        {/* HOW OFTEN IT LOOKS, NOT WHICH MODE IS SAVED. A Magnet made from a
-            sentence carries a cadence, so it refreshes on its own and there is
-            no Collect for it to offer; saying "Manual collection is not
-            configured" there would report a schema fact as if it were a fault.
-            `collectionRhythm` says the same thing in ordinary words, and the
-            last collection is said under it either way. */}
-        <b>{collectable ? 'Collect manually' : 'Collects on its own'}</b>
-        <div className="mgd-subtle">{collectable ? lastCollected(live?.activation?.at)
+        {/* HOW OFTEN IT LOOKS, AND ASKING FOR IT NOW: BOTH, SINCE PART D2.
+            A Magnet made from a sentence carries a cadence, and this build
+            now collects a scheduled Magnet at a press as well as when it is
+            due (`activation.COLLECTABLE_MODES`, widened at `04853f40`). So
+            the heading says what the cadence is -- never a saved mode word --
+            and the press is offered beside it, because an owner who can see
+            information arriving must be able to ask for it sooner. Only a
+            paused or continuous Magnet has no press to offer. */}
+        <b>{byHandOnly ? 'Collect manually' : 'Collects on its own'}</b>
+        <div className="mgd-subtle">{byHandOnly ? lastCollected(live?.activation?.at)
           : `${collectionRhythm(p.config)} · ${lastCollected(live?.activation?.at).toLowerCase()}`}</div>
       </div>
       {collectable && <button type="button" className="mgd-button" disabled={!mayCollect}
@@ -407,14 +410,18 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
         <label className="mgd-small">To<input type="date" value={dayOf(before)} min={dayOf(after) || undefined} disabled={locked}
           onChange={(e) => { setAlert(''); edit({ before: withDay(before, e.target.value) }) }} /></label>
       </div>
-      {!collectable && <label className="mgd-small"><input type="checkbox" checked={manual} disabled={locked}
+      {/* The switch that makes collection manual ONLY, so it is offered
+          wherever that is not already the case -- a scheduled Magnet
+          included, which can be collected by hand and still looks on its own
+          until this is chosen. */}
+      {!byHandOnly && <label className="mgd-small"><input type="checkbox" checked={manual} disabled={locked}
         onChange={(e) => edit({ manual: e.target.checked })} />{MANUAL_COLLECTION}
         <span className="mgd-subtle"> {MANUAL_COLLECTION_MEANS}</span></label>}
       <button type="button" className="mgd-link mgd-small" aria-expanded={bounds}
         onClick={() => setBounds(!bounds)}>Collection limits ▾</button>
       {bounds && <div className="q2-magnet-bounds">
         <h5>Supported here, and actionable</h5>
-        <ul className="q2-magnet-items">{SUPPORTED_SOURCES.map((s) => <li key={s.kind}>{s.words}</li>)}</ul>
+        <ul className="q2-magnet-items">{SUPPORTED_SOURCES.map((s) => <li key={sourceRowName(s)}>{s.words}</li>)}</ul>
         <h5>Proposed only, and not offered as a choice</h5>
         <ul className="q2-magnet-items">{PROPOSED_SOURCES.map((s) => <li key={s.words}>{s.words}</li>)}</ul>
         <p className="mgd-small mgd-muted">{PROPOSED_REASON}</p>

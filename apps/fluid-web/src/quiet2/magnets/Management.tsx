@@ -176,9 +176,18 @@ export default function Management(p: {
     const issue = name.trim() ? null : 'Give this Magnet a name, or leave the one derived from your sentence.'
     if (issue) { setCreateWords(issue); return }
     const sources = proposal.sources.filter((_, i) => !dropped.includes(i))
-    const asked: MagnetProposal = { ...proposal, name: name.trim(), sources, seed: { ...proposal.seed, sources } }
+    /* THE PROPOSED COLLECTION IS THE LAST `listed` ROW, at index
+       `sources.length` -- it is not in `sources`, because the collection it
+       will read does not exist until the press declares it. Unticking that row
+       in Adjust is what declines it, by the same checkbox as any other. */
+    const declare = proposal.declare && !dropped.includes(proposal.sources.length) ? proposal.declare : null
+    const asked: MagnetProposal = { ...proposal, name: name.trim(), sources, seed: { ...proposal.seed, sources }, declare }
     const op = operation.current ?? (operation.current = `quiet-magnet-${crypto.randomUUID()}`)
-    setCreating(true); setCreateWords('Setting this Magnet up and collecting for the first time…')
+    setCreating(true)
+    // A declaration goes and looks on the web, which takes seconds; the wait
+    // says which wait it is rather than leaving the press silent.
+    setCreateWords(declare ? `Going to look — ${declare.title.toLowerCase()} — and collecting for the first time…`
+      : 'Setting this Magnet up and collecting for the first time…')
     try {
       const done = await acceptProposal({ key, arrangement: 'home', proposal: asked, op, manual: !p.fixture })
       if (identity.current !== key) return

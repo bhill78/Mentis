@@ -17,9 +17,21 @@ export function exactFileIssue(collection: string, path: string): string | null 
     return 'Choose one exact file path, without a directory, wildcard or traversal.'
   return null
 }
+/** WHAT THIS BUILD COLLECTS AT A PRESS, mirroring `mentis.magnet.activation.
+ *  COLLECTABLE_MODES` exactly. Part D2 (`04853f40`) widened the server's list
+ *  from `one-time` to `one-time` and `scheduled`: a Magnet that refreshes on
+ *  its own is collected by the same activation, by the same path, with every
+ *  check unchanged, so asking for it now is no longer refused. `continuous`
+ *  and `paused` are still refused there, so they are still refused here. */
+export const COLLECTABLE_MODES = ['one-time', 'scheduled'] as const
+/** Whether pressing Collect now would actually collect this Magnet -- the
+ *  client's mirror of `activation._cannot_run_code`. Collecting by hand and
+ *  collecting on a cadence are not alternatives: a scheduled Magnet answers
+ *  true here, because the owner may always ask for it sooner. */
 export function supportsManualCollection(config: MagnetConfig): boolean {
   const operations = config.processing?.operations
-  return config.activation?.mode === 'manual' && config.collection?.mode === 'one-time' && config.synthesis?.mode === 'manual'
+  return config.activation?.mode === 'manual'
+    && (COLLECTABLE_MODES as readonly string[]).includes(config.collection?.mode ?? '') && config.synthesis?.mode === 'manual'
     && !Object.values(config.notifications ?? {}).some(Boolean) && operations?.length === 1 && operations[0].op === 'extract'
     && (!operations[0].options || !Object.keys(operations[0].options).length || JSON.stringify(operations[0].options) === '{"mode":"m1-page"}')
     && (!config.ai || JSON.stringify(config.ai) === '{"mode":"none"}') && (!config.outputs || JSON.stringify(config.outputs) === '["records"]')
@@ -222,18 +234,45 @@ export async function saveCollection(at: { brainKey: string; arrangement: string
  *  in the Magnet schema but nothing here collects it, and choosing it is not an
  *  interaction this panel offers. The refusals are the server's own:
  *  `mentis/magnet/activation.py` `FILE_CHOICE` and the per-kind refusals in
- *  `crates/mentis-ops/src/magnet.rs`. */
-export const SUPPORTED_SOURCES = [
+ *  `crates/mentis-ops/src/magnet.rs`.
+ *
+ *  THE WEB IS NOW COLLECTED, AND SAID SO (owner correction `ent-8a4357b5f7fc`:
+ *  "include general-purpose web search and RSS collection capabilities").
+ *  Part W made three connectors real and available -- `rss-atom`, `web-search`
+ *  and `web` (`mentis/sources/registry.py`, hand-back `ent-daf8f3821b1a`) -- so
+ *  the two rows that used to stand under "this build has no adapter for them"
+ *  are supported rows, with the bounds their own descriptors state.
+ *
+ *  WHAT IS SUPPORTED IS THE COLLECTION, NOT A BARE ADDRESS. A Magnet reaches
+ *  the web the one way it reaches a repository or a folder: the addresses,
+ *  feeds or queries are a collection declared in Sources, Mentis acquires it,
+ *  and the Magnet reads what was acquired through a `file` source. So each web
+ *  row's `kind` is `file`, which is what the definition carries, and `via`
+ *  names the collection connector it is read from (the registry's own id). The
+ *  Magnet schema's own `web` kind -- a Magnet handed a URL of its own -- is
+ *  still refused by the server (`crates/mentis-ops/src/magnet.rs`), and no row
+ *  here claims otherwise. */
+/** `kind` is the Magnet source kind the definition carries; `via`, where the
+ *  row is a collection connector, is the registry id of the connector that
+ *  collection is declared with. */
+export type SupportedSource = { kind: string; via?: string; words: string }
+export const SUPPORTED_SOURCES: readonly SupportedSource[] = [
   { kind: 'conversation', words: 'Conversations recorded in this Brain, by post capture — posts and their file or image attachments.' },
   { kind: 'file', words: 'Plain text Mentis already holds in an acquired collection — one exact path, everything under a path prefix, or the whole collection. A Git repository collection reads the same way: files in its tree and its recent commits are rows alike.' },
-] as const
+  { kind: 'file', via: 'rss-atom', words: 'RSS and Atom feed entries, from feed addresses declared as a collection in Sources: at most twenty feeds, fifty entries from each, fetched once with a plain GET and no credential of any kind. Each entry keeps its own permalink.' },
+  { kind: 'file', via: 'web-search', words: 'Web search results, from plain queries declared as a collection in Sources: at most ten queries, each put to the named provider, whose terms of use are recorded with every result acquired through it. The Magnet reads the results that were acquired, not a live search.' },
+  { kind: 'file', via: 'web', words: 'Web pages at https addresses declared as a collection in Sources, reduced to text: at most twenty addresses, following only links the pages themselves state and only to the depth you set. No credential is sent, robots.txt is respected, no JavaScript runs, and nothing a page merely references is fetched.' },
+]
+/** What a supported row is called where one line is shown: the collection
+ *  connector it is read from, or the Magnet source kind where it is read
+ *  directly. */
+export const sourceRowName = (s: { kind: string; via?: string }) => s.via ?? s.kind
 export const PROPOSED_SOURCES = [
-  { kind: 'brain', words: 'Topics' }, { kind: 'web', words: 'Web pages' },
-  { kind: 'web', words: 'Web searches' }, { kind: 'database', words: 'Databases' },
+  { kind: 'brain', words: 'Topics' }, { kind: 'database', words: 'Databases' },
   { kind: 'connector', words: 'Connected services' },
 ] as const
-export const PROPOSED_REASON = 'Proposed only, and not interactive here: the Magnet schema names these kinds, but this build has no adapter for them and the server refuses collection from them. An existing connector does not enable a Magnet adapter.'
-export const SUPPORTED_REASON = 'Collect from Conversations, and from the plain text Mentis already holds in an acquired collection — one file, a path prefix, or the whole collection, a Git repository included. Opening or saving never collects. No folder is scanned or refreshed.'
+export const PROPOSED_REASON = 'Proposed only, and not interactive here: the Magnet schema names these kinds, but this build has no adapter for them and the server refuses collection from them. An existing connector does not enable a Magnet adapter. The web kinds above are read as collections Mentis has acquired, never as a Magnet handed an address of its own.'
+export const SUPPORTED_REASON = 'Collect from Conversations, and from what Mentis already holds in an acquired collection — one file, a path prefix, or the whole collection. A Git repository, an RSS or Atom feed, a web search and a web page are all collections that read this way. Declaring and sweeping a collection happens in Sources; a Magnet reads what was acquired there. Opening or saving never collects. No folder is scanned or refreshed, and no Magnet fetches an address of its own.'
 /** The three near-identical paragraphs the panel used to stack under its date
  *  fields, said once. Nothing was dropped: individual post selection, schedules,
  *  automatic collection and the relevance and semantic filters are each still
@@ -285,6 +324,14 @@ export function collectionIssue(staged: StagedSettings): string | null {
 const CADENCE_WORDS: Record<string, string> = {
   PT1H: 'Every hour', PT6H: 'Every six hours', PT12H: 'Every twelve hours',
   P1D: 'Every day', P1W: 'Every week',
+}
+/** Whether this Magnet ONLY collects at a press -- which is a narrower
+ *  question than `supportsManualCollection` since Part D2, and the one the
+ *  manual-collection switch and the "Collect manually" heading turn on. A
+ *  scheduled Magnet is collectable by hand AND looks on its own, so it is
+ *  offered both the press and the switch that would make it manual only. */
+export function collectsOnlyByHand(config: MagnetConfig): boolean {
+  return supportsManualCollection(config) && config.collection?.mode === 'one-time'
 }
 export function collectionRhythm(config: MagnetConfig): string {
   const collection = config.collection
@@ -340,7 +387,7 @@ export function settingsSource(resource: MagnetResource): SearchSource {
       } else if (saved.reason) {
         rows.push({ key: 'settings:unavailable', kind: 'Settings', title: 'Collection configuration', text: saved.reason, open })
       }
-      rows.push(...SUPPORTED_SOURCES.map((s) => ({ key: `settings:supported:${s.words}`, kind: 'Settings' as const, title: `Supported source: ${s.kind}`, text: s.words, open })))
+      rows.push(...SUPPORTED_SOURCES.map((s) => ({ key: `settings:supported:${s.words}`, kind: 'Settings' as const, title: `Supported source: ${sourceRowName(s)}`, text: s.words, open })))
       rows.push(...PROPOSED_SOURCES.map((s) => ({ key: `settings:proposed:${s.words}`, kind: 'Settings' as const, title: `Proposed source: ${s.words}`, text: `${s.words} — ${PROPOSED_REASON}`, open })))
       rows.push({ key: 'settings:supported-reason', kind: 'Settings', title: 'How collection runs', text: SUPPORTED_REASON, open })
       return rows

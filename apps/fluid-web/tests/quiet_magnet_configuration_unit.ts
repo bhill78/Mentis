@@ -15,8 +15,10 @@ import CollectionConfiguration from '../src/quiet2/magnets/CollectionConfigurati
 import {
   canonicalDefinition, collectionChange, collectionIssue, collectionRhythm, configurationDigest, configurationFacts,
   dayOf, durableDefinition, findConfigurationLocation, findHoldingArrangement, identityChange, magnetName,
+  COLLECTABLE_MODES, collectsOnlyByHand,
   MAGNET_NAME_MOST, nameIssue, NO_SAVED_PLACE, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES,
-  savedPlace, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, withDay,
+  savedPlace, saveCollection, sourceIdentity, sourceRowName, SUPPORTED_REASON, SUPPORTED_SOURCES,
+  supportsManualCollection, withDay,
 } from '../src/quiet2/magnets/configuration'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
@@ -105,34 +107,64 @@ test('a Magnet is named in its own definition, independently of where it is show
   assert.match(configurationFacts(config())[1], /^Configured sources: none yet/)
 })
 
-/** PART C: WHAT THE "NO ADAPTER" LIST MAY STILL SAY.
+/** WHAT THE "NO ADAPTER" LIST MAY STILL SAY.
  *
- *  A `file` source now reads one exact path, everything under a path prefix, or
- *  a whole acquired collection, and a Git repository collection reads the same
+ *  A `file` source reads one exact path, everything under a path prefix, or a
+ *  whole acquired collection, and a Git repository collection reads the same
  *  way -- its tree and its recent commits are rows alike
  *  (`mentis/magnet/activation.py` `file_choice`,
- *  `crates/mentis-ops/src/magnet/collection_files.rs`). So "Repositories" has
- *  left the proposed list, because it works; nothing else has, because nothing
- *  else does yet. Web pages and Web searches stay listed until Part W's
- *  connectors land, and the Magnet kinds that nothing reads -- Topics,
- *  Databases, Connected services -- stay listed with their reason unchanged. */
+ *  `crates/mentis-ops/src/magnet/collection_files.rs`). So "Repositories" left
+ *  the proposed list, because it works.
+ *
+ *  REVISED BY THE G1/G2 CORRECTION, against the owner's words "include
+ *  general-purpose web search and RSS collection capabilities". Part W's three
+ *  connectors are real and available (`mentis/sources/registry.py`, hand-back
+ *  `ent-daf8f3821b1a`), so "Web pages" and "Web searches" have left the
+ *  proposed list too: this file used to say the server refuses collection from
+ *  them, and that became false at `07c22f00`. What stands in their place is
+ *  three supported rows that say how the web is actually read -- as a
+ *  collection declared in Sources, through a `file` source -- with the bounds
+ *  the connectors' own descriptors state. The Magnet kinds nothing reads --
+ *  Topics, Databases, Connected services -- stay listed with their reason. */
 test('the no-adapter list has lost exactly what now works, and kept the rest', () => {
   const proposed: string[] = PROPOSED_SOURCES.map((s) => s.words)
   assert.ok(!proposed.includes('Repositories'), 'a Git repository collection is read by a file source now')
-  assert.deepEqual(proposed, ['Topics', 'Web pages', 'Web searches', 'Databases', 'Connected services'],
-    'nothing else was lifted: Part W owns the two web entries and tells this file when they move')
-  // The reason the remaining entries carry is unchanged: it is the server's own.
+  assert.deepEqual(proposed, ['Topics', 'Databases', 'Connected services'],
+    'the web entries went when their connectors landed; nothing else was lifted')
+  for (const gone of ['Web pages', 'Web searches']) {
+    assert.ok(!proposed.includes(gone), `${gone} is collected now, so it is not listed as unavailable`)
+  }
+  // The reason the remaining entries carry is still the server's own, and it no
+  // longer reads as if it covered the web.
   assert.match(PROPOSED_REASON, /^Proposed only, and not interactive here/)
   assert.match(PROPOSED_REASON, /this build has no adapter for them/)
-  // The supported list says the three things a file source may now name, and
-  // still says that opening, saving and collecting never scan a folder.
-  const file = SUPPORTED_SOURCES.find((s) => s.kind === 'file')!
+  assert.match(PROPOSED_REASON, /The web kinds above are read as collections Mentis has acquired/)
+  assert.ok(PROPOSED_REASON.includes('An existing connector does not enable a Magnet adapter.'),
+    'the sentence the settings index pins is unchanged, not reworded around')
+  // The supported list says the three things a file source may name, and still
+  // says that opening, saving and collecting never scan a folder.
+  const file = SUPPORTED_SOURCES.find((s) => s.kind === 'file' && !s.via)!
   for (const said of ['one exact path', 'path prefix', 'the whole collection', 'Git repository']) {
     assert.ok(file.words.includes(said), `the supported wording says "${said}": ${file.words}`)
   }
   assert.ok(!SUPPORTED_SOURCES.some((s) => /one exact path at a time/.test(s.words)),
     'the exact-file-only wording is gone, not merely reworded around')
   assert.match(SUPPORTED_REASON, /No folder is scanned or refreshed/)
+  // THE WEB, SAID AS WHAT IT IS. One supported row per connector Part W made
+  // available, each read through a `file` source over a declared collection --
+  // never a Magnet handed an address, which the server still refuses.
+  const web = SUPPORTED_SOURCES.filter((s) => !!s.via)
+  assert.deepEqual(web.map((s) => s.via), ['rss-atom', 'web-search', 'web'])
+  for (const row of web) {
+    assert.equal(row.kind, 'file', `${row.via} is read by a file source over its collection`)
+    assert.ok(/declared as a collection in Sources/.test(row.words), row.words)
+    assert.ok(/credential|robots\.txt|provider/.test(row.words), `${row.via} says its bounds: ${row.words}`)
+  }
+  assert.ok(web.find((s) => s.via === 'rss-atom')!.words.includes('twenty feeds'))
+  assert.ok(web.find((s) => s.via === 'web-search')!.words.includes('ten queries'))
+  assert.ok(web.find((s) => s.via === 'web')!.words.includes('robots.txt'))
+  assert.match(SUPPORTED_REASON, /RSS or Atom feed, a web search and a web page/)
+  assert.match(SUPPORTED_REASON, /no Magnet fetches an address of its own/)
   // Each kind the proposed list names is one the Magnet schema has, and none of
   // them is a kind the supported list claims.
   const supported = new Set(SUPPORTED_SOURCES.map((s) => s.kind as string))
@@ -140,6 +172,69 @@ test('the no-adapter list has lost exactly what now works, and kept the rest', (
     assert.ok(['brain', 'web', 'database', 'other', 'connector'].includes(s.kind), s.kind)
     assert.ok(!supported.has(s.kind), `${s.kind} cannot be both supported and proposed`)
   }
+  // And the one row name each is listed and indexed under is unique.
+  const names = SUPPORTED_SOURCES.map(sourceRowName)
+  assert.equal(new Set(names).size, names.length, names.join(', '))
+})
+
+/** THE COLLECT BUTTON ON A SCHEDULED MAGNET (the G1/G2 correction's third
+ *  item, settled against the committed server).
+ *
+ *  Part D2 (`04853f40`) widened `mentis.magnet.activation.COLLECTABLE_MODES`
+ *  from `("one-time",)` to `("one-time", "scheduled")`, and
+ *  `_cannot_run_code` reads that list and nothing else about the mode. So this
+ *  build DOES collect a scheduled Magnet at a press, and the panel that
+ *  refused to offer one was mirroring a refusal that no longer exists. A
+ *  Magnet made from a sentence carries a cadence, so this is every Magnet the
+ *  new creation path makes.
+ *
+ *  Two questions, kept apart: whether a press would collect
+ *  (`supportsManualCollection`, now true for both collectable modes) and
+ *  whether a press is the ONLY way it collects (`collectsOnlyByHand`, which
+ *  decides the heading and whether the make-it-manual switch is offered).
+ *  `paused` and `continuous` are refused there, so they are refused here. */
+test('a scheduled Magnet can be collected by hand, and says that it also looks on its own', () => {
+  store()
+  assert.deepEqual([...COLLECTABLE_MODES], ['one-time', 'scheduled'],
+    'the client mirrors activation.COLLECTABLE_MODES exactly')
+  const scheduled = config({ sources: [HELD], collection: { mode: 'scheduled', schedule: 'P1D' } })
+  assert.equal(supportsManualCollection(scheduled), true, 'the server would run this activation')
+  assert.equal(collectsOnlyByHand(scheduled), false, 'it is not manual-only: it looks on its own as well')
+  const once = config({ sources: [HELD] })
+  assert.equal(supportsManualCollection(once), true)
+  assert.equal(collectsOnlyByHand(once), true)
+  for (const mode of ['paused', 'continuous'] as const) {
+    const refused = config({ sources: [HELD], collection: { mode } })
+    assert.equal(supportsManualCollection(refused), false, `${mode} is refused by the server, so no press is offered`)
+    assert.equal(collectsOnlyByHand(refused), false)
+  }
+  // A facet the server refuses for another reason still refuses the press,
+  // whichever collectable mode it carries.
+  assert.equal(supportsManualCollection(config({ sources: [HELD], collection: { mode: 'scheduled', schedule: 'P1D' }, synthesis: { mode: 'scheduled' } })), false)
+  // THE SURFACE: the press is there, and the heading says the cadence.
+  const resource = createMagnetResource({
+    id: 'qm-partb-sched', brainKey, saved: { id: 'mag-partb', name: 'Solid electrolytes', config: scheduled },
+    get: async () => ({ status: 200, body: { magnet: 'mag-partb', config: scheduled, activation: null, page: null } }),
+  })
+  const panel = (c: MagnetConfig) => renderToStaticMarkup(createElement(CollectionConfiguration, {
+    magnet: 'mag-partb', config: c, brainKey, canWrite: () => true, onSaved: () => {}, resource, inCollection: true,
+  }))
+  const html = panel(scheduled)
+  assert.ok(html.includes('Collect now'), 'an owner who can see information arriving can ask for it now')
+  assert.ok(!html.match(/<button[^>]*>Collect now<\/button>/)![0].includes('disabled'),
+    'and the press is offered, not shown disabled')
+  assert.ok(html.includes('Collects on its own'), 'the heading is the cadence, not a saved mode word')
+  assert.ok(html.includes('Every day, on its own'), 'said in ordinary words')
+  assert.ok(!html.includes('Collect manually'), 'because it is not manual-only')
+  // The switch that WOULD make it manual-only is inside the closed "Limits and
+  // dates" disclosure, so it is not in this markup; what decides whether it is
+  // offered is the same predicate, asserted above: it is offered wherever
+  // collection is not already by hand alone.
+  const manual = panel(config({ sources: [HELD] }))
+  assert.ok(manual.includes('Collect manually') && manual.includes('Collect now'))
+  const paused = panel(config({ sources: [HELD], collection: { mode: 'paused' } }))
+  assert.ok(!paused.includes('Collect now'), 'a paused Magnet has no press to offer, because the server refuses it')
+  assert.ok(paused.includes('Paused — it is not collecting'))
 })
 
 /** The configured-source line and the identity of a collection-scoped source.

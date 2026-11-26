@@ -1221,14 +1221,36 @@ def test_availability_is_read_from_the_registry_at_runtime(
 
 
 def test_a_sentence_matching_nothing_proposes_no_source_rather_than_a_wrong_one(
-        world):  # noqa: F811
+        world, monkeypatch):  # noqa: F811
+    """REVISED BY THE G1/G2 CORRECTION. It used to assert that a sentence
+    nothing in the Brain matches proposes nothing at all -- which is exactly
+    the gap the owner found: "a sentence about a real-world subject with no
+    history in the Brain proposes nothing external and falls back to internal
+    posts". It now asserts both halves of the live behaviour: no EXISTING
+    source is invented, and the Magnet is offered a web search it does not
+    have yet. NOTHING_MATCHES is what is said when even that is unavailable,
+    which is what the second half of this test holds the registry to."""
     status, got = _propose(world, "follow zzqqxx nothingatallhere")
     assert status == 200, got
     p = got["proposal"]
     assert p["sources"] == [], p
-    assert p["words"]["sources"] == CMD.NOTHING_MATCHES
+    assert p["declare"] and p["declare"]["connector"] == "web-search", p
+    assert "zzqqxx nothingatallhere" in p["declare"]["options"]["queries"][0].lower()
+    assert p["words"]["sources"] == p["declare"]["title"]
     # Still a complete, schema-valid proposal: a Magnet may have no sources.
     S.magnet_config({"id": "mag-proof", **p["seed"]}, "seed")
+
+    # With no web connector available there is nothing external to offer, and
+    # the answer is the plain fact rather than a source nobody asked for.
+    from mentis.sources import registry as REG
+    real = REG.descriptors
+    monkeypatch.setattr(REG, "descriptors", lambda: [
+        {**d, "available": False, "why_not": "off for this test"}
+        if d["id"] in CMD.WEB_KINDS else d for d in real()])
+    status, got = _propose(world, "follow zzqqxx nothingatallhere")
+    assert status == 200, got
+    assert got["proposal"]["sources"] == [] and got["proposal"]["declare"] is None
+    assert got["proposal"]["words"]["sources"] == CMD.NOTHING_MATCHES
 
 
 def test_a_proposal_refuses_a_sentence_it_cannot_derive_anything_from(
@@ -1239,6 +1261,82 @@ def test_a_proposal_refuses_a_sentence_it_cannot_derive_anything_from(
         assert got["error"] and "mag-" not in got["error"]
     status, got = _propose(world, "follow Saltmarsh", magnet="not-a-magnet")
     assert status == 400, got
+
+
+def test_a_real_world_sentence_proposes_a_web_collection_it_can_actually_run(
+        world):  # noqa: F811
+    """THE OWNER'S SECOND CORRECTION. The proposal ranked collections that
+    already exist, and a web search is not one, so a sentence about the world
+    could only fall back to internal posts. It may now propose DECLARING one
+    from the sentence -- inert, checked, and alongside whatever already
+    matched.
+
+    Everything the proposal was already held to still holds: nothing is
+    written, the connector is one the registry reports available, its own
+    `checked_options` accepted these options, and the Magnet source that will
+    read it is one `reads_here` answers true for."""
+    before = world["cv"]._c.advance()
+    status, got = _propose(world, "follow the solid electrolytes work every day")
+    assert status == 200, got
+    p = got["proposal"]
+    d = p["declare"]
+    assert d, p
+    # A collection, not a Magnet source kind: a Magnet reads it as a `file`
+    # source, and the collection it will name is the declaration's answer.
+    assert d["connector"] == "web-search"
+    assert d["source"] == {"kind": "file", "collection": None}
+    assert all(s["kind"] != "web" for s in p["sources"]), p["sources"]
+    # The options are the connector's own, checked by the connector itself.
+    from mentis.sources.registry import _module, descriptors
+    said = next(x for x in descriptors() if x["id"] == "web-search")
+    assert said["available"]
+    assert set(d["options"]) <= {f["name"] for f in said["scope_fields"]
+                                 if f.get("option")}
+    assert _module("web-search").checked_options(dict(d["options"])) == d["options"]
+    assert d["options"]["queries"] == ["The solid electrolytes work"]
+    assert d["options"]["provider"] == "google-news"
+    # Ordinary words, and the last `listed` row, which is how a press declines
+    # it: `listed` is `sources` and then this.
+    assert p["listed"][-1]["title"] == d["title"] == "Web search · The solid electrolytes work"
+    assert len(p["listed"]) == len(p["sources"]) + 1
+    assert "mag-" not in d["says"] and "col-" not in d["says"]
+    # INERT. A proposal is a read: nothing was declared, fetched or recorded.
+    assert world["cv"]._c.advance() == before
+    assert CMD.reads_here({"kind": "file", "collection": "col-aaaaaaaaaaaa"}), \
+        "the source the press will carry is one this build can collect"
+
+
+def test_the_collection_a_sentence_asks_for_follows_what_the_sentence_names(
+        world):  # noqa: F811
+    """A feed address asks for a feed; a page address asks for that page; a
+    subject asks for a search. One web collection per proposal, never two."""
+    cases = (
+        ("follow https://example.org/blog/rss.xml every day", "rss-atom",
+         "feeds", "https://example.org/blog/rss.xml"),
+        ("follow https://example.org/notes/feed hourly", "rss-atom",
+         "feeds", "https://example.org/notes/feed"),
+        ("follow https://example.org/handbook every week", "web",
+         "urls", "https://example.org/handbook"),
+        ("follow the tide tables", "web-search", "queries", "The tide tables"),
+    )
+    for said, connector, field, value in cases:
+        status, got = _propose(world, said)
+        assert status == 200, got
+        d = got["proposal"]["declare"]
+        assert d and d["connector"] == connector, (said, d)
+        assert d["options"][field] == [value], (said, d)
+        assert len([r for r in got["proposal"]["listed"]
+                    if r["title"] == d["title"]]) == 1, said
+    # AN ADDRESS THIS BUILD CANNOT READ IS NOT PROPOSED, AND IS NOT QUIETLY
+    # TURNED INTO A SEARCH FOR ITS TEXT EITHER. The first is refused by the
+    # transport (`fetch.SCHEMES`), the second by the connector's own rule
+    # (`fetch.declared_url` and its credential fields) -- so the proposal can
+    # never show a draft the declaring door would refuse.
+    for bad in ("follow http://example.org/insecure/rss.xml",
+                "follow https://example.org/feed?api_key=secret"):
+        status, got = _propose(world, bad)
+        assert status == 200, got
+        assert got["proposal"]["declare"] is None, (bad, got["proposal"])
 
 
 def test_an_existing_magnet_is_named_in_its_own_proposal(world):  # noqa: F811

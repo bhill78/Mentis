@@ -132,18 +132,49 @@ const PROPOSAL: MagnetProposal = {
     processing: { operations: [{ op: 'extract' }] },
   },
   change: { identity: { name: 'The solid electrolytes work' }, sources: [{ kind: 'conversation', conversation: A }] },
-  unavailable: [{ title: 'Harbour feeds', kind: 'rss-atom', why: 'the RSS / Atom connector is not available yet' }],
+  unavailable: [{ title: 'Harbour mail', kind: 'gmail', why: 'the Gmail connector is not available yet' }],
+  declare: null,
+}
+
+/** THE SAME PROPOSAL, WITH THE WEB SEARCH IT ASKS FOR (the owner's second
+ *  correction): the sentence names a real-world subject, so the proposal also
+ *  offers to declare a `web-search` collection and read it. It is the last
+ *  `listed` row and it is NOT in `sources`, because the collection it will
+ *  read does not exist until the press declares it. */
+const WEB: MagnetProposal = {
+  ...PROPOSAL,
+  words: { ...PROPOSAL.words, sources: 'Solid electrolytes and Web search · solid electrolytes' },
+  listed: [...PROPOSAL.listed, { title: 'Web search · solid electrolytes', says: 'Web search · declared and collected when you press' }],
+  declare: {
+    connector: 'web-search', name: 'Web search · solid electrolytes',
+    options: { queries: ['solid electrolytes'], provider: 'google-news' },
+    title: 'Web search · solid electrolytes',
+    says: 'Web search · declared and collected when you press',
+    source: { kind: 'file', collection: null },
+  },
 }
 
 /** The doors an acceptance is allowed to use, and nothing else. */
-function acceptance(opts: { results?: number; activateFails?: boolean; sources?: unknown[] } = {}) {
+function acceptance(opts: { results?: number; activateFails?: boolean; sources?: unknown[];
+                            declared?: string; planFails?: string; sweepFails?: string } = {}) {
   const sources = opts.sources ?? (PROPOSAL.seed.sources as unknown[])
   const made = { id: 'mag-followed', sources, selection: {}, identity: { name: PROPOSAL.name }, collection: { mode: 'one-time' } }
   globalThis.fetch = (async (path: string, init?: RequestInit) => {
     calls.push({ path, init })
     if (path === BRAIN_PATH) return answer({ brain: { corpus_id: 'fixture-corpus', instance: 'instance-one' } })
     if (path.startsWith('/fluid/api/participants')) return answer({ me: 'ent-ownerownerow' })
-    if (path.endsWith('/magnets') && init?.method === 'POST') return answer({ magnet: made })
+    // THE EXISTING "NEW COLLECTION" DOOR: preview a draft, then take it. The
+    // sweep is what declares and acquires, in one transaction.
+    if (path === '/api/sources/plan') return opts.planFails
+      ? answer({ key: 'new-preview', state: 'failed', failure: opts.planFails })
+      : answer({ key: 'new-preview', state: 'done', result: { draft: 'draft-websearch', collection: null, confirm: { draft: 'draft-websearch', plan: 'plan-websearch' } } })
+    if (path === '/api/sources/sweep') return opts.sweepFails
+      ? answer({ key: 'draft-websearch', state: 'failed', failure: opts.sweepFails })
+      : answer({ key: 'draft-websearch', state: 'done', result: { collection: opts.declared ?? 'col-web-1', declaration: 'opr-decl1' } })
+    // The Magnet is created with exactly the sources the seed carried, so the
+    // answer check in `makeMagnet` is a real check and not a tautology.
+    if (path.endsWith('/magnets') && init?.method === 'POST')
+      return answer({ magnet: { ...made, sources: JSON.parse(init.body as string).seed.sources } })
     if (path.endsWith('/activate')) return opts.activateFails
       ? answer({ error: 'The source was busy.', refused: true }, 422)
       : answer({ magnet: made.id, artifact: { ref: 'adm-aaaaaaaaaaaa' }, page: { results: opts.results ?? 3 }, conversation: B })
@@ -193,6 +224,77 @@ test('one acceptance applies the configuration, collects, and turns refresh on',
   assert.equal(done.refreshing, true)
   assert.equal(done.words, 'Collected 3 items. Every day.')
   assert.equal(done.saved.config!.collection.mode, 'scheduled', 'the returned definition carries the cadence')
+})
+
+/** ONE PRESS ALSO DECLARES WHAT THE SENTENCE ASKED FOR (the owner's second
+ *  correction: creation must be able to go and look, not only rank what the
+ *  Brain already holds). Through the doors that already declare a collection
+ *  -- `sources/plan` then `sources/sweep` -- before the Magnet is made, so the
+ *  Magnet is created with a source that already has rows behind it. */
+test('one press declares the proposed web collection, then collects from it', async () => {
+  calls.length = 0; acceptance({ declared: 'col-websearch' })
+  const done = await acceptProposal({ key, arrangement: 'home', proposal: WEB, op: 'g3-accept-1' })
+  const posted = calls.filter((c) => c.init?.method === 'POST').map((c) => c.path)
+  assert.deepEqual(posted, [
+    '/api/sources/plan',
+    '/api/sources/sweep',
+    '/fluid/api/arrangements/home/magnets',
+    '/fluid/api/magnets/mag-followed/activate',
+    '/fluid/api/arrangements/home/magnets/mag-followed/reconfigure',
+  ], 'the existing collection doors, then the existing Magnet doors; no new door')
+  // The draft is the server's own proposal, passed through unchanged.
+  const draft = JSON.parse(calls.find((c) => c.path === '/api/sources/plan')!.init!.body as string).draft
+  assert.deepEqual(draft, { connector: 'web-search', name: WEB.declare!.name, options: WEB.declare!.options })
+  // The sweep confirms exactly what was previewed, and is attributed.
+  const take = JSON.parse(calls.find((c) => c.path === '/api/sources/sweep')!.init!.body as string)
+  assert.deepEqual(take, { draft: 'draft-websearch', plan: 'plan-websearch', by: 'ent-ownerownerow' })
+  // THE ONE FIELD THE CLIENT COMPOSES: the collection the declaration answered
+  // with, written into the source the server gave whole.
+  const seed = JSON.parse(calls.find((c) => c.path.endsWith('/magnets') && c.init?.method === 'POST')!.init!.body as string).seed
+  assert.deepEqual(seed.sources, [...(PROPOSAL.seed.sources as unknown[]),
+    { kind: 'file', collection: 'col-websearch' }])
+  assert.equal(done.collected, 3)
+  assert.match(done.words, /^Web search · solid electrolytes is now a collection in Sources\. Collected 3 items\./)
+})
+
+test('a refused declaration costs the owner neither the Magnet nor the words', async () => {
+  calls.length = 0; acceptance({ planFails: 'that provider answered 429 Too Many Requests' })
+  const done = await acceptProposal({ key, arrangement: 'home', proposal: WEB, op: 'g3-accept-2' })
+  const posted = calls.filter((c) => c.init?.method === 'POST').map((c) => c.path)
+  assert.ok(!posted.includes('/api/sources/sweep'), 'nothing was declared, because nothing was previewed')
+  assert.equal(done.saved.id, 'mag-followed', 'the Magnet is still made, with the sources that do exist')
+  const seed = JSON.parse(calls.find((c) => c.path.endsWith('/magnets') && c.init?.method === 'POST')!.init!.body as string).seed
+  assert.deepEqual(seed.sources, PROPOSAL.seed.sources, 'and no half-built source among them')
+  assert.match(done.words, /^that provider answered 429 Too Many Requests\./)
+  assert.match(done.words, /Collected 3 items/, 'what did happen is still said')
+
+  calls.length = 0; acceptance({ sweepFails: 'the feed changed since it was previewed' })
+  const late = await acceptProposal({ key, arrangement: 'home', proposal: WEB, op: 'g3-accept-3' })
+  assert.match(late.words, /^the feed changed since it was previewed\./)
+  const kept = JSON.parse(calls.find((c) => c.path.endsWith('/magnets') && c.init?.method === 'POST')!.init!.body as string).seed
+  assert.deepEqual(kept.sources, PROPOSAL.seed.sources)
+  assert.equal(late.saved.id, 'mag-followed')
+})
+
+test('a proposal from the server is read strictly, and a half-built declaration is none', async () => {
+  const shapes = [
+    undefined, null, 'web-search', { connector: 'web-search' },
+    { connector: 'web-search', name: 'x', options: { queries: [] } },
+    { connector: '', name: 'x', options: {}, source: { kind: 'file', collection: null } },
+    { connector: 'web-search', name: 'x', options: [], source: { kind: 'file', collection: null } },
+    // A collection already filled in is not a proposal: only a declaration
+    // answers with one, and this one did not come from a declaration.
+    { connector: 'web-search', name: 'x', options: {}, source: { kind: 'file', collection: 'col-smuggled' } },
+  ]
+  for (const declare of shapes) {
+    calls.length = 0
+    globalThis.fetch = (async () => answer({ proposal: { ...PROPOSAL, declare } })) as typeof fetch
+    const got = await proposeMagnet('the solid electrolytes work')
+    assert.equal(got.declare, null, JSON.stringify(declare))
+  }
+  globalThis.fetch = (async () => answer({ proposal: WEB })) as typeof fetch
+  const good = await proposeMagnet('the solid electrolytes work')
+  assert.deepEqual(good.declare, WEB.declare)
 })
 
 test('an empty or failed first collection is said in plain words, never silently', async () => {

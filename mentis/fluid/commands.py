@@ -700,12 +700,18 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
 # No new accept command exists, because the ones that apply a configuration
 # already do (`docs/magnets/part-b-collection-api.md`, "The proposal").
 #
-# NOTHING HERE NAMES A SOURCE KIND. What reads is asked of the code that reads
+# NOTHING HERE DECIDES WHAT READS. What reads is asked of the code that reads
 # it: `mentis.sources.registry.descriptors()` says which connectors are
 # available, and `mentis.magnet.activation` says whether a definition carrying a
 # candidate source could run. So as Part C widens what a `file` source may read
 # and Part W makes the web connectors available, the proposal picks them up with
 # no change here, and it can never propose a kind that does not read.
+#
+# `WEB_KINDS` names three connector ids, which is as far as that goes: it says
+# which scope option a SENTENCE can fill in for each (a feed address, a query,
+# a page address), because only a person's words can say that. Whether any of
+# them may be proposed is still the registry's answer and the connector's own
+# `checked_options`, asked at the moment the proposal is made.
 
 #: What a proposal asks for, at most: `mentis.magnet.schema.MAX_CRITERIA` is
 #: where the sentence is kept, so that is what one may be.
@@ -923,6 +929,105 @@ def _collection_candidates(st, words) -> tuple[list[dict], list[dict]]:
     return out, refused
 
 
+#: THE COLLECTION A SENTENCE CAN ASK FOR, AND THE OPTION IT FILLS IN. Each is
+#: a connector id `mentis.sources.registry` knows, with the one scope option a
+#: sentence can say anything about. Nothing here decides availability or
+#: validity: the registry says whether the connector is available, the
+#: connector's own `checked_options` says whether these options are a scope it
+#: would take, and `reads_here` says whether a Magnet could read the result. A
+#: kind failing any of the three is not proposed.
+WEB_KINDS = {"rss-atom": "feeds", "web-search": "queries", "web": "urls"}
+#: Any address at all, so an address this build cannot read is REFUSED rather
+#: than quietly turned into a web search for its own text.
+_ANY_ADDRESS = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://\S+")
+#: What marks a named address as a feed rather than a page. A feed address is
+#: conventional, not discoverable without fetching, and this proposes nothing
+#: it has to fetch to decide.
+_FEEDISH = ("/rss", "/feed", "/atom", "rss.xml", "atom.xml", "feed.xml",
+            ".rss", ".atom", "/rss/", "/feed/", "format=rss", "alt=rss")
+#: Trailing punctuation a sentence puts after an address, which is the
+#: sentence's and not the address's.
+_AFTER_ADDRESS = ".,;:!?)]}>\"'"
+
+
+def _web_draft(sentence: str, subject: str):
+    """`(connector, options)` the sentence asks for, or None.
+
+    WHAT THE SENTENCE NAMES DECIDES, and nothing else: an https feed address
+    asks for that feed, an https page address asks for that page, and a
+    sentence that names no address at all asks for a search for its subject.
+    An address of any other scheme asks for something this build cannot read,
+    which is None -- not a search for the text of the address."""
+    found = _ANY_ADDRESS.search(sentence)
+    if found:
+        url = found.group(0).rstrip(_AFTER_ADDRESS)
+        low = url.lower()
+        if not low.startswith("https://"):
+            return None
+        if any(mark in low for mark in _FEEDISH):
+            return "rss-atom", {"feeds": [url]}
+        return "web", {"urls": [url]}
+    if not subject:
+        return None
+    return "web-search", {"queries": [subject]}
+
+
+def _proposed_collection(sentence: str, subject: str) -> dict | None:
+    """A COLLECTION THIS BRAIN DOES NOT HOLD YET, proposed from the sentence.
+
+    The owner's second correction: the proposal ranked collections that
+    already exist, so a sentence about the world with no history here could
+    only fall back to internal posts. This offers to declare one -- and is
+    inert exactly as the rest of the proposal is. Nothing is declared,
+    fetched, bound or recorded by asking: what is returned is a draft for the
+    door that already declares a collection (`sources/plan` then
+    `sources/sweep`, `mentis.web.sources`), which the press takes.
+
+    EVERY CHECK IS THE CODE'S OWN, not a list here. The registry says which
+    connectors are available and what scope fields each has; the connector
+    says whether these options are a scope it would take, which is where an
+    address's transport, length and credential rules live
+    (`mentis.sources.fetch`); and `reads_here` says whether a Magnet could
+    read the collection that results. A kind that fails any of them is not
+    proposed, so this can never show a draft the declaring door would refuse.
+
+    SEAM, as `reads_here` has one: the only pure check of a connector's option
+    values is `registry._module(connector).checked_options`, which is private
+    to that module -- `Sources.check_options` checks the field NAMES only, and
+    the value check otherwise happens inside `preview_new`, which fetches. A
+    public `Sources.checked_options(connector, options)` belongs on the
+    registry; named for its owner or the integrator."""
+    from mentis.sources.registry import _module, descriptors
+    drafted = _web_draft(sentence, subject)
+    if drafted is None:
+        return None
+    connector, asked = drafted
+    said = next((d for d in descriptors() if d.get("id") == connector), None)
+    if not said or not said.get("available"):
+        return None
+    fields = {f.get("name") for f in (said.get("scope_fields") or [])
+              if f.get("option")}
+    if not set(asked) <= fields:
+        return None
+    try:
+        options = _module(connector).checked_options(dict(asked))
+    except Exception:                                         # noqa: BLE001
+        return None
+    # The source the press will carry, which must be one this build collects.
+    # Asked of the activation contract with a collection id of the shape a
+    # declaration answers with (`lifecycle.declare`: `col-` and 12 hex).
+    source = {"kind": "file", "collection": "col-000000000000"}
+    if not reads_here(source):
+        return None
+    label = said.get("label") or connector
+    name = f"{label} · {subject}" if subject else label
+    return {"connector": connector, "name": name[:S.MAX_CRITERIA],
+            "options": options, "title": name[:S.MAX_CRITERIA],
+            "says": f"{label} · {said.get('summary') or ''}".strip(" ·"),
+            # The one field a declaration alone can answer with.
+            "source": {"kind": "file", "collection": None}}
+
+
 def _listed(titles) -> str:
     titles = list(titles)
     if not titles:
@@ -948,9 +1053,16 @@ def magnet_proposal(st, body) -> tuple[int, dict, list]:
     until the owner accepts it through the existing doors.
 
     The answer is `{proposal: {sentence, name, sources, selection, cadence,
-    words, change, seed, unavailable}}`, every part of it already checked by
-    `mentis.magnet.schema`, so an unsupported mode is never proposed.
-    `docs/magnets/part-b-collection-api.md` is the contract."""
+    words, change, seed, unavailable, declare}}`, every part of it already
+    checked by `mentis.magnet.schema`, so an unsupported mode is never
+    proposed. `docs/magnets/part-b-collection-api.md` is the contract.
+
+    `declare` is a COLLECTION THIS BRAIN DOES NOT HOLD YET, proposed from the
+    sentence itself (`_proposed_collection`), beside the existing collections
+    and Conversations that already matched. It is the last `listed` row and it
+    is NOT in `sources`, because the collection it will read does not exist
+    until the press declares it: so `listed` is `sources` and then, where
+    there is one, this."""
     sentence = body.get("sentence")
     if not isinstance(sentence, str) or not sentence.strip():
         return _bad("say in one sentence what you want this Magnet to follow")
@@ -983,6 +1095,10 @@ def magnet_proposal(st, body) -> tuple[int, dict, list]:
                           "proposal.collection")
         if not S._identity({"name": name}, "proposal.identity").get("name"):
             return _bad("that sentence gives no name a Magnet can carry")
+        # AND WHAT THE SENTENCE ASKS FOR THAT THIS BRAIN HAS NOT GOT. Derived
+        # after the name, because the name is the subject the sentence is
+        # about, and that is what a search would be for.
+        declare = _proposed_collection(sentence, name)
     except S.Refused as exc:
         return _bad(str(exc))
     change = {k: value[k] for k in
@@ -997,18 +1113,25 @@ def magnet_proposal(st, body) -> tuple[int, dict, list]:
         "selection": dict(value["selection"]),
         "cadence": dict(cadence),
         "words": {
-            "sources": _listed(c["title"] for c in chosen) or NOTHING_MATCHES,
+            "sources": _listed([c["title"] for c in chosen]
+                               + ([declare["title"]] if declare else []))
+            or NOTHING_MATCHES,
             "collect": ("Posts, files, images and attachments"
                         if types else "Everything these sources hold"),
             "cadence": cadence_words,
         },
-        "listed": [{"title": c["title"], "says": c["says"]} for c in chosen],
+        "listed": [{"title": c["title"], "says": c["says"]} for c in chosen]
+        + ([{"title": declare["title"], "says": declare["says"]}]
+           if declare else []),
         # What a press applies, in the order it applies it. `seed` creates a
         # Magnet that does not exist yet; `change` reconfigures one that does.
         # Both carry the same checked definition.
         "change": change,
         "seed": {k: v for k, v in value.items() if k != "id"},
         "unavailable": unavailable,
+        # A collection to declare at the press, or None. Inert: nothing here
+        # has declared, fetched or recorded anything.
+        "declare": declare,
     }}, []
 
 
