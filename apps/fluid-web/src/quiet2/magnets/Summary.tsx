@@ -835,10 +835,29 @@ function Cites({ resource, cites, part }: { resource: MagnetResource; cites: str
    line at all; the row or item number is what maps the label to something
    visible. Where the mapping cannot be determined the number is simply left
    out: nothing is guessed, and no label claims a position the body's own reader
-   did not give. */
+   did not give.
+
+   AND A PART NUMBER IS NOT AN OCCURRENCE, which re-review `ent-a4a90e65e3d5`
+   showed with an A/B counterexample: one repeated phrase drawn three times in
+   one paragraph, assembled once from three recorded entries and once from two
+   (the first holding two of the occurrences), with the only citation recorded
+   against `Part 2` both times -- the second occurrence in one, the third in the
+   other, and byte-for-byte identical output. The part number counts RECORDED
+   ENTRIES, and a recorded entry can hold more than one occurrence of its own
+   words; so where the body gave no row or item to point at, the label SAYS in
+   plain words that it cannot show where in the passage those words are
+   (`CITED_PLACE_UNSHOWN`) rather than leaving a number to be read as a place.
+   Nothing finer is inferred: the record carries the entry, not the occurrence. */
 export const CITED_ROW = 'Row', CITED_ROWS = 'Rows'
 export const CITED_ITEM = 'Item', CITED_ITEMS = 'Items'
 export const CITED_PART = 'Part'
+
+/** WHAT A LABEL SAYS INSTEAD OF A POSITION the assembled body did not give --
+ *  a statement merged into a paragraph, or an entry whose words crossed more
+ *  than one block. It states the limit of what is known, in the reader's own
+ *  language, so `Part 2` is read as the recorded part it is and not as the
+ *  second of anything drawn. */
+export const CITED_PLACE_UNSHOWN = 'its place in the passage above is not shown'
 
 /** How much of an entry's words a label carries before it is cut at a word
  *  boundary. Long enough to identify the part among its neighbours, short
@@ -887,10 +906,11 @@ const span = ([from, to]: [number, number]): string => (from === to ? `${from}` 
  *
  *  The words are the entry's rows, its items, or the statement itself; the
  *  position is the one the group's own assembled body gave them, and is left
- *  out where there was none to read. A statement inside a paragraph has no
- *  numbered part to name, so the recorded part number is all such a label
- *  honestly carries -- and it is enough to tell one occurrence of a repeated
- *  phrase from another. */
+ *  out where there was none to read. A statement merged into a paragraph has no
+ *  numbered part to name, and the recorded part number is NOT a stand-in for
+ *  one -- two entries of the same repeated phrase are two recorded parts
+ *  whatever occurrences they produced -- so such a label states that the place
+ *  is not shown (`CITED_PLACE_UNSHOWN`) beside the part it is. */
 export function citedPart(text: string, place?: CitedPlace): string {
   const rows = rowWords(text)
   const read = blocksOf(text)
@@ -903,8 +923,16 @@ export function citedPart(text: string, place?: CitedPlace): string {
   const words = (rows.length ? rows : items.length ? items : [text]).map(quoted)
   const many = words.length > 1 || (!!where && where[1] > where[0])
   const noun = of === 'row' ? (many ? CITED_ROWS : CITED_ROW) : of === 'item' ? (many ? CITED_ITEMS : CITED_ITEM) : ''
-  const position = [place ? `${CITED_PART} ${place.part}` : '', where ? `${noun} ${span(where)}` : noun]
-  return [position.filter(Boolean).join(', '), words.join(', ')].filter(Boolean).join(' ')
+  /* A PART WITH NO POSITION BEHIND IT says so: a bare `Row`/`Item` with no
+     number, or a part number alone, is nothing a reader can map, and a number
+     beside repeated words reads as an occurrence it was never counted as. The
+     label carries the limit instead -- only where the entry is one part of a
+     group, since a group of one is labelled with nothing at all. */
+  const unshown = !!place && !where
+  const position = [place ? `${CITED_PART} ${place.part}` : '', where ? `${noun} ${span(where)}` : unshown ? '' : noun]
+  const stated = position.filter(Boolean).join(', ')
+  return [unshown ? `${stated} (${CITED_PLACE_UNSHOWN})`.trim() : stated, words.join(', ')]
+    .filter(Boolean).join(' ')
 }
 
 /** What a recorded entry's own text, read alone, leaves open for the entry
@@ -1036,8 +1064,9 @@ function absorbs(src: string, more: string): boolean {
  *  of it after -- never by counting the characters of the entry itself. The
  *  rows or items the entry added are the ones the construct gained; a
  *  continuation that finished the item already there is that item. Anything the
- *  comparison does not settle leaves the entry named by its recorded part alone,
- *  which is honest about what is known. */
+ *  comparison does not settle leaves the entry named by its recorded part, with
+ *  the label saying that the place is not shown (`CITED_PLACE_UNSHOWN`), which
+ *  is honest about what is known. */
 function placeIn(part: number, before: Block[], after: Block[]): CitedPlace {
   const i = Math.max(0, before.length - 1)
   const was = before[i], now = after[i]

@@ -35,7 +35,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import type { RouteResult } from '../src/fluid/surface/magnet/route'
 import Summary, {
-  BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_PART, CITED_ROW, CITED_ROWS, DATED_WHY,
+  BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_PART, CITED_PLACE_UNSHOWN,
+  CITED_ROW, CITED_ROWS, DATED_WHY,
   NAMES_NOTHING_YET, WRITTEN_FROM,
   answerLines, answerRecordCount, briefingGroups, citedPart, citedRows, collectionOverview, datedMaterial,
   datedTable, isWrittenBriefing,
@@ -531,8 +532,106 @@ test('a citation that moves between two fragments of one paragraph changes the s
   const lines = citeLines(same.after)
   assert.equal(lines.length, 1, 'only the entry that cites anything shows a citation line')
   assert.ok(lines[0].words.startsWith('Part 2 '),
-    `an occurrence inside a paragraph is named by which recorded part it is: ${lines[0].words}`)
+    `a fragment inside a paragraph is named by which recorded part it is: ${lines[0].words}`)
   assert.equal((same.before.match(/<p>/g) ?? []).length, 1, 'the two fragments are the one paragraph they were written as')
+})
+
+/* --- the correction for re-review ent-a4a90e65e3d5 --------------------------
+   The third independent re-review found the part and row/item numbers right --
+   no incorrect row or item span, every earlier probe distinguishable -- and
+   blocked one thing: in a paragraph, `Part 2` was all a label carried, and a
+   reader takes that for the second occurrence of the words it quotes. It is
+   not: it counts RECORDED ENTRIES, and one entry can hold two occurrences. Its
+   A/B counterexample (`adm-3d3cc2b7dcd3`) is reproduced here with its own
+   inputs, and the label now states that it cannot show the place.
+   ------------------------------------------------------------------------- */
+
+/** The reviewer's repeated phrase: open at both ends, so every entry of it
+ *  merges into the one paragraph. */
+const REPEATED_PHRASE = 'The same pattern recurred and'
+
+test('a part number never passes for an occurrence of repeated prose (re-review ent-a4a90e65e3d5)', async () => {
+  store()
+  const r = resource('mag-poccurrence')
+  await r.read()
+  const render = (lines: { text: string; cites: string[] }[]) =>
+    html(createElement(Briefing, { resource: r, answer: answered(lines) }))
+  // THE REVIEWER'S A AND B: one drawn paragraph -- the phrase three times and
+  // the clause that closes it -- assembled from four recorded entries and from
+  // three, with the only citation recorded against part 2 both times. In A that
+  // part produced the SECOND occurrence; in B, whose part 1 holds two of them,
+  // the THIRD. Nothing in the record or the drawn body tells them apart.
+  const a = render([
+    { text: '## Findings', cites: [] },
+    { text: REPEATED_PHRASE, cites: [] },
+    { text: REPEATED_PHRASE, cites: [ROMAN] },
+    { text: REPEATED_PHRASE, cites: [] },
+    { text: 'the launch was delayed.', cites: [] },
+  ])
+  const b = render([
+    { text: '## Findings', cites: [] },
+    { text: `${REPEATED_PHRASE}\n${REPEATED_PHRASE}`, cites: [] },
+    { text: REPEATED_PHRASE, cites: [ROMAN] },
+    { text: 'the launch was delayed.', cites: [] },
+  ])
+  const body = [REPEATED_PHRASE, REPEATED_PHRASE, REPEATED_PHRASE, 'the launch was delayed.'].join('\n')
+  for (const [which, rendered] of [['A', a], ['B', b]] as const) {
+    assert.ok(rendered.includes(`<p>${body}</p>`), `${which}: all three occurrences are the one paragraph`)
+    const lines = citeLines(rendered)
+    assert.equal(lines.length, 1, `${which}: only the entry that cites anything shows a citation line`)
+    assert.ok(lines[0].words.startsWith(`${CITED_PART} 2 (${CITED_PLACE_UNSHOWN})`),
+      `${which}: the recorded part is stated and qualified in plain words: ${lines[0].words}`)
+    assert.ok(lines[0].words.includes(`“${REPEATED_PHRASE}”`),
+      `${which}: the recorded words are still quoted: ${lines[0].words}`)
+    assert.doesNotMatch(lines[0].words, /(Row|Item)s? \d/,
+      `${which}: and no drawn row or item is claimed: ${lines[0].words}`)
+    assert.ok(lines[0].markup.includes(`id="cite-${ROMAN}"`), `${which}: the citation itself is unchanged`)
+  }
+  // The two assemblies draw the same body and say the same thing about it --
+  // which is the point: the surface cannot distinguish the occurrence, and no
+  // longer reads as though it had.
+  assert.equal(a, b, 'identical output, and neither claims a position the record does not hold')
+})
+
+test('a stated row or item position is kept, and only an unstated one is qualified (re-review ent-a4a90e65e3d5)', async () => {
+  store()
+  const r = resource('mag-pknownplace')
+  await r.read()
+  const render = (lines: { text: string; cites: string[] }[]) =>
+    html(createElement(Briefing, { resource: r, answer: answered(lines) }))
+  // KNOWN POSITIONS ARE UNTOUCHED by the correction: where the body's own
+  // reader gave the rows or items an entry produced, they are still the number
+  // a reader counts to, and nothing is qualified.
+  const rows = citeLines(render([
+    { text: '| Mission | Status |\n|---|---|\n| Roman | ready |', cites: [ROMAN] },
+    { text: '| Europa | refined |\n| JUICE | flown |', cites: [CLIPPER] },
+  ]))
+  assert.ok(rows[0].words.startsWith(`${CITED_PART} 1, ${CITED_ROW} 1 `), rows[0].words)
+  assert.ok(rows[1].words.startsWith(`${CITED_PART} 2, ${CITED_ROWS} 2–3 `), rows[1].words)
+  const items = citeLines(render([
+    { text: '1. Roman completed thermal vacuum', cites: [ROMAN] },
+    { text: 'testing at Goddard.\n2. Europa refined its assist.', cites: [CLIPPER] },
+  ]))
+  assert.ok(items[0].words.startsWith(`${CITED_PART} 1, ${CITED_ITEM} 1 `), items[0].words)
+  assert.ok(items[1].words.startsWith(`${CITED_PART} 2, ${CITED_ITEMS} 1–2 `), items[1].words)
+  for (const line of [...rows, ...items])
+    assert.ok(!line.words.includes(CITED_PLACE_UNSHOWN),
+      `a position the body gave is not qualified away: ${line.words}`)
+  // AN UNSTATED POSITION INSIDE A NUMBERED CONSTRUCT, the reviewer's other
+  // unknown-position case: an entry whose words crossed a heading and the first
+  // item has no item number to give, and a bare `Item` is nothing to count to.
+  // The label says what is not shown; the entry after it still says `Item 2`.
+  const mixed = citeLines(render([
+    { text: '## Findings\n\n1. Calibration completed.', cites: [ROMAN] },
+    { text: '2. Calibration completed.', cites: [CLIPPER] },
+  ]))
+  assert.ok(mixed[0].words.startsWith(`${CITED_PART} 1 (${CITED_PLACE_UNSHOWN})`), mixed[0].words)
+  assert.doesNotMatch(mixed[0].words, new RegExp(`${CITED_ITEM}s? \\d`),
+    `no item number where the body gave none: ${mixed[0].words}`)
+  assert.ok(mixed[1].words.startsWith(`${CITED_PART} 2, ${CITED_ITEM} 2 `), mixed[1].words)
+  // A GROUP OF ONE is labelled with nothing at all, qualification included.
+  assert.equal(citedPart('| 2026-03-27 | Roman | Cleared to ship |'),
+    `${CITED_ROW} “2026-03-27 · Roman · Cleared to ship”`, 'no part, no position, no qualification')
 })
 
 test('list labels that collide after truncation still name their own item (review ent-7ca49dfd8393 §4)', async () => {
