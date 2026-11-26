@@ -163,6 +163,86 @@ def test_a_summary_is_reduced_to_text_and_no_script_survives(brain,
     assert "<b>" not in text and "<p>" not in text
 
 
+@pytest.mark.parametrize("order", ["description-first", "content-first"])
+def test_full_rss_content_is_retained_instead_of_the_teaser(brain, monkeypatch,
+                                                          order):
+    prose = "The telescope measured the planet's atmosphere. " * 50
+    content = ("<content:encoded><![CDATA[<p>" + prose
+               + "</p><script>steal()</script>"
+               + '<img src="https://private.example/pixel"/>]]>'
+               + "</content:encoded>")
+    description = "<description>A short teaser.</description>"
+    parts = description + content if order == "description-first" else content + description
+    document = ('<rss xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+                '<channel><item><guid>article-1</guid><title>Atmosphere</title>'
+                '<link>https://publisher.example/article</link>' + parts
+                + '</item></channel></rss>')
+    stub = _serve(monkeypatch, {FEED: document})
+    plan, out = _acquire(brain, connector="rss-atom", options={"feeds": [FEED]})
+    text = brain["src"].read(ref=out["admitted"][0])["text"]
+    body = text.split("\n\n", 2)[2].split("\n--\n", 1)[0].strip()
+    assert body == prose.strip()
+    assert len(body) > 1500
+    assert "A short teaser" not in text
+    assert "steal()" not in text
+    assert "private.example" not in text
+    assert stub.asked == [FEED, FEED]  # preview and acquire, no page/subresource
+    assert plan["at"]["spent"]["fetches"] == 1
+    again = brain["src"].plan(out["collection"])
+    assert again["counts"]["changed"] == 0
+    assert again["counts"]["unchanged"] == 1
+
+
+@pytest.mark.parametrize("content", [
+    "<content:encoded/>",
+    "<content:encoded>&lt;script&gt;code()&lt;/script&gt;</content:encoded>",
+    '<content src="https://publisher.example/remote" type="html"/>',
+    '<content type="application/pdf">JVBERi0xLjQ=</content>',
+    '<content type="image/png">iVBORw0KGgo=</content>',
+])
+def test_empty_external_or_binary_content_falls_back_to_the_summary(content):
+    document = ('<feed xmlns="http://www.w3.org/2005/Atom" '
+                'xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+                '<entry><id>one</id><summary>Useful abstract.</summary>'
+                + content + '</entry></feed>')
+    assert feeds.parse_feed(document.encode())["entries"][0]["summary"] == \
+        "Useful abstract."
+
+
+@pytest.mark.parametrize("kind,content", [
+    ('type="text"', "Full plain text about the observatory."),
+    ('type="html"', "&lt;p&gt;Full &lt;b&gt;HTML&lt;/b&gt; prose.&lt;/p&gt;"),
+    ('type="xhtml"', '<div xmlns="http://www.w3.org/1999/xhtml">'
+     '<p>First paragraph.</p><script>code()</script><p>Second paragraph.</p></div>'),
+])
+def test_inline_atom_content_takes_priority_and_uses_the_shared_reducer(kind, content):
+    document = ('<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>one</id>'
+                '<summary>A teaser.</summary><content ' + kind + '>' + content
+                + '</content></entry></feed>')
+    text = feeds.parse_feed(document.encode())["entries"][0]["summary"]
+    assert "A teaser" not in text and "code()" not in text
+    if "xhtml" in kind:
+        assert text == "First paragraph.\n\nSecond paragraph."
+    else:
+        assert text.startswith("Full ")
+
+
+def test_larger_inline_content_still_obeys_the_held_limit(brain, monkeypatch):
+    from mentis.spine import held
+
+    document = ('<rss><channel><item><guid>large</guid>'
+                '<description>Small teaser.</description><content>'
+                + "A substantive paragraph. " * 100
+                + '</content></item></channel></rss>')
+    _serve(monkeypatch, {FEED: document})
+    monkeypatch.setattr(held, "MAX_BYTES", 512)
+    plan = brain["src"].preview_new(connector="rss-atom", name="Larger body",
+                                   options={"feeds": [FEED]})
+    assert plan["counts"]["new"] == 0
+    assert plan["not_acquired"]
+    assert "held limit" in plan["not_acquired"][0]["reason"]
+
+
 def test_the_citation_of_an_entry_resolves(brain, monkeypatch):
     _serve(monkeypatch, {FEED: RSS})
     _, out = _acquire(brain, connector="rss-atom", options={"feeds": [FEED]})

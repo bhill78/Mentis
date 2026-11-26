@@ -58,10 +58,17 @@ only a call to `fetch.robots` in `_survey`.
 CAPS. `MAX_FEEDS`, `MAX_QUERIES` per collection; `MAX_ENTRIES_PER_FEED` per
 feed; `SWEEP_FETCHES` and `SWEEP_BYTES` for one whole sweep, carried by the
 `fetch.Budget` the survey makes. Each is a named constant with a test.
+
+DEPTH WITHOUT ANOTHER REQUEST. Prefer inline RSS `content:encoded` or Atom
+`content` to a short description when the feed offers it. Empty, external
+or binary content falls back to the description/summary. This changes only
+which offered text is retained: no entry links, content addresses or HTML
+subresources are fetched, and the feed and held-byte limits still apply.
 """
 
 from __future__ import annotations
 
+import copy
 import email.utils
 import hashlib
 import re
@@ -245,6 +252,14 @@ def _text(node) -> str:
     rendered and never fetched from."""
     if node is None:
         return ""
+    if len(node):
+        # Atom XHTML is real XML, not escaped HTML. Preserve its markup
+        # until the shared reducer removes scripts and separates blocks.
+        # Local names keep namespace prefixes from hiding a <script> tag.
+        markup = copy.deepcopy(node)
+        for element in markup.iter():
+            element.tag = _plain(element.tag)
+        return text_of_html(ET.tostring(markup, encoding="unicode")).strip()
     raw = "".join(node.itertext())
     return text_of_html(raw).strip() if ("<" in raw and ">" in raw) \
         else " ".join(raw.split())
@@ -256,6 +271,27 @@ def _child(node, *names):
             if _plain(kid.tag) == name:
                 return kid
     return None
+
+
+def _entry_text(item) -> str:
+    """Prefer prose already offered in the feed to its short description.
+
+    No address is followed, including Atom's out-of-line `content src`.
+    Binary content is not text; empty or unsupported content falls back to
+    the description/summary. All accepted markup uses the shared reducer.
+    """
+    for name in ("encoded", "content", "description", "summary"):
+        node = _child(item, name)
+        if node is None or node.get("src"):
+            continue
+        if name == "content" and (node.get("type") or "text").lower() not in (
+                "text", "html", "xhtml", "text/plain", "text/html",
+                "application/xhtml+xml"):
+            continue
+        text = _text(node)
+        if text:
+            return text
+    return ""
 
 
 def _when(value: str) -> float | None:
@@ -362,8 +398,7 @@ def parse_feed(data: bytes, *, charset: str | None = None) -> dict:
         entries.append({
             "guid": _text(guid), "link": link, "when": when,
             "title": _text(_child(item, "title")),
-            "summary": _text(_child(item, "description", "summary",
-                                    "content", "encoded")),
+            "summary": _entry_text(item),
             "publisher": publisher,
             "guid_tag": _plain(guid.tag) if guid is not None else None,
         })
