@@ -560,3 +560,19 @@ test('the composer bar builds no context prose and gates the selector on no acti
   const draft = readFileSync(new URL('../src/composer/draft.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(draft, /text: d\.text\.trim\(\)/, 'the stored words are never trimmed')
 })
+
+test('the composer bar carries a frozen Perspective ask through unchanged, and binds and reconciles the actual send', () => {
+  const bar = readFileSync(new URL('../src/quiet2/magnets/ComposerBar.tsx', import.meta.url), 'utf8')
+  const before = bar.slice(bar.indexOf('at.beforeRequest'), bar.indexOf('at.afterRecorded'))
+  // The exact chip the fresh selector just checked against the record is what
+  // decides this, never whatever this card happened to be holding.
+  assert.match(before, /selector\.perspective\?\.id === active\.perspective/)
+  assert.match(before, /perspectiveRequest\(post, active\)/)
+  assert.match(before, /op: active\.request_op/)
+  const after = bar.slice(bar.indexOf('at.afterRecorded'))
+  assert.match(after, /await inquiries\.bind\(attempt\.perspective, request\)/)
+  assert.match(after, /await inquiries\.reconcile\(attempt\.perspective, 'display'\)/)
+  // Binding also records which actual request this Perspective's agent-reply
+  // boundary is read against (`finalizeReply`), never guessed from `active` alone.
+  assert.match(after, /bound: \{ perspective: attempt\.perspective\.perspective, request \}/)
+})

@@ -35,6 +35,7 @@ import type { MagnetResource } from './contract'
 import {
   NO_OWN_CONVERSATION, miniConversationOf, type MiniPost,
 } from './conversation'
+import { finalizeReply, perspectivesOf } from './perspectives'
 import './conversation.css'
 import { restore, writePlace } from './places'
 
@@ -153,6 +154,31 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
   const [targetError, setTargetError] = useState<string | null>(null)
   const section = useRef<HTMLElement | null>(null)
   const flow = useRealFlow(conversation ? 'real' : null, conversation, reread, around)
+
+  /* THE RECORDED AGENT-REPLY BOUNDARY for a Perspective's frozen ask.
+     `inquiries` is the one PerspectiveStore this Magnet's Composer prepares
+     and binds through (`perspectives.ts`, `ComposerBar.tsx`); this view adds
+     no read of its own and no timer -- it watches the SAME live posts this
+     Conversation already redraws on, which `useRealFlow` keeps current on
+     the page's existing /api/pulse beat. A Perspective ask is filtered out of
+     `top` below (`isOrdinaryPost`) because it is not drawn as an ordinary
+     message, but its Turn is still read here, by id, like any other. */
+  const inquiries = useMemo(() => perspectivesOf(resource), [resource])
+  const lens = useSyncExternalStore(inquiries.subscribe, inquiries.snapshot, inquiries.snapshot)
+  useEffect(() => {
+    const bound = lens.bound, active = lens.active
+    const ids = flow.read?.top
+    if (!bound || !active || active.perspective !== bound.perspective || !ids) return
+    const answered = ids.map((id) => postOf(id)).find((p) =>
+      p?.status?.expectations.some((e) => e.id === bound.request && e.answered_by))
+      ?.status?.expectations.find((e) => e.id === bound.request)?.answered_by
+    if (!answered) return
+    let live = true
+    void finalizeReply(inquiries, active, answered.turn).then((r) => {
+      if (live && r) setNote(r.ok ? 'The agent’s answer is recorded against this Perspective.' : r.why)
+    })
+    return () => { live = false }
+  }, [flow.read, lens.bound, lens.active, inquiries])
 
   /* The Magnet's own store still reads this Conversation once, for what only it
      answers: how much work it carries, and the page its message search offers

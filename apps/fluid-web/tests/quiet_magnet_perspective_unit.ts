@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
-import { answerHistory, derivedPerspectiveName, PerspectiveStore, STANDING_QUESTION, standingAnswerOp, standingOp } from '../src/quiet2/magnets/perspectives'
+import { answerHistory, derivedPerspectiveName, finalizeReply, PerspectiveStore, STANDING_QUESTION, standingAnswerOp, standingOp, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
 import { askAnAgent, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { miniComposerDraft, removeContext, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
@@ -390,4 +390,96 @@ test('wrong or missing Brain response is refused; pending action never migrates 
     page.move()
     await assert.rejects(f.store.retryPending(), /another Brain/)
   } finally { globalThis.fetch = fetchBefore }
+})
+
+/* -- the agent-reply boundary: finalize, and its idempotent caller -------- */
+
+function samplePrepared(over: Partial<PreparedInquiry> = {}): PreparedInquiry {
+  return { intent: 'ent-intent1111', perspective: A, brain: page.bound()!,
+    question: { ref: 'adm-question11', digest: 'a'.repeat(64), size: 1, media_type: 'application/json' },
+    manifest: { ref: 'adm-manifest11', digest: 'b'.repeat(64), size: 1, media_type: 'application/json' },
+    records: { ref: 'adm-records111', digest: 'c'.repeat(64), size: 1, media_type: 'application/json' },
+    artifacts: [], parts: [], reach: 'work' as const, request_op: 'perspective-request:ent-intent1111',
+    text: 'A fresh agent question', closure: { count: 0, bytes: 0 }, disclosure: '', ...over }
+}
+
+test('finalize writes the bound intent, execution and the exact answer, keyed by the reply', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  const sent: any[] = []
+  f.store.write = async (...args: any[]) => { sent.push(args); return { answer: 'adm-answer111', event: {} } }
+  await f.store.finalize(prepared, 'ent-exec11111111', 'ent-reply11111111')
+  assert.equal(sent[0][0], `/${A}/finalize`)
+  assert.deepEqual(sent[0][1], { intent: prepared.intent, execution: 'ent-exec11111111', answer: 'ent-reply11111111' })
+  assert.equal(sent[0][2], `${prepared.request_op}-finalize-ent-reply11111111`)
+})
+
+test('finalizeReply reconciles, then finalizes a qualified reply, and records it against that exact answer', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  const calls: string[] = []
+  f.store.write = async (tail: string) => {
+    calls.push(tail)
+    if (tail === `/${A}/reconcile`) return { status: 'qualified', execution: 'ent-exec11111111', receipt: { ref: 'adm-r' } }
+    if (tail === `/${A}/finalize`) return { answer: 'adm-answer111', event: {} }
+    throw new Error(`unexpected write ${tail}`)
+  }
+  const out = await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.deepEqual(calls, [`/${A}/reconcile`, `/${A}/finalize`])
+  assert.equal(out?.ok, true)
+  assert.equal(f.store.snapshot().answer.answer_post_attempted, 'ent-reply11111111')
+  assert.equal(f.store.snapshot().finalizing, undefined, 'the in-flight marker is cleared once it settles')
+})
+
+test('finalizeReply never finalizes a reply that does not reconcile as qualified (an UNRELATED or not-yet-ready reply)', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  const calls: string[] = []
+  f.store.write = async (tail: string) => { calls.push(tail); return { status: 'unqualified', execution: null } }
+  const out = await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.deepEqual(calls, [`/${A}/reconcile`], 'finalize is never sent for a reply that cannot be reconciled')
+  assert.equal(out?.ok, false)
+  assert.equal(f.store.snapshot().answer.refused, true)
+})
+
+test('finalizeReply records a FAILED/refused finalize without crashing, and leaves the raw reply exactly a reply', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  f.store.write = async (tail: string) => tail === `/${A}/reconcile`
+    ? { status: 'qualified', execution: 'ent-exec11111111' }
+    : { answer: null, event: null, refused: true, code: 'unqualified-answer', error: 'not a synthesis' }
+  const out = await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.equal(out?.ok, false)
+  assert.equal(out && !out.ok ? out.why : undefined, 'not a synthesis')
+  assert.equal(f.store.snapshot().answer.refused, true)
+})
+
+test('finalizeReply is idempotent: a RETRIED observation of the same reply Turn is never sent twice', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  let writes = 0
+  f.store.write = async (tail: string) => { writes++; return tail === `/${A}/reconcile` ? { status: 'qualified', execution: 'ent-exec11111111' } : { answer: 'adm-answer111' } }
+  await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  const after = writes
+  const again = await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.equal(again, null, 'an already-finalized reply is not finalized again')
+  assert.equal(writes, after, 'and nothing was sent for it')
+})
+
+test('finalizeReply refuses to double-send while an earlier call for the same reply is still in flight', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  let resolveReconcile!: (v: any) => void
+  f.store.write = async (tail: string) => tail === `/${A}/reconcile`
+    ? new Promise((resolve) => { resolveReconcile = resolve })
+    : { answer: 'adm-answer111' }
+  const first = finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.equal(f.store.snapshot().finalizing, 'ent-reply11111111')
+  const second = await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.equal(second, null, 'the second observation of the still in-flight reply does nothing')
+  resolveReconcile({ status: 'qualified', execution: 'ent-exec11111111' })
+  await first
+})
+
+test('finalizeReply fails safely on a network error, and clears the in-flight marker', async () => {
+  const f = fixture(), prepared = samplePrepared()
+  f.store.write = async () => { throw new Error('lost') }
+  const out = await finalizeReply(f.store, prepared, 'ent-reply11111111')
+  assert.equal(out?.ok, false)
+  assert.match(out && !out.ok ? out.why : '', /lost/)
+  assert.equal(f.store.snapshot().finalizing, undefined)
 })
