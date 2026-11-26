@@ -348,6 +348,7 @@ test('the design primitives the panel composes from are styled outside the card 
     }
   }
 })
+
 /* -- PART G2: NO INTERNAL MODE WORD, AND NO JSON --------------------------------
  *
  * #802 and amendment §4. `configurationFacts` used to end in "Collection:

@@ -1163,6 +1163,8 @@ def test_the_cadence_the_sentence_asks_for_is_the_one_proposed(
         status, got = _propose(world, said)
         assert status == 200, got
         assert got["proposal"]["cadence"]["schedule"] == when, said
+        # The cadence is shown on its own line, so it is not also in the name.
+        assert got["proposal"]["name"] == "Saltmarsh", said
 
 
 def test_a_proposal_is_schema_valid_before_it_is_ever_shown(world):  # noqa: F811

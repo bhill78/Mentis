@@ -27,6 +27,7 @@ import type { SavedMagnet } from './contract'
 import { acceptProposal, listMagnets, proposeMagnet, type MagnetProposal } from './managementApi'
 import { collectionRhythm, magnetName } from './configuration'
 import { resourcesOfBrain } from '../space/registry'
+import { setOpen } from './places'
 import type { QuietMagnetResource } from './navigation'
 import CollectionConfiguration from './CollectionConfiguration'
 import '../brain/brain.css'
@@ -188,7 +189,12 @@ export default function Management(p: {
       // collected items rather than its Summary, and what the first
       // collection did is said above them.
       const r = resourcesOfBrain<QuietMagnetResource>('magnet', key).find((v) => v.saved.id === done.saved.id)
-      if (r) { r.update({ tab: 'All', overlay: null, collectionMessage: done.words }); void r.read() }
+      // A newly registered Magnet rests closed, which is right for one restored
+      // from a previous session and wrong for one just made from a sentence:
+      // the owner would be looking at a disc, not at what it collected. So it
+      // is opened, put on its collected items, and told what the first
+      // collection did -- all three through the resource's own store.
+      if (r) { setOpen(r, true); r.update({ tab: 'All', overlay: null, collectionMessage: done.words }); void r.read() }
     } catch (e) {
       if (identity.current === key) setCreateWords(`${(e as Error).message} Your sentence and operation key are kept; pressing again repeats the same creation rather than making a second Magnet.`)
     } finally { if (identity.current === key) setCreating(false) }

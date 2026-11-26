@@ -142,7 +142,11 @@ export async function acceptProposal(at: { key: string; arrangement: string; pro
     collected = got
     said = collectedWords(got, cadence)
   } catch (e) {
-    said = `${(e as Error).message} Open Sources to check what this Magnet follows; ${(cadence || 'it will look again').toLowerCase()}, so it will try again on its own.`
+    // The server's own words end where they end -- some are sentences and some
+    // are clauses -- so the sentence that follows is separated here rather than
+    // run on to it.
+    const why = (e as Error).message.trim()
+    said = `${/[.!?]$/.test(why) ? why : why + '.'} Open Sources to check what this Magnet follows; ${(cadence || 'it will look again').toLowerCase()}, so it will try again on its own.`
   }
   let refreshing = false
   if (at.proposal.cadence.mode === 'scheduled' && at.proposal.cadence.schedule) {

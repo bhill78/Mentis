@@ -754,6 +754,15 @@ def proposed_name(sentence: str) -> str:
         if low.startswith(opener + " "):
             said = said[len(opener) + 1:].lstrip()
             break
+    # The cadence is shown on its own line, so it is not also the name: a
+    # Magnet is called what it follows, not how often it looks.
+    low = said.lower()
+    for asked, _when, _words in CADENCES:
+        hit = next((a for a in asked if low.endswith(" " + a)
+                    or low.endswith(", " + a)), None)
+        if hit:
+            said = said[:len(said) - len(hit)].rstrip(" ,")
+            break
     said = said.strip(" .,:;!?-–—\"'").strip()
     if not said:
         said = " ".join(sentence.split()).strip(" .,:;!?-–—\"'") or "New Magnet"
