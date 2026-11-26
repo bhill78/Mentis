@@ -569,6 +569,9 @@ test('the composer bar carries a frozen Perspective ask through unchanged, and b
   assert.match(before, /selector\.perspective\?\.id === active\.perspective/)
   assert.match(before, /perspectiveRequest\(post, active\)/)
   assert.match(before, /op: active\.request_op/)
+  // An `active` already bound by an earlier send is never reused for a
+  // different, later one: only a still-unsent frozen ask is carried through.
+  assert.match(before, /inquiryState\.bound\?\.perspective !== active\.perspective/)
   const after = bar.slice(bar.indexOf('at.afterRecorded'))
   assert.match(after, /await inquiries\.bind\(attempt\.perspective, request\)/)
   assert.match(after, /await inquiries\.reconcile\(attempt\.perspective, 'display'\)/)

@@ -436,8 +436,18 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
        `selector.perspective` is the fresh durable read `managedSelector` just
        checked the chip against, so agreement here is agreement with the
        record, not with whatever this card happened to be holding. */
-    const active = inquiries.snapshot().active
-    if (active && selector.perspective?.id === active.perspective) {
+    const inquiryState = inquiries.snapshot()
+    const active = inquiryState.active
+    /* ONLY WHILE IT IS STILL UNSENT. Once `afterRecorded` binds it,
+       `bound.perspective` names it: a later, genuinely different send with
+       the same chip still attached (an ordinary reply, or a second ask that
+       never froze a new one with `prepare`) must not be read as a resend of
+       the one already sent -- that would replay an already-used operation
+       key, carrying words that are not the ones it was frozen for. A retry
+       of THIS send, while it is still unresolved, never reaches here: it is
+       covered by the frozen attempt itself (`miniAttempt`, the guard above),
+       and reuses that attempt's own request without calling this again. */
+    if (active && inquiryState.bound?.perspective !== active.perspective && selector.perspective?.id === active.perspective) {
       return { post: { ...perspectiveRequest(post, active), [SELECTOR_FIELD]: selector }, op: active.request_op, perspective: active }
     }
     return { post: { ...post, [SELECTOR_FIELD]: selector }, op }
