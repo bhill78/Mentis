@@ -759,6 +759,21 @@ def _sentence_words(sentence: str) -> list[str]:
             if len(w) > 2 and w not in _NOISE]
 
 
+#: What is left of a sentence after the opener and the cadence are both cut,
+#: when that remainder names nothing but one address: the whole string, with
+#: no other word around it.
+_URL_ONLY = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*://\S+$")
+
+
+def _url_only_host(said: str) -> str | None:
+    """The host of `said`, when `said` is nothing but one address (never
+    None for a sentence with any other word in it)."""
+    if not _URL_ONLY.fullmatch(said):
+        return None
+    from urllib.parse import urlparse
+    return urlparse(said).hostname or None
+
+
 def proposed_name(sentence: str) -> str:
     """A NAME DERIVED, NEVER DEMANDED (#815, amendment §4). What the owner
     actually typed, with the words that only address the machine removed, cut
@@ -782,6 +797,12 @@ def proposed_name(sentence: str) -> str:
     said = said.strip(" .,:;!?-–—\"'").strip()
     if not said:
         said = " ".join(sentence.split()).strip(" .,:;!?-–—\"'") or "New Magnet"
+    # A URL-ONLY SUBJECT IS NAMED FOR ITS HOST, not the address: "follow
+    # https://feeds.bbci.co.uk/news/world/rss.xml every day" is called
+    # "feeds.bbci.co.uk", not the scheme and path nobody would read as a name.
+    host = _url_only_host(said)
+    if host:
+        return host[:S.MAX_NAME]
     if len(said) > S.MAX_NAME:
         cut = said[:S.MAX_NAME].rsplit(" ", 1)[0]
         said = (cut or said[:S.MAX_NAME]).rstrip(" .,:;-–—")
