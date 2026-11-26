@@ -792,10 +792,19 @@ export function perspectiveSource(resource: MagnetResource): SearchSource {
     bound: () => stopped,
   }
 }
-/** Preserve the shared Composer's addressing, runtime, reply and Work choices. */
+/** Preserve the shared Composer's addressing, runtime, reply and Work choices.
+ *
+ *  Everything the actual send needs travels as ordinary fields the shared
+ *  send adapter already carries (`text`, `topics`, `parts`, `dispatch`):
+ *  there is no `_magnetPerspective` marker on the result. The server's own
+ *  gate refuses any `_magnet`-prefixed field as a generated work override
+ *  (`mentis.fluid.message_context.gate`), and the shared adapter's guard
+ *  (`composerRequest`) refuses it first for the same reason -- so a
+ *  Perspective send never attaches one. `attempt.perspective`, set by the
+ *  caller from the `prepared` it already holds, is what later identifies
+ *  this as a Perspective send; nothing needs to find it again on the post. */
 export function perspectiveRequest(post: Record<string, unknown>, prepared: PreparedInquiry) {
   return { ...post, text: prepared.text, topics: [...new Set([...(Array.isArray(post.topics) ? post.topics : []), prepared.perspective])],
     parts: [{ type: 'text', text: prepared.text }, ...(Array.isArray(post.parts) ? post.parts.filter((p: any) => p.type !== 'text') : []), ...prepared.parts],
-    _magnetPerspective: prepared,
     dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: any) => ({ ...spec, reach: 'work', requires: [...new Set([...(spec.requires ?? []), 'call_mentis_tools'])], work: `Use the attached frozen Perspective records, manifest and evidence. Read them with read_artifact. Reconstruct the inquiry by its Topic ${prepared.perspective}, distinguish original support from interpretations and conflicting evidence, cite the exact versions/ranges, and answer the frozen question. ${PERSPECTIVE_DISCLOSURE}` })) }
 }

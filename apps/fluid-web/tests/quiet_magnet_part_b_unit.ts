@@ -206,6 +206,42 @@ test('grounded helpers no longer refuse up front, and preserve the request they 
   assert.deepEqual(composed.topics, ['ent-other111111', prepared.perspective])
   assert.ok(composed.parts.some((part) => part.type === 'file' && part.ref === 'adm-manifest111111'))
 })
+/* THE ACTUAL SEND BOUNDARY: `ComposerBar`'s `beforeRequest` hands
+   `perspectiveRequest`'s own result straight to the shared adapter
+   (`composerRequest`) unmodified, exactly as `conversation.ts`'s send does.
+   A frozen Perspective ask must reach an agent through that same boundary,
+   not merely compose in isolation -- this is what the integration failure
+   (`_magnetPerspective` refused as an old Magnet field) actually broke. */
+test('a frozen Perspective ask passes the actual send boundary unrefused, carrying no _magnet marker', () => {
+  const post = { action: 'ask-participant', text: 'Original words',
+    parts: [{ type: 'text', text: 'Original words' }],
+    dispatch: [{ participant: 'ent-agent111111', runtime: 'codex' }] }
+  const composed = perspectiveRequest(post, prepared)
+  assert.ok(!Object.keys(composed).some((key) => key.startsWith('_magnet')),
+    'a Perspective send carries no _magnet-prefixed marker to the shared adapter')
+  const routed = composerRequest(composed, config.id, 'ent-owner111111', null, prepared.request_op, null)
+  assert.equal(routed.text, prepared.text)
+  assert.equal((routed.dispatch as any[])[0].reach, 'work')
+  assert.match((routed.dispatch as any[])[0].work, /frozen Perspective records/)
+})
+/* An unrelated or legacy marker is still refused at the same boundary: the
+   fix narrows nothing about the guard itself, it only stops a current
+   Perspective send from colliding with it. */
+test('legacy and unrelated _magnet-prefixed fields are still refused at the send boundary', () => {
+  for (const extra of [{ _magnetPerspective: prepared }, { _magnetAssistance: {} }, { _magnetAnythingElse: true }]) {
+    assert.throws(() => composerRequest({ action: 'ask-participant', text: 'Help', parts: [], dispatch: [], ...extra },
+      config.id, 'ent-owner111111', null, 'legacy-op', null), /old Magnet send/)
+  }
+})
+/* ORDINARY CONVERSATION, the other path through the same shared adapter,
+   is unaffected by this fix: a plain record-only post with no Perspective
+   and no retained collection composes exactly as before. */
+test('ordinary Conversation composes through the same shared adapter, untouched by the Perspective fix', () => {
+  const out = composerRequest({ text: 'hello', parts: [{ type: 'text', text: 'hello' }], action: 'record-only' },
+    config.id, 'ent-owner111111', null, 'ordinary-plain', null)
+  assert.equal(out.text, 'hello'); assert.equal(out.action, 'record-only')
+  assert.ok(!Object.keys(out).some((key) => key.startsWith('_magnet')))
+})
 
 test('Perspective store refuses a late response after Brain replacement', async () => {
   brain.saw('brain-a@instance-one')
