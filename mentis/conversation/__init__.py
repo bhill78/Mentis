@@ -5701,10 +5701,21 @@ class Conversations:
         work it is part of.
         """
         exp = self._act(expectation)
-        return bool(exp and exp["act"] == "expectation-recorded"
-                    and exp.get("turn") and any(
-            a["act"] == "work-discovered" and expectation in (a["about"] or ())
-            for a in self._c.operational(turn=exp["turn"])))
+        # ONE INDEXED READ OF THE ACTS THAT CAN SAY SO: the Turn's
+        # `work-discovered` acts naming this request, found by SQLite (the
+        # Turn's index, the act column, `about` matched in the stored text),
+        # never every act of the Turn decoded in Python. A run's Turn carries
+        # hundreds of acts and megabytes of detail; this was a third of every
+        # current-work build on the live Brain (2026-11-25). `operational`
+        # checks `about` exactly after decoding, so the answer is unchanged.
+        # Kept for the reading (`_recall`): `discovery` asks it at every step
+        # up a lineage, so the same request is asked again and again.
+        if not (exp and exp["act"] == "expectation-recorded"
+                and exp.get("turn")):
+            return False
+        return self._recall(("is_finding", expectation), lambda: bool(
+            self._c.operational(turn=exp["turn"], act="work-discovered",
+                                about=expectation)))
 
     def awaits(self, expectation) -> list[str]:
         """The work this expectation declared it waits on, in declared order."""
