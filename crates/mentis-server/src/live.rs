@@ -41,13 +41,33 @@ pub const STALE_AFTER: Duration = Duration::from_secs(2);
 
 /// How long to wait before the next poll, by how the last ones went: the backoff of
 /// `contracts/live-snapshot.md`, "Polling". Pure, so it is tested at exact values.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pace {
     /// Slow or failed answers in a row.
     slow: u32,
+    /// The wait while answers are prompt.
+    every: Duration,
+    /// The longest wait, however slow.
+    most: Duration,
+}
+
+impl Default for Pace {
+    /// `/private/live`'s: [`POLL_EVERY`] up to [`POLL_EVERY_MOST`].
+    fn default() -> Self {
+        Self::new(POLL_EVERY, POLL_EVERY_MOST)
+    }
 }
 
 impl Pace {
+    /// Every `every` while answers are prompt, doubling per slow one up to `most`.
+    pub const fn new(every: Duration, most: Duration) -> Self {
+        Self {
+            slow: 0,
+            every,
+            most,
+        }
+    }
+
     /// A poll came to something, `took` after it was sent. `answered` is a usable answer.
     pub fn heard(&mut self, answered: bool, took: Duration) {
         if answered && took <= POLL_PROMPT {
@@ -62,12 +82,11 @@ impl Pace {
         self.slow > 0
     }
 
-    /// The wait between polls: [`POLL_EVERY`], doubling per slow answer, at most
-    /// [`POLL_EVERY_MOST`].
+    /// The wait between polls: the prompt one, doubling per slow answer, at most the longest.
     pub fn every(&self) -> Duration {
-        POLL_EVERY
+        self.every
             .saturating_mul(1 << self.slow.min(8))
-            .min(POLL_EVERY_MOST)
+            .min(self.most)
     }
 }
 /// Stale up to this, inclusive, and unavailable past it. See [`freshness`] for what it is counted

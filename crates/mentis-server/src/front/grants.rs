@@ -28,8 +28,13 @@ const POSITION_PATH: &str = "/private/grants/position";
 
 /// How long a confirmation from Python, measured from when it was *sent*, says the mirror is current.
 pub const LEASE: Duration = Duration::from_secs(3);
-/// Poll this often while answers are prompt. Slower answers back off ([`Pace`]).
+/// Poll this often while answers are prompt. Slower answers back off ([`Pace`]) up to
+/// [`POSITION_EVERY_MOST`].
 pub const POSITION_EVERY: Duration = Duration::from_millis(500);
+/// The longest wait between positions while answers are slow. Half of [`LEASE`], so a backoff alone
+/// never outlasts it: unlike `/private/live`'s 4 s, which only costs freshness, a gap past the lease
+/// would send every granted read back to Python.
+pub const POSITION_EVERY_MOST: Duration = Duration::from_millis(1500);
 /// How long a connection to Python may take, before any request is sent on it. A request once sent
 /// is waited for, not abandoned: see [`LOCATE_GIVE_UP`] and [`POLL_GIVE_UP`].
 pub const POSITION_TIMEOUT: Duration = Duration::from_millis(250);
@@ -561,11 +566,12 @@ impl Mirror {
     /// **One position poll at a time, and a sent one is never abandoned for a slow answer** (until
     /// [`POLL_GIVE_UP`]): a busy Python answers it when it can, and the answer earns credit from
     /// when it was sent, as any position's does. While answers are slow the next poll waits longer
-    /// ([`Pace`]); a prompt answer puts it back to [`POSITION_EVERY`].
+    /// ([`Pace`]), counted from the send and never past [`POSITION_EVERY_MOST`] (half the lease); a
+    /// prompt answer puts it back to [`POSITION_EVERY`].
     pub async fn run(&self) {
         let mut connection: Option<TcpStream> = None;
         let mut position: Option<InFlight> = None;
-        let mut pace = Pace::default();
+        let mut pace = Pace::new(POSITION_EVERY, POSITION_EVERY_MOST);
         loop {
             if self.locked().begin() {
                 connection = None;
@@ -680,9 +686,10 @@ impl Mirror {
                         }
                     };
                     pace.heard(good, took);
-                    if pace.is_slow() {
-                        next = next.max(Instant::now() + pace.every());
-                    }
+                    // Counted from the send, not the answer, unlike `/private/live`'s: so the
+                    // next position goes at most `POSITION_EVERY_MOST` after this one was sent,
+                    // and an answer within about half the lease keeps it.
+                    next = next.max(sent + pace.every());
                 }
             }
         }
@@ -1267,5 +1274,41 @@ mod tests {
         // The location's connection, then one kept for every poll: none dropped for a late answer.
         let connections = python.connections.load(Ordering::SeqCst);
         assert!(connections <= 2, "{connections} connections");
+    }
+
+    const _: () = assert!(POSITION_EVERY_MOST.as_millis() * 2 <= LEASE.as_millis());
+
+    #[test]
+    fn the_position_backoff_stays_well_inside_the_lease() {
+        let mut pace = Pace::new(POSITION_EVERY, POSITION_EVERY_MOST);
+        for _ in 0..40 {
+            pace.heard(false, Duration::ZERO);
+        }
+        assert_eq!(pace.every(), POSITION_EVERY_MOST);
+        assert!(POSITION_EVERY_MOST < LEASE);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_steadily_slow_python_keeps_the_lease() {
+        let python = slow_positions(Duration::from_millis(1000)).await;
+        let brain = mirror_brain("steady");
+        let mirror = Arc::new(Mirror::new(python.address, "s".into(), brain.clone()));
+        let running = {
+            let mirror = mirror.clone();
+            tokio::spawn(async move { mirror.run().await })
+        };
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let mut forwarded = Vec::new();
+        let until = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < until {
+            if let Serve::Forward(why) = mirror.serve(KEY) {
+                forwarded.push(why);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        running.abort();
+        let _ = std::fs::remove_dir_all(&brain);
+        assert!(forwarded.is_empty(), "forwarded: {forwarded:?}");
+        assert_eq!(python.most_at_once.load(Ordering::SeqCst), 1);
     }
 }
