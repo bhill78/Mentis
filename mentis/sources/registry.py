@@ -9,11 +9,15 @@ asks for, whether its preview is exact, how it can stay current, how it links
 back to the live thing, how it is browsed, and what an object key is and how
 it reads to a person.
 
-THE FILESYSTEM AND GIT ARE AVAILABLE. Git is a repository on this machine,
-read at a ref and never changed (`mentis.sources.git`). Slack, Jira, Confluence, Gmail, an HTTP
-API, the Web and RSS/Atom are registered as UNAVAILABLE descriptors (owner
-decision 5 added Web and RSS/Atom): listed so the choice and its shape can be
-seen, refused if anything is asked of them, and promising nothing.
+THE FILESYSTEM, GIT, SQLITE AND THE THREE WEB KINDS ARE AVAILABLE. Git is a
+repository on this machine or at an address, read at a ref and never changed
+(`mentis.sources.git`). RSS/Atom feeds, web search and web pages are the
+general-purpose web kinds the owner asked for (Magnet amendment
+adm-c38044ee5157 §2, Part W): `mentis.sources.feeds` and
+`mentis.sources.webpages`, both reading through the one bounded GET in
+`mentis.sources.fetch`. Slack, Jira, Confluence, Gmail and an HTTP API remain
+UNAVAILABLE descriptors: listed so the choice and its shape can be seen,
+refused if anything is asked of them, and promising nothing.
 
 THE FACADE (`Sources`) is what `mentis.api.sources` hands a client. It routes
 by a collection's DECLARED connector, so nothing above it names a connector
@@ -166,6 +170,15 @@ _GIT_PRESETS = [
 ]
 
 
+def _providers() -> list[dict]:
+    """The search providers, FROM THE CONNECTOR'S OWN TABLE rather than
+    copied here (amendment §2: "the provider table is data in the module"),
+    each with its terms-of-use note, so adding or changing a provider
+    changes this picker with no edit to the registry."""
+    from mentis.sources.feeds import provider_table
+    return provider_table()
+
+
 REGISTRY: dict[str, Descriptor] = {d.id: d for d in [
     Descriptor(
         summary="Files under a folder you choose",
@@ -250,22 +263,78 @@ REGISTRY: dict[str, Descriptor] = {d.id: d for d in [
         preview="bounded", modes=("one-time", "connected"),
         live="permalink", browse="chronology",
         key="a field you name", connect="base URL and credential"),
+    # -- THE THREE WEB KINDS (Part W, amendment adm-c38044ee5157 §2) --------
+    # All three read through the one bounded GET in `mentis.sources.fetch`:
+    # https only, a public address checked before and after every redirect,
+    # GET with no credential of any kind, named byte, timeout, redirect and
+    # per-sweep caps, no JavaScript and no subresource fetching. The
+    # addresses are the SCOPE, not a binding: nothing about them is
+    # machine-local, and there is no credential for a binding to keep.
     Descriptor(
-        id="web", label="Web", available=False, binding="endpoint",
-        scope_fields=[{"name": "urls", "type": "list", "label": "Pages"},
-                      {"name": "depth", "type": "number",
-                       "label": "Follow links to depth"}],
+        summary="Pages at addresses you name, fetched and reduced to text",
+        id="web", label="Web pages", available=True, binding="endpoint",
+        scope_fields=[
+            {"name": "urls", "type": "list", "label": "Pages", "default": [],
+             "option": True,
+             "help": "https addresses, one per line; at most 20"},
+            {"name": "depth", "type": "number",
+             "label": "Follow links to depth", "default": 0, "min": 0,
+             "max": 2, "option": True,
+             "help": "0 -- the default -- fetches exactly these addresses "
+                     "and follows nothing. Above 0 the collection follows "
+                     "links the pages themselves state, on the same host "
+                     "only, which is a crawl: at most 20 links from a page "
+                     "and 40 pages a sweep"}],
         preview="bounded", modes=("one-time", "manual-refresh"),
-        live="permalink", browse="hierarchy", key="URL",
-        connect="addresses to fetch"),
+        live="permalink", browse="hierarchy",
+        key="a normalised https URL",
+        connect="type https addresses. Each is fetched once with a plain "
+                "GET -- no credential of any kind is sent or kept, "
+                "robots.txt is respected, no JavaScript runs and nothing a "
+                "page references is fetched",
+        normalise=_opaque_key, labelled=_native_label),
     Descriptor(
-        id="rss-atom", label="RSS / Atom", available=False,
+        summary="Entries from RSS and Atom feeds you name",
+        id="rss-atom", label="RSS / Atom feeds", available=True,
         binding="endpoint",
-        scope_fields=[{"name": "feeds", "type": "list", "label": "Feeds"},
-                      {"name": "since", "type": "date", "label": "From"}],
-        preview="bounded", modes=("one-time", "connected"),
-        live="permalink", browse="chronology", key="entry id",
-        connect="feed addresses"),
+        scope_fields=[
+            {"name": "feeds", "type": "list", "label": "Feeds", "default": [],
+             "option": True,
+             "help": "https feed addresses, one per line; at most 20. RSS "
+                     "2.0, RSS 1.0 and Atom are all read"},
+            {"name": "since", "type": "date", "label": "From", "default": "",
+             "option": True,
+             "help": "entries published before this date are counted and "
+                     "not acquired; empty takes everything each feed holds"}],
+        preview="bounded", modes=("one-time", "manual-refresh"),
+        live="permalink", browse="chronology",
+        key="a feed slug and the digest of the entry's own id",
+        connect="type feed addresses. Each feed is fetched once with a plain "
+                "GET and no credential; an entry is keyed by the feed's own "
+                "guid or id, or by its link and date where the feed gives "
+                "none -- and which was used is recorded",
+        normalise=_opaque_key, labelled=_native_label),
+    Descriptor(
+        summary="What the web says about questions you ask, as entries",
+        id="web-search", label="Web search", available=True,
+        binding="endpoint",
+        scope_fields=[
+            {"name": "queries", "type": "list", "label": "Searches",
+             "default": [], "option": True,
+             "help": "plain search queries, one per line; at most 10"},
+            {"name": "provider", "type": "text", "label": "Provider",
+             "default": "google-news", "option": True,
+             "choices": _providers(),
+             "help": "which search a query is put to. Each provider carries "
+                     "its own terms-of-use note, which is recorded with "
+                     "every result acquired through it"}],
+        preview="bounded", modes=("one-time", "manual-refresh"),
+        live="permalink", browse="chronology",
+        key="a query slug and the digest of the result's own id",
+        connect="type plain questions. Each is put to the named provider's "
+                "feed address and its results acquire exactly as feed "
+                "entries do -- one plain GET, no credential, no account",
+        normalise=_opaque_key, labelled=_native_label),
 ]}
 
 
@@ -295,6 +364,18 @@ def _module(connector: str):
     if connector == "sqlite":
         from mentis.sources import sqlite
         return sqlite
+    # THE THREE WEB KINDS. `rss-atom` and `web-search` are two connector ids
+    # over ONE implementation (a search result IS a feed entry), so the one
+    # module answers for both: see `mentis.sources.feeds`.
+    if connector == "rss-atom":
+        from mentis.sources import feeds
+        return feeds.RSS
+    if connector == "web-search":
+        from mentis.sources import feeds
+        return feeds.SEARCH
+    if connector == "web":
+        from mentis.sources import webpages
+        return webpages
     raise Refused(f"{connector!r} has no implementation")  # pragma: no cover
 
 
