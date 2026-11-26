@@ -32,11 +32,15 @@ export const isPlaceKey = (v: unknown): v is MagnetPlaceKey => typeof v === 'str
  *  tab is removed from the state the other parts' views are keyed by. */
 export const MAGNET_PRIMARY_TABS = ['Summary', 'Perspectives', 'Conversation'] as const
 export type MagnetPrimaryTab = typeof MAGNET_PRIMARY_TABS[number]
-export const MAGNET_COLLECTION_TABS = ['All', 'Posts', 'Files'] as const
+export const MAGNET_COLLECTION_TABS = ['All', 'Posts', 'Files', 'Images'] as const
 export type MagnetCollectionTab = typeof MAGNET_COLLECTION_TABS[number]
-/** The collection's type filters, in order. `All` is the unified collection. */
+/** The collection's type filters, in order. `All` is the unified collection.
+ *  `Images` is the fourth filter the approved mockup (`04-browse.png`) shows
+ *  (plan Part 4, closing the seam recorded as `opr-937e911eadcd`): images are
+ *  already in the collection and listed under `Files` and `All`, and are now
+ *  reachable on their own as well. */
 export const MAGNET_COLLECTION_FILTERS: readonly { tab: MagnetCollectionTab; label: string }[] = [
-  { tab: 'All', label: 'Everything' }, { tab: 'Posts', label: 'Posts' }, { tab: 'Files', label: 'Files' },
+  { tab: 'All', label: 'Everything' }, { tab: 'Posts', label: 'Posts' }, { tab: 'Files', label: 'Files' }, { tab: 'Images', label: 'Images' },
 ]
 export const isCollectionTab = (v: unknown): v is MagnetCollectionTab =>
   typeof v === 'string' && (MAGNET_COLLECTION_TABS as readonly string[]).includes(v)

@@ -5,7 +5,7 @@ export interface SavedMagnet { id: `mag-${string}`; name: string; config?: Magne
 
 /** The approved hybrid order. Summary is first and the default; `All` is the
  *  real key the owner's design labels "All" (v1 called it `Overview`). */
-export const MAGNET_TABS = ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation'] as const
+export const MAGNET_TABS = ['Summary', 'All', 'Posts', 'Files', 'Images', 'Perspectives', 'Conversation'] as const
 export type MagnetTab = typeof MAGNET_TABS[number]
 /** An overlay is a place of its own: it keeps its own reading position. */
 export type MagnetOverlay = null | 'search' | 'settings'

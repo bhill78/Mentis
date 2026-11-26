@@ -53,9 +53,16 @@
 
 .q2 .q2-magnet-partial { margin: 0 0 10px; }
 
-/* One item: a title, its captured excerpt, one attribution line, ruled below
-   (`mgd-item`). The row is a button because inspecting it opens in place, so
-   it is stripped back to text and the list's own rule is the only edge. */
+/* ONE ROW, ONE LINE BY DEFAULT (plan Part 4: compact, grouped, content-shaped).
+   The title and the byline (what it is, when) sit on one line, truncated
+   rather than wrapped, so a reader scans title-and-date down the column
+   instead of reading a 115-140 px block per row. The captured excerpt and the
+   row's own address -- `.q2-magnet-row-more` -- are not part of that line:
+   they are revealed on hover or keyboard focus of the row (the "explicit
+   expand" a reader without a pointer still reaches by opening the row, which
+   shows the whole inspection beneath it). The row is a button because
+   inspecting it opens in place, so it is stripped back to text and the
+   list's own rule is the only edge. */
 .q2 .q2-magnet-collected-items { margin: 0; }
 .q2 .q2-magnet-collected-items li + li { margin-top: 0; }
 .q2 .q2-magnet-collected .q2-magnet-evidence-row { display: block; padding: 0; border-radius: 0; background: none; }
@@ -64,8 +71,35 @@
 .q2 .q2-magnet-collected .q2-magnet-evidence-row:hover b,
 .q2 .q2-magnet-collected .q2-magnet-evidence-row:focus-visible b { text-decoration: underline; }
 .q2 .q2-magnet-collected .q2-magnet-evidence-row[aria-expanded='true'] { background: none; }
-.q2 .q2-magnet-collected .q2-magnet-row-text { display: block; }
-.q2 .q2-magnet-collected .q2-magnet-row-text > small { display: block; margin-top: 2px; }
+.q2 .q2-magnet-collected .q2-magnet-row-text { display: block; min-width: 0; }
+.q2 .q2-magnet-collected .q2-magnet-row-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.q2 .q2-magnet-collected .q2-magnet-row-line b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2 .q2-magnet-collected .q2-magnet-row-line small { flex: none; white-space: nowrap; }
+.q2 .q2-magnet-collected .q2-magnet-row-more { display: none; margin: 3px 0 0; }
+.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-row-link { display: inline-block; margin-top: 3px; }
+.q2 .q2-magnet-collected-items .mgd-item:hover .q2-magnet-row-more,
+.q2 .q2-magnet-collected-items .mgd-item:focus-within .q2-magnet-row-more { display: block; }
+
+/* THE ROW ITSELF, COMPACTED. `mgd-item`'s own rule and vertical rhythm is
+   kept -- one line per row is still a ruled row, not a borderless list --
+   only its height is: 20 rows of the astronomy Magnet's 72 must fit in one
+   viewport where 4-6 did. */
+.q2 .q2-magnet-collected-items .mgd-item { padding: 5px 2px; }
+.q2 .q2-magnet-collected-items .mgd-item b { font-size: 14px; }
+
+/* GROUPED BY DAY, AND BY SOURCE WITHIN EACH DAY, EACH A COUNTED HEADER (plan
+   Part 4). A header is read once for everything under it, so it carries no
+   row's own rule; only the rows do. */
+.q2 .q2-magnet-day-group-rows, .q2 .q2-magnet-source-group-rows { list-style: none; margin: 0; padding: 0; }
+.q2 .q2-magnet-day-group + .q2-magnet-day-group { margin-top: 12px; }
+.q2 .q2-magnet-source-group { margin: 0 0 0 4px; }
+.q2 .q2-magnet-group-head {
+  display: block; margin: 0; padding: 5px 2px 3px;
+  font: var(--type-meta); text-transform: uppercase; letter-spacing: .04em;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+}
+.q2 .q2-magnet-day-head { font-weight: 700; }
+.q2 .q2-magnet-day-group:first-child .q2-magnet-day-head { padding-top: 0; }
 
 /* The one closing line, under the last rule. */
 .q2 .q2-magnet-collected-line { margin: 14px 0 0; }

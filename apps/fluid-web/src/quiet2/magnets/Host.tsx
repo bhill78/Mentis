@@ -159,6 +159,9 @@ export default function MagnetHost(p: MagnetHostProps) {
             All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
             Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
             Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
+            // The fourth filter the approved mockup shows (plan Part 4):
+            // the same list, the same gate, filtered to `kind === 'image'`.
+            Images: <EvidenceViews resource={r} lens="Images" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} canWrite={mayArrange} />,
             Perspectives: <Perspectives resource={r} canWrite={mayWrite} onEvidence={evidence} />,
             // No external navigation is handed to the Conversation view (owner
             // §3): `toOwn` is Settings' one explicit contextual action, below,

@@ -44,11 +44,16 @@ const keyFor = (id: string) => `mentis.magnet.working.v1:${brainKey}:brain-h1@in
  *  exercises. */
 test('Summary, Perspectives and Conversation are primary; the collection is one secondary place with type filters', () => {
   store()
-  assert.deepEqual([...MAGNET_TABS], ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation'],
-    'the place keys, and therefore the persisted shape and the view slots, are unchanged')
+  // Part 4 adds the fourth filter the approved mockup always showed
+  // (`04-browse.png`: All / Posts / Files / Images), closing the seam
+  // recorded as `opr-937e911eadcd`. The place keys gain one more member; a
+  // place key already absent from a reader's persisted shape still reads
+  // back as `emptyPlace()` (`places.ts`), so this is backward-readable.
+  assert.deepEqual([...MAGNET_TABS], ['Summary', 'All', 'Posts', 'Files', 'Images', 'Perspectives', 'Conversation'],
+    'the place keys, and therefore the persisted shape and the view slots, now carry the fourth filter')
   assert.deepEqual([...MAGNET_PRIMARY_TABS], ['Summary', 'Perspectives', 'Conversation'])
-  assert.deepEqual([...MAGNET_COLLECTION_TABS], ['All', 'Posts', 'Files'])
-  assert.deepEqual(MAGNET_COLLECTION_FILTERS.map((f) => f.label), ['Everything', 'Posts', 'Files'])
+  assert.deepEqual([...MAGNET_COLLECTION_TABS], ['All', 'Posts', 'Files', 'Images'])
+  assert.deepEqual(MAGNET_COLLECTION_FILTERS.map((f) => f.label), ['Everything', 'Posts', 'Files', 'Images'])
   const r = resource('mag-hybridtabs')
   assert.equal(r.snapshot().tab, 'Summary')
   assert.equal(r.snapshot().open, false)

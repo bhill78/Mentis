@@ -109,19 +109,19 @@ test('Collected items is the approved surface, in the approved order and nothing
     'mgd-h2', 'Collected items', '<span class="mgd-subtle"> 1</span>',
     'Sources · 2 →',
     'Search collected items',
-    'mgd-pill', 'All', 'Posts', 'Files',
+    'mgd-pill', 'Everything', 'Posts', 'Files', 'Images',
     'q2-magnet-evidence-row',
     'Collected ',
   ])
   // The type filters are the ones the places model already had; the selected
   // one carries the design's own active state.
   assert.ok(html.includes('class="mgd-pill mgd-active"'), 'the showing filter is the active pill')
-  // THREE, NOT THE MOCKUP'S FOUR. `04-browse.png` shows All / Posts / Files /
-  // Images; the lens state this draws has three filters
-  // (`places.ts` `MAGNET_COLLECTION_TABS`, `contract.ts` `MAGNET_TABS`), and
-  // those files are not this part's to change. One pill per filter that exists
-  // -- never a fourth pill with nothing behind it. Reported as a seam.
-  assert.equal((html.match(/mgd-pill/g) ?? []).length, 3, 'one pill per filter that exists, and no second filter row')
+  // FOUR, AS THE MOCKUP SHOWS. `04-browse.png` shows All / Posts / Files /
+  // Images; Part 4 gave the lens state and the place keys behind it the
+  // fourth filter (`places.ts` `MAGNET_COLLECTION_TABS`, `contract.ts`
+  // `MAGNET_TABS`), closing the seam this file used to report
+  // (`opr-937e911eadcd`). One pill per filter, and no second filter row.
+  assert.equal((html.match(/mgd-pill/g) ?? []).length, 4, 'one pill per filter that exists, and no second filter row')
   // Said once: the counterpart link is on the heading row, not floating above
   // it as well.
   assert.equal((html.match(/Sources ·/g) ?? []).length, 1)

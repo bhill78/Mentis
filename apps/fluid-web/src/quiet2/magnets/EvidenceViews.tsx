@@ -53,6 +53,56 @@ export function collectedDay(at?: number | null): string | null {
   return d.toDateString() === new Date().toDateString() ? 'today' : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+/** THE DAY A ROW WAS CAPTURED, as a group header (plan Part 4): "Today",
+ *  "Yesterday" or a short date -- the whole calendar day, never the clock. A
+ *  row with no recorded `at` groups under its own named day rather than being
+ *  dropped or silently merged with a dated one. */
+function rowDay(at?: number | null): string {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return 'Undated'
+  const d = new Date(at * 1000), now = new Date()
+  if (d.toDateString() === now.toDateString()) return 'Today'
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+/** THE SOURCE A ROW IS GROUPED UNDER (plan Part 4): the site for a held web
+ *  row, exactly what its byline already names, or what kind of item it is
+ *  otherwise -- never a recorded id. This is the byline's own identity
+ *  decision, read back out for grouping rather than duplicated. */
+function rowSourceGroup(r: RouteResult): string {
+  if (isHeldSource(r)) return linkHost(rowLink(r)) || 'Held file'
+  if (r.kind === 'post') return 'Collected post'
+  return r.post ? 'From the collected post' : 'Collected file'
+}
+
+interface SourceGroup { source: string; rows: RouteResult[] }
+interface DayGroup { day: string; rows: RouteResult[]; sources: SourceGroup[] }
+
+/** THE LIST, GROUPED BY DAY AND BY SOURCE WITHIN IT (plan Part 4: "Group rows
+ *  by source and by day, with counted group headers"). Rows keep the order
+ *  the batch already gives them -- grouping buckets that order, it never
+ *  resorts it -- so a day or a source is kept together wherever it first
+ *  appears. */
+function groupedItems(items: RouteResult[]): DayGroup[] {
+  const days = new Map<string, RouteResult[]>()
+  for (const r of items) {
+    const key = rowDay(r.at)
+    const bucket = days.get(key)
+    if (bucket) bucket.push(r); else days.set(key, [r])
+  }
+  return [...days.entries()].map(([day, rows]) => {
+    const sources = new Map<string, RouteResult[]>()
+    for (const r of rows) {
+      const key = rowSourceGroup(r)
+      const bucket = sources.get(key)
+      if (bucket) bucket.push(r); else sources.set(key, [r])
+    }
+    return { day, rows, sources: [...sources.entries()].map(([source, rows]) => ({ source, rows })) }
+  })
+}
+
 /* -- WHO, BY NAME ------------------------------------------------------------
    The collection read states a post's author as the participant's recorded
    entry id (`route.ts` `author`), which is exactly the raw identifier the
@@ -116,9 +166,23 @@ export function rowByline(r: RouteResult, named?: Map<string, string>): string {
  *  a733ec1ec5e51a4b" -- and the article's own headline was sitting in the row's
  *  captured bytes. `rowHeadline` reads it from there; nothing else changes, so
  *  a README, a Git file and a collected post keep the titles they had. */
+/** A RAW STORAGE OBJECT KEY, TOLD FROM A REAL FILENAME. A configured file's
+ *  own path -- "README.md", "nested/notes.txt" -- is a title a reader
+ *  recognises and is kept exactly as recorded. What is not is a held item
+ *  whose path IS the storage key it was written under: a run of hex with no
+ *  word in it, digest-named rather than reader-named. Only that falls
+ *  through to what the item is instead of showing it. */
+const RAW_STORAGE_KEY = /^[a-f0-9]{10,}$/i
+function pathTitle(path: string): string | null {
+  if (!path) return null
+  const base = path.split('/').pop() ?? path
+  const stem = base.replace(/\.[a-z0-9]{1,8}$/i, '')
+  return RAW_STORAGE_KEY.test(stem) ? null : path
+}
+
 export function resultTitle(r: RouteResult): string {
   const v = object(r.value)
-  return rowHeadline(r) || words(v.title) || words(v.name) || words(v.path) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
+  return rowHeadline(r) || words(v.title) || words(v.name) || pathTitle(words(v.path)) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
 }
 /** The row's own words. For a web row that is the material under the recorded
  *  header, because the headline is now the title and the address is now a link:
@@ -209,7 +273,7 @@ const NO_WRITE = () => false
 
 export interface EvidenceViewsProps {
   resource: MagnetResource
-  lens: 'All' | 'Posts' | 'Files'
+  lens: 'All' | 'Posts' | 'Files' | 'Images'
   onPost(result: RouteResult): void
   /** The host's workspace file opening. Reachable in the seam, not rendered as a
    *  control: the approved card inspects a retained file in place. */
@@ -228,33 +292,56 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
   const here = place(s)
   const posts = s.results.filter((r) => r.kind === 'post')
   const files = retainedFiles(s.results)
+  const images = files.filter((r) => r.kind === 'image')
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
   const read = s.activation !== undefined
-  const items = lens === 'Posts' ? posts : lens === 'Files' ? files : [...posts, ...files]
-  /** One row, with its inspection inline directly beneath it. Clean (approved
-   *  mockup round 3, 04-browse.png): a title a reader recognises, its captured
-   *  excerpt, and who or when it was captured, never a raw id, a recorded
-   *  digest or a type glyph. */
-  const rows = () => <ul className="q2-magnet-items q2-magnet-collected-items">
-    {items.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`} className="mgd-item">
-      <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
-        onClick={() => inspect(resource, r.id, `item-${r.id}`)}>
-        <span className="q2-magnet-row-text">
+  const items = lens === 'Posts' ? posts : lens === 'Files' ? files : lens === 'Images' ? images : [...posts, ...files]
+  /** One row, compact by default (plan Part 4, approved mockup round 3,
+   *  04-browse.png): a title a reader recognises, what it is and when, on one
+   *  line -- never a raw id, a recorded digest or a type glyph. The captured
+   *  excerpt and the row's own address, which together used to stand this
+   *  block at 115-140 px, are not shown by default; they are reached by
+   *  hovering or focusing the row, so 72 rows is a column a reader can scan
+   *  rather than a column that needs scrolling to show six of them. */
+  const row = (r: RouteResult) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`} className="mgd-item">
+    <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
+      onClick={() => inspect(resource, r.id, `item-${r.id}`)}>
+      <span className="q2-magnet-row-text">
+        <span className="q2-magnet-row-line">
           <b>{resultTitle(r)}</b>
-          {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
           <small className="mgd-subtle">{rowByline(r, named)}</small>
         </span>
-      </button>
-      {/* THE ADDRESS THE ROW RECORDED, FOLLOWABLE. Beside the row, not inside
-          it: the row is the press that opens the captured copy in the card, and
-          a link nested in a button is neither valid nor pressable. The owner
-          was reading about launches with no way through to the launch report;
-          this is that way, and it is the address Part W recorded, never one
-          built from a key. */}
+      </span>
+    </button>
+    {/* THE CAPTURED EXCERPT AND THE ROW'S OWN ADDRESS, ON REQUEST. Hidden by
+        default so the row stays one line; `collection.css` reveals this block
+        on hover or keyboard focus of the row, which is the "explicit expand"
+        a touch or click still gets by opening the inspection itself. Beside
+        the row's button, not inside it: a link nested in a button is neither
+        valid nor pressable, and the owner was reading about launches with no
+        way through to the launch report -- this is that way, built from the
+        address Part W recorded, never from a key. */}
+    <div className="q2-magnet-row-more">
+      {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
       {!!rowLink(r) && <SourceLink url={rowLink(r)!} />}
-      {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
-      {r.kind !== 'post' && (r.post || words(object(r.value).post)) && here.inspected !== r.id &&
-        <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>View the collected post</button>}
+    </div>
+    {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
+    {r.kind !== 'post' && (r.post || words(object(r.value).post)) && here.inspected !== r.id &&
+      <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>View the collected post</button>}
+  </li>
+  /** GROUPED BY DAY, AND BY SOURCE WITHIN EACH DAY (plan Part 4), each a
+   *  counted header: a reader scanning 72 rows finds "today" or a site
+   *  before reading a single row under it, rather than reading every row to
+   *  find that out. */
+  const rows = () => <ul className="q2-magnet-items q2-magnet-collected-items">
+    {groupedItems(items).map((dg) => <li key={`day:${dg.day}`} className="q2-magnet-day-group">
+      <div className="q2-magnet-group-head q2-magnet-day-head">{dg.day}<span className="mgd-subtle"> {dg.rows.length}</span></div>
+      <ul className="q2-magnet-day-group-rows">
+        {dg.sources.map((sg) => <li key={`src:${dg.day}:${sg.source}`} className="q2-magnet-source-group">
+          <div className="q2-magnet-group-head q2-magnet-source-head">{sg.source}<span className="mgd-subtle"> {sg.rows.length}</span></div>
+          <ul className="q2-magnet-source-group-rows">{sg.rows.map(row)}</ul>
+        </li>)}
+      </ul>
     </li>)}
   </ul>
   const empty = (what: string) => <p className="mgd-p mgd-muted">{s.loading ? 'Reading…'
@@ -305,23 +392,23 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
         onClick={() => { goTab(resource, 'All'); writePlace(resource, 'All', { sources: true }) }}>Sources · {config.sources.length} →</button>}
     </div>
     <SearchToolbar resource={resource} placeholder="Search collected items" />
-    {/* SEAM: `04-browse.png` shows four pills -- All / Posts / Files / Images.
-        Three exist: the lens state has `MAGNET_COLLECTION_TABS`, and the place
-        keys behind them are `contract.ts`'s `MAGNET_TABS`. Both are shared,
-        carrier-owned files this part does not change, so the fourth is not
-        drawn here rather than drawn with nothing behind it. Images are in the
-        collection and are listed under `Files` and `All`, as they were. */}
+    {/* THE FOUR PILLS `04-browse.png` SHOWS: All / Posts / Files / Images
+        (plan Part 4, closing the seam recorded as `opr-937e911eadcd`). The
+        lens state and the place keys behind it now carry the fourth filter
+        (`places.ts` `MAGNET_COLLECTION_TABS`, `contract.ts` `MAGNET_TABS`),
+        and the pill reads the filter's own `label` rather than its `tab`
+        key, so "All" renders as the design's "Everything". */}
     <div className="mgd-row q2-magnet-type-pills" role="group" aria-label="Show in the collection">
       {/* Which filter is showing is this view's own identity -- Host mounts the
           one instance that matches the tab -- so the pill follows `lens` rather
           than re-deriving it from the snapshot. The filters themselves, and
           what pressing one does, are `places.ts`'s and unchanged. */}
       {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className={`mgd-pill${lens === f.tab ? ' mgd-active' : ''}`}
-        aria-pressed={lens === f.tab} onClick={() => goTab(resource, f.tab)}>{f.tab}</button>)}
+        aria-pressed={lens === f.tab} onClick={() => goTab(resource, f.tab)}>{f.label}</button>)}
     </div>
     {partial && read && !!s.activation && <p className="mgd-subtle q2-magnet-partial">This collection is partial.</p>}
     {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
-    {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
+    {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : lens === 'Images' ? 'images' : 'items')}
     {/* The one closing line the design gives this surface: when it was
         collected, and the way to collect again. The same `resource.collect()`
         the header used to offer (plan seam 3), under the same capability the
