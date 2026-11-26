@@ -110,19 +110,6 @@ def _met(cv, exp):
     return [a for a in cv._own_acts(exp) if a["act"] == "expectation-met"]
 
 
-def _met_soon(cv, exp, within=10.0):
-    """`_met` once the answer's deferred reconciliation has run: the answer
-    is acknowledged when it is durable, and the claim it held is reconciled
-    just after (2026-11-26, `posting.post(defer=)`)."""
-    end = time.time() + within
-    while True:
-        with cv.reading():
-            got = _met(cv, exp)
-        if got or time.time() > end:
-            return got
-        time.sleep(0.05)
-
-
 def _status(cv, exp):
     from mentis.operational.work import trunk_status
     return trunk_status(cv, exp)["state"]
@@ -510,7 +497,7 @@ def test_answering_the_decision_reconciles_the_claim_it_held(world):
     out = say(world, cid, "left", replies_to=q, action="record-only")
     assert "error" not in out, out
     assert cv.expectation_state(decision)["response_present"]
-    met = _met_soon(cv, exp)
+    met = _met(cv, exp)
     assert len(met) == 1 and met[0]["detail"]["reconciled_from"] == claim
     assert C.pending_claim(cv, exp) is None
     # idempotent: clearing again writes nothing

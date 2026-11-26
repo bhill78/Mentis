@@ -52,21 +52,6 @@ from mentis.conversation import (content_of, rendering_of, standing_state,
                                  text as text_part)
 from mentis.web.dispatch import dispatch_soon
 from mentis.spine.store import beside_writer_refused, reading_beside_writer
-import weakref as _weakref
-
-#: the threads finishing what an acknowledged answer deferred (the Turns
-#: route): reconciling the claim it held, then starting what it resumes
-_AFTER_ANSWERS: "_weakref.WeakSet[threading.Thread]" = _weakref.WeakSet()
-
-
-def after_answers_settled(timeout: float = 30.0) -> bool:
-    """Wait until every answer's deferred work, started so far, has run:
-    for a caller that reads what that work wrote (a test, a CLI). True if all
-    of it ended within `timeout`."""
-    end = time.time() + timeout
-    for t in list(_AFTER_ANSWERS):
-        t.join(max(0.0, end - time.time()))
-    return not any(t.is_alive() for t in list(_AFTER_ANSWERS))
 # WRITING A POST IS A DOMAIN OPERATION (`mentis/conversation/posting.py`),
 # shared with Fluid's command door. The names this module and its callers
 # have always used for its vocabulary and helpers are kept as they were.
@@ -4123,42 +4108,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             thread and records its own failures, so what is owed is never
             left without either a run or a recorded reason there is none.
             """
-            # THE ANSWER IS ACKNOWLEDGED ONCE IT IS DURABLE (2026-11-26):
-            # what `post` defers -- reconciling a claim an answered
-            # question held -- runs after this returns, on a thread of its
-            # own, never inside the answer's transaction.
-            deferred = []
             out, later = _posting.post(
                 cv, corpus, cid, body, agents=st.agents,
-                written_by=lambda: _observed_writer(st, presented),
-                defer=deferred)
-            if deferred:
-                # IN THE ORDER IT ALWAYS HAD: the claim the answer held is
-                # reconciled, then the work it resumes starts -- both after
-                # the answer is acknowledged. Each dispatch is handed off
-                # (reserved) NOW, before acknowledging, and waits for the
-                # reconciliation only to begin (review of 8becfbe0, 02a14e6f).
-                gate = threading.Event()
-
-                def after(deferred=deferred, gate=gate):
-                    try:
-                        for f in deferred:
-                            f()
-                    finally:
-                        gate.set()
-                from mentis.web import dispatch as _dispatching
-                for kw in later:
-                    if _enqueue_dispatch is not None:
-                        _enqueue_dispatch(st, **kw)
-                    elif dispatch_soon is _dispatching.dispatch_soon:
-                        dispatch_soon(st, after=gate, **kw)
-                    else:                       # a stand-in takes the hand-off
-                        dispatch_soon(st, **kw)
-                t = threading.Thread(target=after, name="after-answer",
-                                     daemon=True)
-                _AFTER_ANSWERS.add(t)
-                t.start()
-                return out
+                written_by=lambda: _observed_writer(st, presented))
             for kw in later:
                 (_enqueue_dispatch or dispatch_soon)(st, **kw)
             return out
