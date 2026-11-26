@@ -178,12 +178,6 @@ export default function Management(p: {
             and still exact; they are one press away instead of the first screen. */}
         {view === 'detail' && chosen && <div className="q2-magnet-detail">
           {chosen.reason && <p className="q2-magnet-alert" role="alert">{chosen.reason}</p>}
-          <section className="q2-magnet-detail-sources">
-            <h3>Sources</h3>
-            {chosen.config?.sources?.length
-              ? <ul className="q2-magnet-source-rows">{chosen.config.sources.map((item, i) => <li key={i}>{sourceItemWords(item)}</li>)}</ul>
-              : <p className="q2-magnet-help">{chosen.config ? 'No sources yet. This Magnet is ready to converse; choose what it collects below.' : 'Unavailable here.'}</p>}
-          </section>
           {chosen.config && p.brainKey && <details className="q2-magnet-detail-config"><summary>Change sources and what to collect</summary><CollectionConfiguration key={chosen.id} magnet={chosen.id} config={chosen.config} brainKey={p.brainKey} canWrite={p.canCreate} onSaved={(config) => setRows((old) => old?.map((r) => r.id === chosen.id ? { ...r, config, reason: undefined } : r) ?? null)} /></details>}
           <details className="q2-magnet-detail-about"><summary>About this Magnet</summary>
             <dl>
@@ -227,10 +221,4 @@ function sourceSummary(config: SavedMagnet['config']): string {
   if (!config) return 'Unavailable here'
   if (!sources.length) return 'No sources yet · ready to converse'
   return `${sources.length} configured ${sources.length === 1 ? 'source' : 'sources'} · ${sources.map((source) => source.kind).join(', ')}`
-}
-
-function sourceItemWords(source: MagnetConfig['sources'][number]): string {
-  if (source.kind === 'conversation') return `Conversation · ${source.conversation}`
-  const ref = 'ref' in source && typeof source.ref === 'string' ? ` · ${source.ref}` : ''
-  return `${source.kind}${ref}`
 }
