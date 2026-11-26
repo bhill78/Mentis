@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::{Semaphore, oneshot, watch};
 use tokio::task::AbortHandle;
 
 use super::answers::PythonGone;
@@ -37,6 +37,10 @@ pub const MOST_FORWARDED_READS: usize = 4;
 pub const WAIT_FOR_A_PLACE: Duration = Duration::from_secs(3);
 /// What the busy answer's `Retry-After` says, in seconds.
 pub const RETRY_AFTER_S: u64 = 2;
+/// The longest a shared read waits for Python's whole answer once it has a place. Past it, it
+/// ends as Python gone, and its place is free: a Python that never answers can't hold the places,
+/// whether or not anyone is still watching for its waiters to leave.
+pub const SHARED_READ_GIVE_UP: Duration = Duration::from_secs(120);
 /// The largest answer shared. A larger one is passed on to each of its requests on its own.
 pub const MOST_SHARED_ANSWER: usize = 32 * 1024 * 1024;
 const MOST_HEAD: usize = 1 << 20;
@@ -64,9 +68,21 @@ pub enum Landed {
     Busy,
     /// Python couldn't be reached, or stopped before its answer was whole.
     Gone(PythonGone),
-    /// An answer this can't share: each request asks for its own.
+    /// An answer this can't share. The request that sent it is given it as it comes
+    /// ([`Got::Yours`]); every other one asks for its own.
     NotShared,
 }
+
+/// What a read comes to.
+#[derive(Debug)]
+pub enum Got {
+    Shared(Landed),
+    /// The answer to this request's own flight, which couldn't be shared: Python's connection
+    /// and what has come of the answer so far, for this request to relay the rest of.
+    Yours(TcpStream, Vec<u8>),
+}
+
+type Handoff = (TcpStream, Vec<u8>);
 
 /// What makes two reads the same, or `None` for a read that is never shared.
 pub fn key(head: &Head, target: &str, peer: &str) -> Option<String> {
@@ -125,6 +141,7 @@ struct Inner {
 /// For the front's whole life.
 pub struct Flights {
     upstream: SocketAddr,
+    give_up: Duration,
     places: Arc<Semaphore>,
     inner: Mutex<Inner>,
 }
@@ -176,12 +193,13 @@ impl Inner {
 
 impl Flights {
     pub fn new(upstream: SocketAddr) -> Self {
-        Self::with_places(upstream, MOST_FORWARDED_READS)
+        Self::with_limits(upstream, MOST_FORWARDED_READS, SHARED_READ_GIVE_UP)
     }
 
-    pub fn with_places(upstream: SocketAddr, places: usize) -> Self {
+    pub fn with_limits(upstream: SocketAddr, places: usize, give_up: Duration) -> Self {
         Self {
             upstream,
+            give_up,
             places: Arc::new(Semaphore::new(places)),
             inner: Mutex::new(Inner::default()),
         }
@@ -212,8 +230,8 @@ impl Flights {
         key: String,
         request: Vec<u8>,
         client: &TcpStream,
-    ) -> Option<Landed> {
-        let (mut landed, waiting) = {
+    ) -> Option<Got> {
+        let (mut landed, waiting, mut handed) = {
             let mut inner = self.locked();
             let can_join = inner.others_in_hand == 0;
             let seen = inner.requests_seen;
@@ -226,15 +244,16 @@ impl Flights {
                 _ => None,
             };
             match joined {
-                Some((landed, id)) => (landed, Waiting { flights: self, id }),
+                Some((landed, id)) => (landed, Waiting { flights: self, id }, None),
                 None => {
                     inner.next_id += 1;
                     let id = inner.next_id;
                     let (send, landed) = watch::channel(None);
+                    let (hand, handed) = oneshot::channel::<Handoff>();
                     let flights = self.clone();
                     // Held until it is in the table, so it can't land before it is there.
                     let task = tokio::spawn(async move {
-                        let came = fly(&flights.places, flights.upstream, &request).await;
+                        let came = fly(&flights, &request, hand).await;
                         let mut inner = flights.locked();
                         let _ = send.send(Some(came));
                         if inner.flying.contains_key(&id) {
@@ -253,7 +272,7 @@ impl Flights {
                             task: task.abort_handle(),
                         },
                     );
-                    (landed, Waiting { flights: self, id })
+                    (landed, Waiting { flights: self, id }, Some(handed))
                 }
             }
         };
@@ -263,7 +282,13 @@ impl Flights {
             () = client_left(client) => None,
         };
         drop(waiting);
-        came
+        match (came?, handed.as_mut()) {
+            (Landed::NotShared, Some(handed)) => match handed.try_recv() {
+                Ok((python, got)) => Some(Got::Yours(python, got)),
+                Err(_) => Some(Got::Shared(Landed::NotShared)),
+            },
+            (came, _) => Some(Got::Shared(came)),
+        }
     }
 }
 
@@ -277,17 +302,36 @@ pub async fn client_left(client: &TcpStream) {
     }
 }
 
-/// One request to Python, once a place is free, read whole.
-async fn fly(places: &Semaphore, upstream: SocketAddr, request: &[u8]) -> Landed {
-    let Ok(Ok(_place)) = tokio::time::timeout(WAIT_FOR_A_PLACE, places.acquire()).await else {
+/// One request to Python, once a place is free, read whole within the flights' give-up. An answer
+/// that can't be shared is handed, as far as it has come, to the request that sent it.
+async fn fly(flights: &Flights, request: &[u8], hand: oneshot::Sender<Handoff>) -> Landed {
+    let Ok(Ok(_place)) = tokio::time::timeout(WAIT_FOR_A_PLACE, flights.places.acquire()).await
+    else {
         return Landed::Busy;
     };
+    let asked = ask(flights.upstream, request);
+    match tokio::time::timeout(flights.give_up, asked).await {
+        Err(_) => Landed::Gone(PythonGone::Reached),
+        Ok(Asked::Landed(landed)) => landed,
+        Ok(Asked::Unshareable(python, got)) => {
+            let _ = hand.send((python, got));
+            Landed::NotShared
+        }
+    }
+}
+
+enum Asked {
+    Landed(Landed),
+    Unshareable(TcpStream, Vec<u8>),
+}
+
+async fn ask(upstream: SocketAddr, request: &[u8]) -> Asked {
     let Ok(mut python) = TcpStream::connect(upstream).await else {
-        return Landed::Gone(PythonGone::Unreached);
+        return Asked::Landed(Landed::Gone(PythonGone::Unreached));
     };
     let _ = python.set_nodelay(true);
     if python.write_all(request).await.is_err() {
-        return Landed::Gone(PythonGone::Reached);
+        return Asked::Landed(Landed::Gone(PythonGone::Reached));
     }
     let mut got = Vec::with_capacity(16 * 1024);
     let mut chunk = vec![0; 64 * 1024];
@@ -296,43 +340,41 @@ async fn fly(places: &Semaphore, upstream: SocketAddr, request: &[u8]) -> Landed
             break end;
         }
         if got.len() > MOST_HEAD {
-            return Landed::NotShared;
+            return Asked::Unshareable(python, got);
         }
         match python.read(&mut chunk).await {
-            Ok(0) | Err(_) => return Landed::Gone(PythonGone::Reached),
+            Ok(0) | Err(_) => return Asked::Landed(Landed::Gone(PythonGone::Reached)),
             Ok(more) => got.extend_from_slice(&chunk[..more]),
         }
     };
     let Some(answer) = read_answer_head(&got[..head_end]) else {
-        return Landed::NotShared;
+        return Asked::Unshareable(python, got);
     };
     let no_body = answer.status == 204 || answer.status == 304;
     let length = match (answer.other_framing, no_body, answer.content_length) {
-        (false, true, _) => 0,
-        (false, false, Some(length)) => length,
-        _ => return Landed::NotShared,
+        (false, true, _) => Some(0),
+        (false, false, Some(length)) => Some(length),
+        _ => None,
     };
-    if (100..200).contains(&answer.status) {
-        return Landed::NotShared;
-    }
-    let Ok(length) = usize::try_from(length) else {
-        return Landed::NotShared;
+    let Some(length) = length
+        .filter(|_| !(100..200).contains(&answer.status))
+        .and_then(|length| usize::try_from(length).ok())
+        .filter(|length| *length <= MOST_SHARED_ANSWER)
+    else {
+        return Asked::Unshareable(python, got);
     };
-    if length > MOST_SHARED_ANSWER {
-        return Landed::NotShared;
-    }
     let whole = head_end + length;
     while got.len() < whole {
         match python.read(&mut chunk).await {
-            Ok(0) | Err(_) => return Landed::Gone(PythonGone::Reached),
+            Ok(0) | Err(_) => return Asked::Landed(Landed::Gone(PythonGone::Reached)),
             Ok(more) => got.extend_from_slice(&chunk[..more]),
         }
     }
     got.truncate(whole);
-    Landed::Answer {
+    Asked::Landed(Landed::Answer {
         bytes: Arc::new(got),
         says_close: answer.says_close,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -378,5 +420,55 @@ mod tests {
             key(&head, "/a?x=2", "p"),
             "the query too"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_python_that_never_answers_frees_its_place_at_the_give_up() {
+        // Accepts, reads, and never says a word.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                held.push(stream);
+            }
+        });
+        let flights = Arc::new(Flights::with_limits(
+            upstream,
+            1,
+            Duration::from_millis(300),
+        ));
+        // A client that sent a next request ahead, so nothing watches for it leaving.
+        let at = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (mut there, here) =
+            tokio::join!(TcpStream::connect(at.local_addr().unwrap()), at.accept());
+        let (here, _) = here.unwrap();
+        there
+            .as_mut()
+            .unwrap()
+            .write_all(b"GET /next")
+            .await
+            .unwrap();
+        for read in ["first", "second"] {
+            let began = std::time::Instant::now();
+            let came = flights
+                .read(
+                    format!("k-{read}"),
+                    b"GET / HTTP/1.1\r\n\r\n".to_vec(),
+                    &here,
+                )
+                .await;
+            assert!(
+                matches!(came, Some(Got::Shared(Landed::Gone(PythonGone::Reached)))),
+                "{read}: {came:?}"
+            );
+            // The second had the place the first let go, rather than waiting it out as busy.
+            assert!(
+                began.elapsed() < Duration::from_secs(2),
+                "{read}: {:?}",
+                began.elapsed()
+            );
+        }
+        assert_eq!(flights.in_flight(), 0);
     }
 }

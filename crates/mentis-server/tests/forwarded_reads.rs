@@ -47,6 +47,12 @@ struct Slow {
 }
 
 async fn slow(delay: Duration) -> Slow {
+    slow_answering(delay, true).await
+}
+
+/// As [`slow`], with answers framed by their length or, if not `framed`, by Python closing the
+/// connection, which the front can't share.
+async fn slow_answering(delay: Duration, framed: bool) -> Slow {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let python = Slow {
         address: listener.local_addr().unwrap(),
@@ -103,10 +109,16 @@ async fn slow(delay: Duration) -> Slow {
                     .push((target.clone(), how, Instant::now()));
                 if how == "answered" {
                     let body = format!("{{\"for\": \"{target}\"}}");
-                    let answer = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-                        body.len()
-                    );
+                    let answer = if framed {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                            body.len()
+                        )
+                    } else {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}"
+                        )
+                    };
                     let _ = stream.write_all(answer.as_bytes()).await;
                 }
             });
@@ -310,4 +322,26 @@ async fn futures_join<T: Send + 'static>(
         out.push(task.await.unwrap());
     }
     out
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_that_can_t_be_shared_goes_to_the_request_that_asked_for_it_without_asking_again()
+{
+    let python = slow_answering(Duration::from_millis(500), false).await;
+    let front = front("unshared", python.address, None).await;
+    let alone = exchange(front, read_of("/api/turns/u")).await;
+    assert!(alone.starts_with("HTTP/1.1 200 OK\r\n"), "{alone}");
+    assert!(alone.ends_with(r#"{"for": "/api/turns/u"}"#), "{alone}");
+    assert_eq!(
+        python.asked.load(Ordering::SeqCst),
+        1,
+        "the one that asked isn't sent again"
+    );
+
+    // Three at once: the first has its own answer, and only the two that joined ask for theirs.
+    let asks = (0..3).map(|_| tokio::spawn(exchange(front, read_of("/api/turns/v"))));
+    for answer in futures_join(asks).await {
+        assert!(answer.ends_with(r#"{"for": "/api/turns/v"}"#), "{answer}");
+    }
+    assert_eq!(python.asked.load(Ordering::SeqCst), 1 + 3);
 }

@@ -18,7 +18,7 @@ use super::activate::{self, Ended};
 use super::answers::{self, Written};
 use super::checks;
 use super::door::{self, AbortedHold, Door};
-use super::flights::{self, Landed};
+use super::flights::{self, Got, Landed};
 use super::forward::{self, Body, Forwarded};
 use super::grants::GRANTS_PATH;
 use super::head::{self, Head, HeadEnd, Line, Reads, Refusal, python_reads};
@@ -565,7 +565,15 @@ async fn send_on_shared(
     let request = forward::for_python(head, &peer_ip, &shared.secret);
     match shared.flights.read(key, request, client).await {
         None => (Next::End, "forwarded:client gone"),
-        Some(Landed::Answer { bytes, says_close }) => {
+        Some(Got::Yours(python, got)) => {
+            let next = match forward::relay_handed(client, python, got, client_closes).await {
+                Ok(Forwarded::KeepOpen) => Next::Another,
+                Ok(Forwarded::Close) => Next::End,
+                Err(answer) => give(client, answer).await,
+            };
+            (next, "forwarded")
+        }
+        Some(Got::Shared(Landed::Answer { bytes, says_close })) => {
             let next = if client.write_all(&bytes).await.is_err() || says_close || client_closes {
                 Next::End
             } else {
@@ -573,12 +581,14 @@ async fn send_on_shared(
             };
             (next, "forwarded")
         }
-        Some(Landed::Busy) => (
+        Some(Got::Shared(Landed::Busy)) => (
             give(client, answers::busy(flights::RETRY_AFTER_S)).await,
             "busy",
         ),
-        Some(Landed::Gone(why)) => (give(client, answers::python_gone(why)).await, "forwarded"),
-        Some(Landed::NotShared) => {
+        Some(Got::Shared(Landed::Gone(why))) => {
+            (give(client, answers::python_gone(why)).await, "forwarded")
+        }
+        Some(Got::Shared(Landed::NotShared)) => {
             let next = send_on(
                 client,
                 peer,
