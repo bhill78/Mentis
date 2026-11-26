@@ -77,6 +77,7 @@ import { dropDraft, keptDraft, loadDraft, saveDraft } from './composer/drafts'
 import { askOf, chosenWords, savedOf, seedAddressees } from './composer/permissionDefault'
 import { usePermissionDefault } from './composer/useDefault'
 import { UNNAMED_POST, sendPost, unnamed } from './composer/post'
+import MagnetAuthorization, { authorizeMessage, noOutside, type OutsideChoice } from './composer/MagnetAuthorization'
 import { sendWords, tokenOf, whereOf } from './composer/words'
 import { enforcementNote } from './composer/execmode'
 import { DRAG, POST, dropped } from './workspace/keep'
@@ -114,6 +115,8 @@ export interface Starting {
  *  different `key` -- another selection, another destination -- is another request
  *  and has its own operation key, so a retry can never change what was first asked. */
 export interface WorkspaceAsking {
+  /** Only a managed Magnet adapter offers this one-exchange owner choice. */
+  magnetAuthorization?: { allowed(): boolean }
   /** the draft's place, kept for the tab as any place's */
   where: string
   key: string
@@ -210,6 +213,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const [preview, setPreview] = useState(false)
   const [menu, setMenu] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [outside, setOutside] = useState<OutsideChoice>(noOutside)
   const [err, setErr] = useState<string | null>(null)
   const [me, setMe] = useState<Id | null>(store.me)
   const [trigger, setTrigger] = useState<Trigger | null>(null)
@@ -644,7 +648,10 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         if (!ready.ok) { setErr(ready.why); return }
         const d = ready.draft
         if (unnamed(d, ready.brain)) { setErr(UNNAMED_POST); return }
-        await asking.send(bodyOf(d, me, d.topics, fallback, { references: asking.references }), op.current, ready.brain)
+        const authored = bodyOf(d, me, d.topics, fallback, { references: asking.references })
+        await asking.send(asking.magnetAuthorization
+          ? authorizeMessage(authored, outside, asking.magnetAuthorization.allowed()) : authored, op.current, ready.brain)
+        setOutside(noOutside)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
         if (!asking.drafts) {
           dropDraft(where)
@@ -1072,6 +1079,8 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         </div>
       )}
       {!closed && (
+        <>{asking?.magnetAuthorization && <MagnetAuthorization value={outside} change={setOutside}
+          allowed={asking.magnetAuthorization.allowed()} busy={busy} />}
         <div className="fw-composer-row">
           <div className="fw-tools" role="toolbar" aria-label="tools">
             <button className={floating === 'format' || preview ? 'on' : ''} aria-expanded={floating === 'format'} aria-label="format" title="Formatting and preview"
@@ -1119,7 +1128,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
               </Float>
             )}
           </div>
-        </div>
+        </div></>
       )}
       {((trigger?.sigil === '/' && !activeHelper) || activeHelper) && !closed && (
         <Float at={box.current} width={activeHelper === 'form' ? 500 : 380} label={activeHelper ? `${activeHelper} helper` : 'slash commands'} keepOpenOn={box.current}

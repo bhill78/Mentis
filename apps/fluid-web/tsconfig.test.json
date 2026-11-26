@@ -7,6 +7,7 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
   },
   "include": [
+    "tests/quiet_magnet_exchange_authorization_unit.ts",
     "tests/entry_unit.ts",
     "tests/fluid_surface_contract_unit.ts",
     "tests/fluid_action_registry_unit.ts",
