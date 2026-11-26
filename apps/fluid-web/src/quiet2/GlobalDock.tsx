@@ -85,6 +85,8 @@ let lastTab: ActivityTab = 'needs'
 /* -- shared reads ---------------------------------------------------------- */
 
 const NEEDS_REREAD = 60000
+/** the longest an open Needs You list shows details that only its details read carries */
+const DETAILS_STALE_MS = 5 * 60000
 
 /** Fluid's change loop, as its Shell starts it: once for the page, and it
  *  stays (the store offers no stop; Fluid's own page never stops it either). */
@@ -311,9 +313,12 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
      minute, each change the store's loop names -- is a new object, and keying the details read on
      it re-read every item's details on the server each time, unchanged lists included (3-9 s each
      on DAY-TO-DAY while agents wrote). The items, their questions and where each was asked are
-     what the details are of; when none of those moved there is nothing new to read. */
-  const listed = useMemo(() => (got?.items ?? []).map((it) =>
-    [it.key, it.kind, it.post ?? '', (it.asks ?? []).join(',')].join('|')).join('\n'), [got])
+     what the details are of; when none of those moved there is nothing new to read.
+     WHAT MOVED is anything the plain list carries (a name, a lead, an edited question: review of
+     8becfbe0), and, for what only the details carry, at most DETAILS_STALE_MS old: a fetch after
+     that reads them again even when the plain list is unchanged. */
+  const listed = useMemo(() => JSON.stringify(got?.items ?? []) + '\n'
+    + Math.floor(Date.now() / DETAILS_STALE_MS), [got])
   const about = useNeedsBound(opened, got === null ? null : listed)
   const shown = about.shown
   const items = shown ? shown.items : about.first ? [] : (got?.items ?? [])
