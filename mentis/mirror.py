@@ -43,10 +43,23 @@ def mirrored(grant: dict[str, Any]) -> dict[str, Any] | None:
     """What a front holds of this grant, or None if it holds nothing and so
     forwards: Quick Ask's scope, a scope that isn't a string (Rust matches scopes
     by name) and `operations` that aren't null or a list of strings (`permitted`
-    uses `in`, which would mean something else on a string)."""
+    uses `in`, which would mean something else on a string).
+
+    AND A MAGNET-SCOPED GRANT (`mentis.magnet.scope`), because what it may read
+    is decided per target against one Magnet's collection scope, in Python, at
+    the door (`worker._magnet_confined`). The front's moved reads -- `resolve`,
+    `history`, `find` -- would answer one from the ordinary worker set and so
+    serve a record outside that Magnet. A grant Rust doesn't hold is forwarded,
+    never refused or served (AGENTS.md), and that is what this makes true of
+    it: nothing is duplicated in Rust and no Rust check is carried into a
+    Python write.
+    """
+    from mentis.magnet.scope import parsed as magnet_scoped
     from mentis.worker import TRANSIENT_SCOPE
     scope, operations = grant.get("scope"), grant.get("operations")
     if not isinstance(scope, str) or scope == TRANSIENT_SCOPE:
+        return None
+    if magnet_scoped(scope) is not None:
         return None
     if operations is not None and not (
             isinstance(operations, list)

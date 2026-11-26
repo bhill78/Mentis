@@ -709,6 +709,36 @@ def authority_for(cv, expectation) -> dict:
                else {})}
 
 
+def _magnet_scope(managed) -> str | None:
+    """The scope a run carrying a managed Magnet request is dispatched with.
+
+    THE SESSION-BINDING SEAM of the owner's correction `ent-d85254fe5e1b`: a
+    run that carries a Magnet's exchange is confined to that Magnet's
+    collection scope, and the confinement travels on the grant the door reads
+    (`mentis.magnet.scope`, `worker.permitted`, `worker._magnet_confined`).
+    No side route: the scope is the only thing that changes here, and what the
+    scope admits is decided in one place.
+
+    WHICH OF THE TWO, DECIDED FROM THE FROZEN CONTEXT AND NOTHING ELSE. An
+    exchange that names a saved Perspective question is synthesis -- a
+    Perspective answer or an evolving summary -- and carries the synthesis
+    scope, which holds no source read at all and which no authorization can
+    widen. Every other exchange is ordinary conversation, which the owner may
+    authorize wider for that one exchange. Nothing a caller passes and nothing
+    a worker says takes part in this.
+
+    A managed context whose Magnet id is unreadable still returns a Magnet
+    scope, with an id that confines everything (`scope.parsed`): it fails
+    closed rather than falling back to the ordinary worker grant.
+    """
+    if not managed:
+        return None
+    from mentis.magnet.scope import scope_name
+    selector = managed.get("selector") or {}
+    return scope_name(str(managed.get("magnet") or ""),
+                      synthesis=selector.get("perspective") is not None)
+
+
 #: THE ACT THAT BINDS A REQUEST TO A RUNTIME when nothing recorded one with
 #: the request itself: a participant's declared default resolved at first run,
 #: or a runtime a caller named on a path that records no constraint. Written
@@ -3251,7 +3281,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # different runtime, model or session changes nothing.
     authority = authority_for(cv, expectation)
     grant_basis = dict(
-        scope=authority["scope"], operations=authority["organising"],
+        scope=_magnet_scope(managed) or authority["scope"],
+        operations=authority["organising"],
         expectation=expectation, conversation=conversation,
         participant=participant, runtime=instance.runtime,
         # THE PERSONA THE RUN WEARS, so what it records says so

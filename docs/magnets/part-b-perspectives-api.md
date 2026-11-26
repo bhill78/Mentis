@@ -9,14 +9,24 @@ supersede the B7 audience premise. Configured/explicitly authorized sources set
 collection scope; technical agent access does not. Do not assume one human
 audience. The rejected audience question `opr-dbb31856813b` is not an outstanding
 valid approval gate; its author/carrier must reconcile it, without another broad
-question. Existing worker Brain and acquired-source reads do not enforce the
-configured-source boundary. This package is preserved as **fixture implementation**.
-Production `prepare`, `finalize` and `reconcile` refuse 422 `grounded-answers-blocked`,
-including retries. No HTTP parameter or setting enables them. Focused tests
-replace the closed internal product gate only in their fixture process.
-Lifecycle, selection, durable history and existing ordinary replies remain usable.
-Listing/state reads return `grounded_answers:false`. Do not enable grounded
-answers or deploy them on the strength of provenance or an audience assertion.
+question.
+
+**The gate is OPEN, because the correction is now enforced (Part A).** The
+paragraph this replaces published a closed gate and said why: worker Brain and
+acquired-source reads did not enforce the configured-source boundary, so
+production `prepare`, `finalize` and `reconcile` refused 422
+`grounded-answers-blocked` and listing/state reads returned
+`grounded_answers:false`. That enforcement exists: `mentis/magnet/scope.py`,
+applied at the one door through `mentis.worker.permitted` and
+`worker._magnet_confined`, confines a run carrying a Magnet's exchange to that
+Magnet's own recorded collection batches, the posts of its own Conversation and
+the references the owner explicitly selected for that exchange. So
+`GROUNDED_ANSWERS_ENABLED` is `True`, `require_grounded()` admits, and
+listing/state reads return `grounded_answers:true`. The refusal keeps its code
+(`grounded-answers-blocked`) for a build that shuts the gate again. See
+"Part A — the Magnet scope contract" below for what a run may read, what it may
+not, and the two fields Parts B and F are written against. Lifecycle, selection,
+durable history and existing ordinary replies are unchanged.
 
 All paths below start `/fluid/api/magnets/{magnet}`. Reads require
 `X-Mentis-Client: 1` and refuse worker credentials, like existing Fluid reads.
@@ -184,16 +194,17 @@ governance. Carrier acceptance must verify this on its real resumed runs; this
 part adds no dispatch writer or worker operation to fill missing provenance.
 
 The original approved disclosure ended with a single-owner-audience restriction.
-The later correction supersedes that premise. The response's current disclosure
-is:
+The later correction supersedes that premise, and Part A replaced the sentence
+that said the boundary was missing. The response's current disclosure
+(`mentis.magnet.perspectives.DISCLOSURE`) is:
 
-> Selected evidence is recorded. This agent may read other Brain and acquired material; the list is not a complete input audit. Grounded Perspective answers are blocked until the configured-source access boundary is enforced.
+> Selected evidence is recorded. This Magnet's answers are grounded in its own collection: a run carrying one of its exchanges reads that Magnet's recorded collection batches, the posts of its own Conversation and the references the owner selected, and every other Brain record or acquired source is refused at the door (mentis.magnet.scope). A Perspective answer and an evolving summary are grounded in the collected rows and nothing else; no authorization widens them. The owner may authorize one conversation exchange to reach a named outside source, and an answer that reached one says so in its provenance.
 
-This is evidence accounting, not authorization or an evidence-only boundary.
+This is evidence accounting plus the boundary that now backs it. It is still
+not a complete input audit of the runtime's own tools: what Mentis serves is
+enforced, and a runtime's own web search is recorded and told, not policed.
 Neither configured retention mode, automatic material recording nor adoption is
-implemented. TEST/DAY-TO-DAY were not modified. Real native/MARS verification,
-independent implementation review and the missing boundary remain unverified.
-No boundary implementation, new approval decision or review cycle is started by P.
+implemented. TEST/DAY-TO-DAY were not modified by Part A.
 
 
 ## Ordinary discussion and current question
@@ -222,3 +233,118 @@ state, not an uncertain write. Selection never changes collection configuration.
 The Perspective router contains only Perspective routes. The carrier owns the
 canonical collection latest/exact/history routes and blank-selector preservation,
 and verifies those on integration. This package does not carry that fragment.
+
+
+## Part A — the Magnet scope contract
+
+Published by Part A (`mentis/magnet/scope.py`, `tests/test_magnet_scope.py`) for
+Parts B and F to be written against. **Part A owns none of their files**: this is
+the contract, not the implementation of their halves.
+
+### What a Magnet-scoped execution is
+
+A run carrying a managed Magnet exchange is dispatched with one of two scopes,
+decided from the frozen managed context and nothing else
+(`mentis.web.dispatch._magnet_scope`):
+
+| Scope | When | May read |
+|---|---|---|
+| `magnet:<mag-id>` | the exchange names no saved Perspective question (`selector.perspective is null`) — ordinary conversation | the Magnet's own recorded collection batches; the posts of its own Conversation; the references the owner selected in this exchange's `magnet_context`; the acquired collections its definition configures |
+| `magnet-synthesis:<mag-id>` | the exchange names a saved Perspective question — a Perspective answer or an evolving summary | the same, **less every source read**: a synthesis run reads no live collection at all, not even a configured one |
+
+`mentis.worker.permitted` narrows what either may CALL to the intersection of
+what its request granted with `scope.MAY_CALL` (plus `scope.OUTSIDE_READS` for
+`magnet:` only). A read that cannot be pointed at one Magnet is refused, not
+narrowed: `find`, `recall`, `governed`, `work_overview`, `brief`,
+`owner_decisions`, and `delegate` (a child's grant is minted from its own
+request, so delegating would be a way out of the confinement). The refusal is
+the door's existing scope wording, naming the scope.
+
+`scope.why_not` then confines each remaining read by TARGET, refusing with the
+`place` boundary and words that name the Magnet, its Conversation and the
+owner's correction `ent-d85254fe5e1b`. A Magnet-scoped grant is deliberately
+not mirrored to the Rust front (`mentis.mirror.mirrored`), so the front
+forwards it instead of answering a moved read under the ordinary worker set.
+
+**Narrowing only.** Nothing in `scope.py` admits a read the ordinary rules
+would have refused. In particular a Magnet-scoped run still cannot
+`read_artifact` its own collection batch unless the ordinary reach rules allow
+it — closing that is **Part B's** read-side widening (`opr-d4b617de6850`), and
+`tests/test_magnet_scope.py` asserts the scope gate is silent about it so the
+two halves stay distinguishable.
+
+### The contract Part B implements its hydration against
+
+`mentis/fluid/message_context.py` is Part B's. Part A states what hydration may
+and may not do; B implements it.
+
+1. **A `collected_item` hydrates only from the Magnet's own recorded batch.**
+   `collection.member(st, mid, r)` is already the membership check and stays the
+   only one: its `(ref, version, digest)` triple is the identity, and a forged,
+   foreign, stale, deleted or restricted selection must still refuse where the
+   owner can act on it. Hydration adds the row's retained text and its `cite`;
+   it must not reach a live source, substitute anything, or follow an id the row
+   happens to name.
+2. **Hydration widens no reach.** What crosses into the prompt is what the owner
+   selected in that exchange. The scope gate is the door's; a hydrated byte is
+   not a grant, and the run must still ask the door for anything else.
+3. **The existing bounds hold unchanged**: 16 KiB raw selector, 64 KiB hydrated
+   context, 16 references, and the inert-data header on the prompt.
+4. **`require_grounded()` may be removed only from paths Part A made safe**, and
+   only those. Its calls in `_artifact`, `_selections`, `prepare`, `accepted`
+   and `gate` are now no-ops (the constant is `True`); deleting a call is a
+   separate, deliberate act per path.
+5. **Two seams in `message_context.py` are Part B's to close, not Part A's**:
+   - `payload()` still tells every run "Grounded answers from the retained
+     collection are unavailable until configured-source read enforcement is
+     verified." That sentence is now false and must say what the run may read
+     instead — the Magnet's own collection, its own Conversation's posts, the
+     owner's selections — and, where the exchange carries one, that the owner
+     authorized it to reach a named outside source.
+   - `prepare()` is where an authorization could be accepted as a body field if
+     the owner's client is to send one with the message; see below.
+
+### The owner's per-exchange authorization
+
+`scope.authorize(st, mid, turn=..., opens=[...], by=<owner>, op=...)` records
+`magnet-exchange-authorized` on ONE asking Turn. `opens` is 1..4 entries, each
+`{"kind":"runtime-web-search"}` or `{"kind":"collection","collection":"col-…"}`.
+It refuses anybody but the recorded owner, any Turn that is not the owner's own
+asking Turn in that Magnet's Conversation, and anything malformed. The door
+reads it for that exchange's execution only: an act an execution wrote opens
+nothing, a synthesis confinement reads none at all, and the next exchange is a
+different Turn and so unauthorized again with no further act.
+
+**Seam, unclaimed.** There is no HTTP route to call `authorize` yet — Part A
+owns no door file — so today no client can create one and every exchange is
+unauthorized. Whoever adds it (Part B's request door, or the integrator) wires
+one owner write to `scope.authorize` and nothing else; `scope.py` needs no
+change. Until then the authorization path is implemented, recorded and tested,
+and reaches nothing.
+
+### The provenance field Part F and the client render
+
+`scope.provenance(cv, mid, turn=…, synthesis=…)`:
+
+```ts
+type MagnetAnswerProvenance = {
+  grounded_in: 'collection';            // always: the collection is the ground
+  outside_authorized: ({kind:'runtime-web-search'} |
+                       {kind:'collection'; collection:string})[];  // [] when none
+  outside_reads: {what:string; collection:string; ref?:string}[];  // what it reached
+  explored_outside: boolean;            // THE FIELD TO RENDER
+};
+```
+
+**`explored_outside` is the field name Part F and the client use.** It is true
+only when an authorized read of something outside the Magnet's collection
+actually happened in that exchange, recorded at the door as
+`magnet-outside-source-read` on the authorized widening path only (an ordinary
+read inside the Magnet's scope records nothing). `outside_authorized` is what
+the owner opened — allowed, not necessarily used — so an interface can say
+"allowed to look outside" and "did look outside" separately, which is the whole
+point of the distinction. For a synthesis answer all three are empty or false,
+structurally and unconditionally.
+
+Part F renders `explored_outside` beside the citations: grounded-in-the-
+collection and explored-outside must never be mistaken for each other.

@@ -127,14 +127,20 @@ def test_forged_anchor_and_comment_intent_leave_no_record(world):
     assert "error" in out and not later
     status, out = post(world, {"author": by, "text": "comment", "retained_answer": True},
                        path=f"posts/{root}/comments")
-    assert status == 422 and out["code"] == "grounded-answers-blocked"
+    # REVISED BY PART A, which opened the grounded-answers gate now that the
+    # configured-source scope is enforced (`mentis.magnet.scope`). The retired
+    # generated-work adapter is still refused, by the refusal `message_context.
+    # gate` always had behind the gate for exactly this: "even a future gate
+    # change is not authority for the retired adapter". Nothing is recorded,
+    # which is what this test is about.
+    assert status == 422 and out["code"] == "invalid-managed-intent"
     assert world["cv"]._c.advance() == before
 
 
 @pytest.mark.parametrize("own_words", [False, True])
 def test_send_back_managed_context_exact_words_replay_and_execution(world, own_words):
     from mentis.execution import RunResult
-    _, _, _, _, sid = input_set(world)
+    mid, _, _, _, sid = input_set(world)
     owner = world["who"]["@brian"]
     text = "  My answer\r\n🙂e\u0301  " if own_words else ""
     if own_words:
@@ -158,7 +164,12 @@ def test_send_back_managed_context_exact_words_replay_and_execution(world, own_w
         seen.append(spec)
         assert M.payload(context) in spec.prompt
         grant = grant_of_run(world["state"].agents, spec, world["state"].path)
-        assert grant["scope"] == "worker" and not grant.get("operations")
+        # REVISED BY PART A: a run carrying a managed Magnet exchange is
+        # dispatched confined to that Magnet's collection scope
+        # (`mentis.magnet.scope`, `dispatch._magnet_scope`), not with the
+        # ordinary worker scope. It still holds no organising operation, which
+        # is what this line was checking.
+        assert grant["scope"] == "magnet:" + mid and not grant.get("operations")
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
                          text="Use Settings to configure your Magnet.", stop_reason="end_turn",
                          timing={"prompt_sent": 1.0})
@@ -247,7 +258,10 @@ def test_public_input_handover_field_cannot_enable_an_empty_managed_ask(world):
                    input_handover={"answers": ["ent-forged"]})
     before = world["cv"]._c.advance()
     status, out = send(world, body)
-    assert status == 422 and out["code"] == "grounded-answers-blocked"
+    # REVISED BY PART A (see `test_forged_anchor_and_comment_intent_leave_no_record`):
+    # the gate is open and the retired adapter is still refused on its own
+    # terms. A public `input_handover` field still enables nothing.
+    assert status == 422 and out["code"] == "invalid-managed-intent"
     assert world["cv"]._c.advance() == before and not world["sent"]
 
 
@@ -271,18 +285,41 @@ def test_public_record_only_flags_do_not_grant_owner_a_post_bypass(world):
     assert status == 422 and out["code"] == "managed-request-door"
 
 
-def test_send_back_cannot_turn_a_retained_artifact_into_answer_context(world):
+def test_a_retained_artifact_in_answer_context_is_still_held_to_the_magnet_scope(world):
+    """REVISED BY PART A. This test used to assert that `require_grounded`
+    refused a send-back carrying a retained collection artifact, because no
+    enforcement decided what a run could then read. The enforcement exists
+    (`mentis.magnet.scope`), the gate is open, and the boundary moved to where
+    the owner's correction `ent-d85254fe5e1b` put it: not whether such an
+    artifact may be attached, but what the dispatched run may READ.
+
+    So this now asserts the live boundary -- a retained artifact that is NOT
+    this Magnet's own material and is NOT held in its own Conversation is
+    refused to a Magnet-scoped run at the door -- rather than an availability
+    gate that no longer exists.
+    """
     from mentis import artifacts
+    from mentis.magnet import scope as S
+    from mentis.web import _surface
     owner = world["who"]["@brian"]
     held = artifacts.hold(world["cv"]._c, world["cv"], b"retained material",
         act=artifacts.SUBMITTED, actor=owner, source="fixture", door="magnet-extract",
         claimed_media_type="text/plain")
-    _, _, _, _, sid = input_set(world, extra_parts=[
+    mid, cid, _, _, sid = input_set(world, extra_parts=[
         {"type": "file", "ref": held["admission"], "media_type": "text/plain"}])
-    before = world["cv"]._c.advance()
     status, out = post(world, {"op": "input"}, path=f"response-sets/{sid}/send-back")
-    assert status == 422 and out["code"] == "grounded-answers-blocked"
-    assert world["cv"]._c.advance() == before and not world["sent"]
+    assert status == 200, out
+    assert len(world["sent"]) == 1
+    # The run this send-back dispatches is Magnet-scoped...
+    context = M.accepted(world["cv"], turn=out["turn"])
+    assert D._magnet_scope(context) == "magnet:" + mid
+    # ...and an artifact of another source, held under the collection door but
+    # not by this Magnet, is outside its scope.
+    confined = S.parsed("magnet:" + mid)
+    grant = {"expectation": out["expectations"][0], "conversation": cid}
+    why = S.why_not(_surface(world["state"]), confined, grant, "read_artifact",
+                    {"ref": held["admission"]})
+    assert why and f"outside Magnet {mid}'s collection scope" in why
 
 
 def test_preview_seed_work_is_recorded_without_dispatch_authority(world):

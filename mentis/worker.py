@@ -574,6 +574,20 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
         return tuple(o for o in permitted(
             "organising", AUTHORITY if operations is None else operations)
             if o not in SESSION_CARRIED) + SESSION_ACTS
+    # A MAGNET-SCOPED EXECUTION (`mentis.magnet.scope`; owner correction
+    # ent-d85254fe5e1b). What its request granted, NARROWED to the operations
+    # that can be confined to one Magnet's collection scope -- an
+    # intersection, so this widens nothing, and a Brain-wide read that cannot
+    # be pointed at one Magnet is refused here rather than served narrowed.
+    # The per-target half of the same rule is `_magnet_confined`, at this same
+    # door. A scope that says Magnet and names no readable Magnet still lands
+    # here and still gets the narrowed set: it fails closed, never through to
+    # the ordinary worker set.
+    from mentis.magnet import scope as magnet_scope
+    confined = magnet_scope.parsed(scope)
+    if confined is not None:
+        return magnet_scope.narrowed(confined, permitted("organising",
+                                                         operations))
     # EVERY DISPATCHED EXECUTION, whatever its scope, including a delegated
     # specialist and an unrecognised scope that fails closed to the ordinary
     # set. That is what "default agent capability" was decided to mean.
@@ -4958,6 +4972,8 @@ def _result(surface: Surface, name: str, args: dict, *,
             scope: str | None = None) -> dict:
     """Answer one read. `participant` is who is asking, read by the door off
     the grant it admitted the call under; only `brief` uses it."""
+    # WHAT A MAGNET-SCOPED EXECUTION MAY NAME, before anything is read.
+    _magnet_confined(surface, name, args, grant)
     effective_scope = scope or (f"conversation:{grant['conversation']}"
                                 if (grant and grant.get("conversation")) else None)
     if name == "orient":
@@ -5150,6 +5166,39 @@ class NotPermitted(_StructuredRefusal):
     reads it should report what it could not do and why, never retry it on
     another wire.
     """
+
+
+def _magnet_confined(surface: Surface, name: str, args: dict,
+                     grant: dict | None) -> None:
+    """Refuse what a Magnet-scoped execution may not read, at the one door.
+
+    THE PER-TARGET HALF of the owner's correction `ent-d85254fe5e1b`;
+    `permitted` is the per-operation half, and `mentis.magnet.scope` holds the
+    whole rule. Called before every read and every operation the door
+    dispatches, so there is no path through `/api/worker` that skips it, and
+    nothing else is a path at all. It only ever REFUSES: a grant that is not a
+    Magnet-scoped one returns immediately, and no answer here admits a read the
+    ordinary rules would have refused.
+
+    A refusal is an answer (`NotPermitted`), at the `place` boundary: what the
+    call named is out of this execution's reach.
+    """
+    if not grant:
+        return
+    from mentis.magnet import scope as magnet_scope
+    confined = magnet_scope.parsed(grant.get("scope"))
+    if confined is None:
+        return
+    why = magnet_scope.why_not(surface, confined, grant, name, args)
+    if not why:
+        return
+    raise NotPermitted(
+        why, op=name, boundary="place", why=why,
+        recovery=["read this Magnet's own collection batches and the posts of "
+                  "its own Conversation",
+                  "say in your answer what you could not read"],
+        who="the owner, by configuring that source on this Magnet, or by "
+            "authorizing this one exchange to reach it")
 
 
 def _artifact_bytes(surface: Surface, ref: str,
@@ -5690,6 +5739,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     it.
     """
     cv = surface.cv
+    # WHAT A MAGNET-SCOPED EXECUTION MAY NAME, before anything is read or done.
+    _magnet_confined(surface, name, args, grant)
     if name == WORKSPACE_READ:
         return _workspace_objects(surface, args, grant)
     if name == "read_artifact" and grant.get("scope") == TRANSIENT_SCOPE:

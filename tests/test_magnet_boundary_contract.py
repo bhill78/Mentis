@@ -219,14 +219,60 @@ def test_an_empty_object_is_not_the_empty_selection(vectors):
     assert any(v["name"] == "empty-object" for v in vectors["selector_refusals"])
 
 
-def test_the_retained_content_gate_is_still_shut():
-    """section 2: the product's retained-content answer path MUST refuse while
-    configured-source read enforcement is unverified, and the gate keeps its
-    existing refusal rather than being renamed."""
-    from mentis.magnet import perspectives
+def test_the_retained_content_gate_is_open_because_the_scope_is_enforced():
+    """section 2, REVISED BY PART A, which is the condition section 2 named.
 
-    assert perspectives.GROUNDED_ANSWERS_ENABLED is False
-    with pytest.raises(perspectives.Refused) as got:
-        perspectives.require_grounded()
+    The gate was shut on one condition: that configured-source read
+    enforcement did not exist (owner correction `ent-d85254fe5e1b`). It does
+    now -- `mentis.magnet.scope` at the one door -- so the gate is open, and
+    this oracle holds the thing that actually matters instead: that the gate
+    is open ONLY while the enforcement it waited on is in place. The refusal
+    keeps its existing code rather than being renamed, so a build that shuts
+    the gate again says the same words (`retained_gate_code` above).
+    """
+    from mentis.magnet import perspectives, scope
+
+    assert perspectives.GROUNDED_ANSWERS_ENABLED is True
+    assert perspectives.require_grounded() is None
+
+    # THE ENFORCEMENT, NOT A PROMISE OF IT: the one door narrows what a
+    # Magnet-scoped execution may call, and refuses each target outside that
+    # Magnet's collection scope.
+    from mentis.worker import _magnet_confined, permitted
+    confined = scope.parsed(scope.scope_name("mag-oracle"))
+    assert confined is not None and confined.magnet == "mag-oracle"
+    may = set(permitted(scope.scope_name("mag-oracle"), ["respond"]))
+    assert "respond" in may                      # it can still answer the owner
+    for brain_wide in ("find", "recall", "governed", "work_overview", "brief",
+                       "delegate", "owner_decisions"):
+        assert brain_wide not in may, brain_wide
+    # A synthesis execution holds no source read at all, so no authorization
+    # can reach it (amendment adm-c38044ee5157 section 3).
+    synthesis = set(permitted(scope.scope_name("mag-oracle", synthesis=True),
+                              ["respond"]))
+    assert not synthesis & set(scope.OUTSIDE_READS)
+    assert set(scope.OUTSIDE_READS) <= set(
+        permitted(scope.scope_name("mag-oracle"), ["respond"]))
+    assert callable(_magnet_confined)
+
+    # AND THE GATE'S WORDS ARE STILL THERE for a build that shuts it again.
+    import contextlib
+    with contextlib.ExitStack() as stack:
+        stack.callback(setattr, perspectives, "GROUNDED_ANSWERS_ENABLED", True)
+        perspectives.GROUNDED_ANSWERS_ENABLED = False
+        with pytest.raises(perspectives.Refused) as got:
+            perspectives.require_grounded()
     assert got.value.refusal["code"] == "grounded-answers-blocked"
     assert got.value.refusal["refused"] is True
+
+
+def test_the_disclosure_no_longer_claims_the_boundary_is_missing():
+    """The published disclosure is read by the client beside an answer. While
+    the gate was shut it said grounded answers were blocked; saying that now
+    would be false, and saying nothing about the boundary would be worse."""
+    from mentis.magnet import perspectives
+
+    words = perspectives.DISCLOSURE
+    assert "blocked" not in words and "until" not in words
+    assert "collection" in words and "refused at the door" in words
+    assert "no authorization widens them" in words

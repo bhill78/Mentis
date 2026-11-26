@@ -18,16 +18,25 @@ from . import MAGNET_ID, read as definition
 ACT = "magnet-perspective-event"
 DOOR = "magnet-perspective"
 FORMAT = "mentis.magnet-perspective"
-DISCLOSURE = ("Selected evidence is recorded. This agent may read other Brain and acquired material; "
-              "the list is not a complete input audit. Grounded Perspective answers are blocked until "
-              "the configured-source access boundary is enforced.")
-# Owner correction ent-d85254fe5e1b supersedes the proposed single-audience
-# eligibility waiver. Preserve the fixture implementation, but expose no
-# production prepare/finalize until an accepted boundary exists. No HTTP field,
-# setting, audience assertion or consent choice can enable this. Focused tests
-# replace this constant only inside their fixture process; this is a product
-# availability gate, not a claimed worker/source security boundary.
-GROUNDED_ANSWERS_ENABLED = False
+DISCLOSURE = ("Selected evidence is recorded. This Magnet's answers are grounded in its own "
+              "collection: a run carrying one of its exchanges reads that Magnet's recorded "
+              "collection batches, the posts of its own Conversation and the references the owner "
+              "selected, and every other Brain record or acquired source is refused at the door "
+              "(mentis.magnet.scope). A Perspective answer and an evolving summary are grounded in "
+              "the collected rows and nothing else; no authorization widens them. The owner may "
+              "authorize one conversation exchange to reach a named outside source, and an answer "
+              "that reached one says so in its provenance.")
+# THE OWNER'S CORRECTION ent-d85254fe5e1b IS NOW ENFORCED, which is the only
+# reason this was shut. A Magnet's configured sources set its collection scope,
+# and a dispatched run carrying one of its exchanges is confined to that scope
+# at the one door: `mentis.magnet.scope` decides what it may read,
+# `worker.permitted` narrows what it may call, and `worker._magnet_confined`
+# refuses every target outside it. Flipped in the same commit as
+# `tests/test_magnet_scope.py`, which proves the refusals, and as the revised
+# oracles in `tests/test_magnet_boundary_contract.py` that used to pin it shut.
+# This is still a product availability gate and not itself a security
+# boundary: the boundary is the door's.
+GROUNDED_ANSWERS_ENABLED = True
 PAGE_MAX = 100
 TEXT_MAX = 65536
 
@@ -241,6 +250,9 @@ FIELDS = {
 
 
 def require_grounded():
+    """The product gate. Open since the configured-source scope is enforced
+    (`mentis.magnet.scope`); its refusal is kept, with its existing code, for
+    a build where the gate is shut again."""
     if not GROUNDED_ANSWERS_ENABLED:
         refuse("grounded-answers-blocked", "Grounded Perspective answers are unavailable: existing "
                "execution controls do not enforce the configured-source access boundary. Completed "
