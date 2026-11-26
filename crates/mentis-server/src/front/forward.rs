@@ -290,12 +290,34 @@ pub(super) fn read_answer_head(head: &[u8]) -> Option<AnswerHead> {
     Some(answer)
 }
 
+/// The rest of an answer to a shared read that couldn't be shared (`front/flights.rs`), relayed to
+/// the client whose request it is: `got` is what has come of it so far. `Err` is the 503 to give,
+/// with nothing yet sent.
+pub async fn relay_handed(
+    client: &mut TcpStream,
+    mut python: TcpStream,
+    got: Vec<u8>,
+    client_closes: bool,
+) -> Result<Forwarded, Written> {
+    let (_, mut to_client) = client.split();
+    let (mut from_python, _) = python.split();
+    relay_answer_from(&mut from_python, &mut to_client, client_closes, got).await
+}
+
 async fn relay_answer(
     python: &mut ReadHalf<'_>,
     client: &mut WriteHalf<'_>,
     client_closes: bool,
 ) -> Result<Forwarded, Written> {
-    let mut held = Vec::with_capacity(4096);
+    relay_answer_from(python, client, client_closes, Vec::with_capacity(4096)).await
+}
+
+async fn relay_answer_from(
+    python: &mut ReadHalf<'_>,
+    client: &mut WriteHalf<'_>,
+    client_closes: bool,
+    mut held: Vec<u8>,
+) -> Result<Forwarded, Written> {
     let mut buffer = vec![0; CHUNK];
     loop {
         // Nothing has been given to the client from this answer until its head is whole.

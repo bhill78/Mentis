@@ -137,7 +137,7 @@ Held { boot, watch, owner, generation, table, confirmed_sent, behind }
 
 **Pull triggers:** front start; a discard; a push that needs one; a presented grant while not `Held`. Each starts at `Locating`. One at a time, and nothing retries on a timer.
 
-**Polling:** every `POSITION_EVERY` while answers are prompt (within 1 s, `POLL_PROMPT`), backing off by doubling to at most 4 s (`POLL_EVERY_MOST`) after slow answers, as `/private/live`'s does (`contracts/live-snapshot.md`, "Polling"), one at a time, using the same in-hand connection as `Snapshots`, whenever `Held` with at least one grant or while pulling. Agents read at intervals longer than the 5 s the pulse uses, so asking on demand would forward nearly every read of a lone agent. Polling has no supervising role, and it stops when no grants are held.
+**Polling:** every `POSITION_EVERY` while answers are prompt (within 1 s, `POLL_PROMPT`), backing off by doubling after slow answers to at most `POSITION_EVERY_MOST` (1.5 s, half of `LEASE`), counted from each position's send. Unlike `/private/live`'s backoff (to 4 s, from the answer), which only costs freshness, a gap past `LEASE` would forward every granted read, so a Python answering steadily within about 1.5 s keeps the lease. One at a time, using the same in-hand connection as `Snapshots`, whenever `Held` with at least one grant or while pulling. Agents read at intervals longer than the 5 s the pulse uses, so asking on demand would forward nearly every read of a lone agent. Polling has no supervising role, and it stops when no grants are held.
 
 **A Python restart with an empty mirror:** no poll is running, but Python starts with `down` false, so its first mint pushes with a new `boot_id`, which discards and pulls.
 
@@ -147,6 +147,7 @@ Held { boot, watch, owner, generation, table, confirmed_sent, behind }
 |---|---|---|
 | `PUSH_TIMEOUT` | 500 ms | The whole push. Windows takes 2-2.5 s to refuse a loopback connect (`contracts/live-snapshot.md`), so a dead front costs this, not that |
 | `POSITION_EVERY` | 500 ms | As `/private/live` |
+| `POSITION_EVERY_MOST` | 1.5 s | The longest gap between positions' sends while answers are slow. Half of `LEASE`: asserted at compile time, and `a_steadily_slow_python_keeps_the_lease` holds the lease under a Python taking 1 s per position |
 | `POSITION_TIMEOUT` | 250 ms | Connecting for a position or a location. Nothing is sent until connected, so a miss costs Python nothing |
 | `LOCATE_GIVE_UP` | 10 s | A location's position, then its pull, once sent. Reads forward meanwhile, as they do while nothing is held. Replaces the earlier 250 ms and 500 ms (`PULL_TIMEOUT`) limits, which abandoned answers a busy Python was still working out |
 | `LEASE` | 3 s | Above C0's worst pulse p95, 565 ms (M), so a loaded Python doesn't normally push reads back to it. It only sets the worst-case fence |
