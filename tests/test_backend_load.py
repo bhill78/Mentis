@@ -191,3 +191,24 @@ def test_a_caller_that_hung_up_is_not_logged_as_a_failure(world, capsys):
     time.sleep(1.0)
     err = capsys.readouterr().err
     assert "ConnectionAbortedError" not in err and "ConnectionResetError" not in err
+
+
+def test_opening_a_topic_does_not_rebuild_and_governance_still_does(world):
+    """A Topic is established like governed material, but nothing a projection
+    reads depends on it: placed, not rebuilt. Governed material still rebuilds."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    cv.expect(cv.say(cid, owner, [text("w")]), of=None, kind="result",
+              by=owner, conversation=cid)
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    builds = kept.stats["builds"]
+    cv.open_topic(cid, "Planning", attributed_to=owner)
+    kept.current(wait=True)
+    assert kept.stats["builds"] == builds, kept.stats["rebuilt_because"]
+    assert kept.reconcile() == []                 # and nothing was missed
+    builds = kept.stats["builds"]
+    cv.define_persona("Tester", "Check what you are given.")
+    kept.current(wait=True)
+    assert kept.stats["builds"] > builds, kept.stats["rebuilt_because"]
