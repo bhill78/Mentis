@@ -20,6 +20,16 @@ class UnreadableCollection(ValueError):
     """A recorded collection cannot be served as the evidence it claims."""
 
 
+class UndigestibleRow(ValueError):
+    """ONE recorded row has no exact content identity, so that row alone refuses.
+
+    Raised by `row_digest` for the row it was given, and never for the batch:
+    the owner's correction (`opr-87b0f7e52098`) is that a single odd row must
+    report itself, not take the whole collection's identities -- and with them
+    the new-item diff -- with it.
+    """
+
+
 def _config(st, mid):
     if not MAGNET_ID.fullmatch(mid):
         raise fluid.BadRequest("that is not a Magnet id")
@@ -76,10 +86,20 @@ def row_digest(row) -> str:
     canonicalization (`message_context.canonical`), which refuses the
     non-integer `at`/`acquired_at` timestamps a collected row carries. Nothing
     derives it from captured text: the row as recorded is the whole input.
+
+    A row this cannot state exactly -- a non-finite number (`json.loads`
+    accepts `NaN` and `Infinity`, so a recorded batch can hold one), a value no
+    encoder accepts, nesting too deep to walk, a lone surrogate -- raises
+    `UndigestibleRow` FOR THAT ROW. The caller drops that one row's identity and
+    keeps the others (`references`), so one odd row no longer costs the batch
+    its new-item count.
     """
-    return hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False, allow_nan=False)
-                          .encode("utf-8")).hexdigest()
+    try:
+        text = json.dumps(row, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=False, allow_nan=False)
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise UndigestibleRow(f"this row has no exact content identity: {exc}") from None
 
 
 def references(activation, page) -> dict:
@@ -94,7 +114,9 @@ def references(activation, page) -> dict:
     the retained collection is still not answer evidence (`message_context`).
 
     An id two rows share has no exact identity, so neither is offered; the card
-    then refuses it in words, as it does any row this cannot state exactly.
+    then refuses it in words, as it does any row this cannot state exactly -- and
+    a row whose own bytes cannot be digested (`UndigestibleRow`) is exactly such
+    a row, left out on its own while the rest of the batch keeps its identities.
     """
     if not activation or not isinstance(page, dict):
         return {}
@@ -109,8 +131,12 @@ def references(activation, page) -> dict:
                 out.pop(rid, None)
                 continue
             seen.add(rid)
+            try:
+                digest = row_digest(row)
+            except UndigestibleRow:
+                continue        # this row only: it is offered no identity, like a shared id
             out[rid] = {"kind": "collected_item", "ref": rid,
-                        "version": batch, "digest": row_digest(row)}
+                        "version": batch, "digest": digest}
     return out
 
 

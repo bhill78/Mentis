@@ -4,14 +4,34 @@ import { BRAIN_HEADER, brainNow, page, refusedAsOtherBrain } from '../../brainBi
 import { fluidFetch } from '../../fluid/http'
 import type { MagnetGet, MagnetResource, MagnetSnapshot, SavedMagnet } from './contract'
 import { unsupportedMagnet } from './read'
-import { loadWorking, saveWorking, workingKey } from './workingState'
+import { loadShownBatch, loadWorking, saveShownBatch, saveWorking, workingKey } from './workingState'
 import { clearInspections, emptyPlaces } from './places'
 import { collectionRows } from './collectionRows'
 import { NO_SOURCE_TO_COLLECT } from './configuration'
 
 const obj = (v: unknown): Record<string, any> | null => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : null
 const entry = (v: unknown): v is string => typeof v === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v)
-export function createMagnetResource(at: { id: string; brainKey: string; saved: SavedMagnet; get: MagnetGet }): MagnetResource {
+const batchRef = (v: unknown): v is string => typeof v === 'string' && /^adm-[a-zA-Z0-9]{6,40}$/.test(v)
+
+/** WHAT IS NEW SINCE THIS VIEWER LAST LOOKED, beside the collection read.
+ *
+ *  Not snapshot state: it is a read of the record (`collection/new`), which
+ *  diffs the latest batch's row identities against the batch the viewer was
+ *  last shown. That baseline is device working state, held here and persisted
+ *  by `workingState.ts`; the server keeps nothing per viewer. The frame takes
+ *  the count when the card opens and when a new batch lands -- there is no
+ *  timer and nothing polls. */
+export interface MagnetCollectionResource extends MagnetResource {
+  /** The batch this viewer was last shown, or `null` when none is recorded. */
+  shownBatch(): string | null
+  /** Record a batch as shown. Called when the card is opened on it. */
+  markShown(batch: string): void
+  /** New rows in the latest batch against that baseline. `null` is UNKNOWN --
+   *  no baseline, or one the record will not verify -- never "nothing new". */
+  newItemCount(signal?: AbortSignal): Promise<number | null>
+}
+
+export function createMagnetResource(at: { id: string; brainKey: string; saved: SavedMagnet; get: MagnetGet }): MagnetCollectionResource {
   if (!at.brainKey.trim()) throw new Error('Which Brain this page serves is unknown. No Magnet was opened.')
   const issue = at.saved.reason ?? unsupportedMagnet(at.saved.config, at.saved.id)
   if (issue || !at.saved.config) throw new Error(issue ?? 'The saved definition is unavailable.')
@@ -22,6 +42,8 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
     ...loadWorking(at.brainKey, at.saved.id) }
   const heard = new Set<() => void>()
   let disposed = false, generation = 0, control: AbortController | null = null, pending: Promise<void> | null = null
+  /** The baseline the new-item count is taken from, recovered for this device. */
+  let shown: string | null = loadShownBatch(at.brainKey, at.saved.id)
   const emit = (change: Partial<MagnetSnapshot>) => {
     if (disposed) return
     current = { ...current, ...change }; saveWorking(at.brainKey, at.saved.id, current)
@@ -105,6 +127,27 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   const cancel = () => { generation++; control?.abort(); control = null; pending = null; emit({ loading: false }) }
   return { id: at.id, brainKey: at.brainKey, saved: at.saved, snapshot: () => current,
     subscribe: (fn) => { if (!disposed) heard.add(fn); return () => { heard.delete(fn) } }, update: emit, read, collect, cancel,
+    shownBatch: () => shown,
+    markShown(batch) {
+      if (!batchRef(batch) || batch === shown) return
+      shown = batch; saveShownBatch(at.brainKey, at.saved.id, batch)
+    },
+    async newItemCount(signal) {
+      // NO BASELINE IS NOT AN EMPTY ONE. Without a batch this viewer has been
+      // shown there is nothing to diff against, and the server would have to be
+      // told to treat the whole collection as new; it refuses that, and so does
+      // this -- unknown, which the badge reports as what is held instead.
+      if (!shown) return null
+      try {
+        const got = await at.get(`/fluid/api/magnets/${encodeURIComponent(at.saved.id)}/collection/new?since=${encodeURIComponent(shown)}`, signal)
+        const answer = obj(got.body)
+        // A refusal (an unknown or unverifiable baseline, 400/403/404) is unknown,
+        // never zero: the count stays absent rather than understating what is new.
+        if (got.status !== 200 || !answer || answer.error || answer.magnet !== at.saved.id) return null
+        const count = answer.new_count
+        return typeof count === 'number' && Number.isInteger(count) && count >= 0 ? count : null
+      } catch { return null }
+    },
     async selectBatch(batch) {
       if (batch && (!/^adm-[a-zA-Z0-9]{6,40}$/.test(batch.ref) || !/^[0-9a-f]{64}$/.test(batch.digest))) throw new Error('Choose a recorded collection with a verified digest.')
       cancel(); emit({ batchSelection: batch ?? undefined, results: [], activation: null, places: clearInspections(current.places), returnRoute: null }); await read()

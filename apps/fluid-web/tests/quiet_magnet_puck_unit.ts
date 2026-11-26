@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import Magnet, { activityWords, cardGeometry, clampPuck } from '../src/quiet2/magnets/Magnet'
+import Magnet, { activityWords, cardGeometry, clampPuck, shownBaseline } from '../src/quiet2/magnets/Magnet'
 import { isCollectedFile, resultPreview, resultTitle } from '../src/quiet2/magnets/EvidenceViews'
 import SettingsView from '../src/quiet2/magnets/SettingsView'
 import { emptyPlaces } from '../src/quiet2/magnets/places'
@@ -31,6 +31,14 @@ eq(isCollectedFile({ kind: 'form', id: 'form' }), false, 'interactive blocks exc
 eq(activityWords(undefined, 1000), 'Source activity unavailable.', 'missing activity never becomes zero')
 eq(activityWords(2, 1000), 'Source activity is newer than this tab’s last-open time.', 'activity is qualified by local tab baseline')
 eq(activityWords(2), 'Source activity reported; no last-open baseline in this tab yet.', 'missing baseline is explicit')
+
+/* WHAT "SINCE YOU LAST LOOKED" MEANS, as one rule the frame applies: the
+ * baseline the new-item count is diffed against is the batch the card was
+ * showing when this viewer last opened it. */
+eq(shownBaseline(true, false, 'adm-aaaaaaaaaaaa'), 'adm-aaaaaaaaaaaa', 'opening the card on a batch records it as shown')
+eq(shownBaseline(true, false, null), null, 'an opening with nothing collected yet records nothing')
+eq(shownBaseline(true, true, 'adm-bbbbbbbbbbbb'), null, 'a batch landing during one opening does not move the baseline: it is new since the viewer opened the Magnet')
+eq(shownBaseline(false, false, 'adm-bbbbbbbbbbbb'), null, 'a closed card records nothing: what it is not showing has not been seen')
 const s: MagnetSnapshot = { title: 'Colony fixture', loading: false, results: [], x: 12, y: 12, tab: 'Perspectives',
   open: true, wide: false, overlay: null, places: emptyPlaces(), query: '', searchType: 'All', searchTarget: null,
   searchListScroll: 0, lens: null, returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,

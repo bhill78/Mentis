@@ -42,10 +42,25 @@ export function perspectivesIndicator(): MagnetIndicator {
   }
 }
 
-export function newInformationIndicator(): MagnetIndicator {
+const tallied = (n: number | null | undefined): number | null =>
+  typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null
+const capped = (n: number): string => (n > 99 ? '99+' : String(n))
+
+/** How many of the rows shown are new since this viewer last opened the Magnet.
+ *
+ * A read of the record, not a guess: the rows in the latest batch whose content
+ * identity is absent from the batch this viewer was last shown (`new_since`,
+ * served at `collection/new`). Unknown -- no baseline recorded on this device,
+ * or one the record will no longer verify -- stays unavailable, as every other
+ * indicator's unknown does, and is never shown as 0. */
+export function newInformationIndicator(newItems: number | null | undefined): MagnetIndicator {
+  const fresh = tallied(newItems)
   return {
-    key: 'new', label: 'New', glyph: '+', value: null,
-    detail: 'New-item count unavailable: no supported new-item total exists yet',
+    key: 'new', label: 'New', glyph: '+',
+    value: fresh === null ? null : String(fresh),
+    detail: fresh === null ? 'New items unavailable: no collection this Magnet has shown you is recorded on this device'
+      : fresh === 0 ? 'Nothing new since this Magnet was last opened'
+      : `${fresh} new item${fresh === 1 ? '' : 's'} since this Magnet was last opened`,
     tab: 'All',
   }
 }
@@ -58,14 +73,14 @@ export function newInformationIndicator(): MagnetIndicator {
  * number on the puck, nothing else, and nothing at all when there is nothing
  * to report. The ring stays with the open card.
  *
- * There is no new-item total yet -- per-viewer notification state is a
- * framework capability that has not been built (ent-5382b85d5f4e), so nothing
- * supplies `newItems` today and the badge truthfully falls back to what the
- * Magnet is actually holding, saying which of the two it shows. When that
- * contract lands it feeds `newItems` here and the badge becomes the new-item
- * count with no further design decision. A count is never invented: unknown
- * and zero both show no badge, and the difference between them is carried in
- * the puck's accessible name. */
+ * `newItems` is now a real number: the server diffs the latest batch's row
+ * identities against the batch this viewer was last shown, which the client
+ * supplies from the reading position it already persists -- no per-viewer state
+ * on the server. A count is still never invented. Where there is no baseline
+ * yet, or the record will not verify the one there is, the new-item total is
+ * unknown and the badge falls back to what the Magnet is holding, naming which
+ * of the two it shows. Unknown and zero both draw no badge, and the difference
+ * between them is carried in the puck's accessible name. */
 export interface MagnetRestingCount {
   /** badge text, capped so a long number cannot widen the puck; null draws no badge */
   value: string | null
@@ -74,10 +89,6 @@ export interface MagnetRestingCount {
   /** the puck's accessible explanation: exact, uncapped, never fabricated */
   detail: string
 }
-
-const tallied = (n: number | null | undefined): number | null =>
-  typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null
-const capped = (n: number): string => (n > 99 ? '99+' : String(n))
 
 export function restingCount(newItems: number | null | undefined, collected: number | null | undefined): MagnetRestingCount {
   const fresh = tallied(newItems)
@@ -89,7 +100,7 @@ export function restingCount(newItems: number | null | undefined, collected: num
   if (held === null) return { value: null, kind: 'collected', detail: 'Nothing has been read into this Magnet yet' }
   return {
     value: held > 0 ? capped(held) : null, kind: 'collected',
-    detail: `${held} collected item${held === 1 ? '' : 's'}; a new-item count is not available yet`,
+    detail: `${held} collected item${held === 1 ? '' : 's'}; how many of them are new is not known on this device`,
   }
 }
 
@@ -99,6 +110,8 @@ export interface MagnetIndicatorInputs {
   filesLoaded: number
   filesKnown: boolean
   filesPartial: boolean
+  /** New rows since the batch this viewer was last shown; `null` is unknown. */
+  newItems: number | null | undefined
 }
 
 export function magnetIndicators(inputs: MagnetIndicatorInputs): MagnetIndicator[] {
@@ -106,7 +119,7 @@ export function magnetIndicators(inputs: MagnetIndicatorInputs): MagnetIndicator
     postsIndicator(inputs.postsSourceTally),
     filesIndicator(inputs.filesLoaded, inputs.filesKnown, inputs.filesPartial),
     perspectivesIndicator(),
-    newInformationIndicator(),
+    newInformationIndicator(inputs.newItems),
   ]
   if (inputs.retained) {
     indicators[0] = { ...indicators[0], detail: indicators[0].value === null ? 'How many posts there are is unavailable until something is collected' : `${inputs.postsSourceTally} collected posts in the collection shown` }

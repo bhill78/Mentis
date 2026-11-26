@@ -105,6 +105,74 @@ def test_new_since_refuses_when_nothing_is_collected_yet(world):
         C.new_since(world.state, MAGNET, since="adm-000000000000")
 
 
+ODD = {"id": "ent-undigestib", "at": float("nan")}
+
+
+def test_one_undigestible_row_refuses_itself_and_not_the_batch():
+    """`opr-87b0f7e52098`: one odd row costs the batch nothing.
+
+    A recorded batch can hold a non-finite number -- `json.loads` accepts `NaN`
+    -- and that row has no exact content identity. It is left out on its own,
+    exactly as a row with a shared id is, and every other row in the batch keeps
+    the identity the new-item diff is computed from.
+    """
+    with pytest.raises(C.UndigestibleRow):
+        C.row_digest(ODD)
+    activation = {"artifact": {"ref": "adm-aaaaaaaaaaaa"}}
+    page = {"sources": [{"results": [{"id": "ent-first11111"}, ODD, {"id": "ent-second1111"}]}]}
+    refs = C.references(activation, page)
+    assert set(refs) == {"ent-first11111", "ent-second1111"}
+    assert all(len(v["digest"]) == 64 for v in refs.values())
+    # Nothing else became undigestible, and nothing invented an identity for it.
+    assert refs["ent-first11111"]["digest"] == C.row_digest({"id": "ent-first11111"})
+
+
+def commit_with_rows(w, op, extra):
+    """A later batch over a CHANGED source: the same collection plus `extra` rows."""
+    def add(art):
+        rows = art["page"]["sources"][0]["results"]
+        first = rows[0]
+        rows.extend({**first, "id": rid, "version": rid, "number": first["number"] + 10 + i}
+                    for i, rid in enumerate(extra))
+    raw = artifact_of(w, op=op, change=add)
+    define_from(w, raw)
+    return ask_commit(w, raw)["body"]
+
+
+NEWLY = ["ent-000000000031", "ent-000000000032"]
+
+
+def test_a_changed_source_reports_its_true_new_count(world):
+    """Collecting twice over a changed source: the count is exactly what changed."""
+    first = commit(world, "changed-first")
+    commit_with_rows(world, "changed-second", NEWLY)
+    got = C.new_since(world.state, MAGNET, since=first["artifact"]["ref"])
+    assert got["new"] == sorted(NEWLY) and got["new_count"] == 2
+    # And collecting again with nothing changed adds nothing new to that count.
+    commit_with_rows(world, "changed-third", NEWLY)
+    again = C.new_since(world.state, MAGNET, since=first["artifact"]["ref"])
+    assert again["new"] == sorted(NEWLY) and again["new_count"] == 2
+
+
+def test_an_undigestible_row_does_not_zero_the_new_count(world, monkeypatch):
+    first = commit(world, "tolerant-first")
+    commit_with_rows(world, "tolerant-second", NEWLY)
+    odd, digest, raised = NEWLY[0], C.row_digest, []
+
+    def one_row_refuses(row):
+        if isinstance(row, dict) and row.get("id") == odd:
+            raised.append(odd)
+            raise C.UndigestibleRow("fixture: this row has no exact content identity")
+        return digest(row)
+
+    monkeypatch.setattr(C, "row_digest", one_row_refuses)
+    tolerated = C.new_since(world.state, MAGNET, since=first["artifact"]["ref"])
+    assert raised, "the fixture's row was never digested"
+    # That row alone is gone: the rest of the batch still diffs, so the count is
+    # one fewer -- not zero, and the read does not fail.
+    assert tolerated["new"] == [NEWLY[1]] and tolerated["new_count"] == 1
+
+
 @pytest.mark.parametrize("bound", [-1, True, 2**63, "10"])
 def test_operational_sequence_bounds_are_checked(world, bound):
     with pytest.raises(ValueError):

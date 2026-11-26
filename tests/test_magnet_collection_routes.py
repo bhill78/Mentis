@@ -2,7 +2,7 @@
 import json
 import pytest
 from tests.test_magnet_activation import MAGNET, JSON_HEADERS, built, world, record_size, send
-from tests.test_magnet_collection_history import commit
+from tests.test_magnet_collection_history import NEWLY, commit, commit_with_rows
 
 
 def get(w, tail='', headers=()):
@@ -58,6 +58,24 @@ def test_new_route_reports_true_new_items_over_http(world):
     assert get(world, '/new')['status'] == 400
     assert get(world, '/new?since=not-a-batch')['status'] == 400
     assert get(world, '/new?since=adm-000000000000')['status'] == 404
+    assert record_size(world) == before
+
+
+def test_new_route_counts_what_actually_changed(world):
+    """What the badge is fed: over HTTP, the true count and nothing else.
+
+    The two fixture batches above hold the same rows, so their diff is honestly
+    empty. This is the other case -- a later batch over a changed source -- read
+    the way the client reads it.
+    """
+    first = commit(world, 'true-count-first')
+    changed = commit_with_rows(world, 'true-count-second', NEWLY)
+    before = record_size(world)
+    body = json.loads(get(world, f'/new?since={first["artifact"]["ref"]}')['body'])
+    assert body['batch'] == changed['artifact']['ref']
+    assert body['new'] == sorted(NEWLY) and body['new_count'] == 2
+    # Nothing changed since the batch the viewer was last shown: no new items.
+    assert json.loads(get(world, f'/new?since={changed["artifact"]["ref"]}')['body'])['new_count'] == 0
     assert record_size(world) == before
 
 

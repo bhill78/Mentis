@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
+import type { MagnetCollectionResource } from './state'
 import { magnetIndicators, restingCount } from './indicators'
 import { retainedFiles } from './Inspection'
 import { MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
@@ -89,6 +90,26 @@ export function restTitleOffset(x: number, width: number) {
   return Math.round(Math.max(GAP - x, Math.min(-26, width - GAP - x - REST_TITLE)))
 }
 
+/** THE RESOURCE'S OWN NEW-ITEM READ, where the resource provides one. Declared
+ *  here rather than in the shared contract: the count is a read of the record,
+ *  taken by the frame, not snapshot state, and a resource that cannot take it
+ *  simply leaves the badge's new-item total unknown. */
+type Counting = MagnetResource & Partial<Pick<MagnetCollectionResource, 'markShown' | 'newItemCount'>>
+
+/** WHICH BATCH TO RECORD AS SHOWN TO THIS VIEWER, or `null` for "record
+ *  nothing".
+ *
+ *  The baseline the new-item count is taken from is the batch the card was
+ *  showing when the viewer last opened it, so it is recorded once per opening:
+ *  on the open transition, or on the first batch that lands during that opening
+ *  when nothing was being shown yet. Deliberately NOT re-recorded while the
+ *  card stays open -- a collection that lands during an opening is still new
+ *  since the viewer opened the Magnet, and the badge says exactly that. A
+ *  closed card records nothing: what it is not showing has not been seen. */
+export function shownBaseline(open: boolean, alreadyRecorded: boolean, batch: string | null): string | null {
+  return open && !alreadyRecorded && batch ? batch : null
+}
+
 export function activityWords(activity: unknown, previousOpen?: number) {
   if (typeof activity !== 'number' || !Number.isFinite(activity) || activity < 0) return 'Source activity unavailable.'
   if (!previousOpen) return 'Source activity reported; no last-open baseline in this tab yet.'
@@ -157,6 +178,11 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
   const reported = useRef<{ el: HTMLDivElement; top: number } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [size, setSize] = useState({ width: 1024, height: 768 })
+  /** What is new since this viewer last opened this Magnet, read from the record
+   *  (`collection/new`) by the effects below. `null` is unknown, never zero. */
+  const [newItems, setNewItems] = useState<number | null>(null)
+  /** Whether this opening of the card has already recorded its baseline. */
+  const baselined = useRef(false)
   const cardId = useId()
   const viewId = useId()
   const settingsId = useId()
@@ -170,14 +196,15 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
   const postCount = typeof tally === 'number' && Number.isFinite(tally) && tally >= 0 ? tally : null
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
   const filesKnown = files.length > 0 || s.status === 'ok' || s.status === 'partial'
-  const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial })
+  const counting: Counting = resource
+  const latestBatch = s.activation?.artifact?.ref ?? null
+  const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial, newItems })
   // Never fabricate a count: unknown until a retained read has returned.
   const counted = s.activation !== undefined ? posts.length + files.length : null
-  /** The resting puck's one number. Nothing supplies a new-item total yet --
-   *  notification state is framework-owned and unbuilt (ent-5382b85d5f4e) --
-   *  so `null` is passed deliberately rather than a field invented here, and
-   *  the badge says what it is actually counting. */
-  const resting = restingCount(null, counted)
+  /** The resting puck's one number: what is actually new since this viewer last
+   *  opened this Magnet, read from the record below. `null` is unknown, and the
+   *  badge then says what is held and which of the two it is showing. */
+  const resting = restingCount(newItems, counted)
   const here = place(s)
   const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.wide, s.dimensions)
   const room = panelRoom(geometry.width, geometry.maxHeight)
@@ -244,6 +271,30 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
     if (open) void resource.read()
     else resource.cancel()
   }, [open, resource])
+
+  /** The baseline this viewer's new-item count is taken from: recorded once per
+   *  opening, and cleared on close so the next opening records its own. */
+  useEffect(() => {
+    if (!open) { baselined.current = false; return }
+    const record = shownBaseline(open, baselined.current, latestBatch)
+    if (!record) return
+    baselined.current = true
+    counting.markShown?.(record)
+  }, [open, latestBatch, counting])
+  /** The one number the resting puck carries, taken from the record: the rows
+   *  in the latest batch whose identity is absent from that baseline. Read when
+   *  the card opens or closes and when a new batch lands -- a collection
+   *  updates the snapshot whether the card is open or not -- and at no other
+   *  time: no timer, no polling, nothing waking on its own. An unknown count
+   *  stays unknown; the badge then reports what is held, never calling it new. */
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      const count = await counting.newItemCount?.()
+      if (live) setNewItems(count ?? null)
+    })()
+    return () => { live = false }
+  }, [open, latestBatch, counting])
 
   useEffect(() => {
     const blur = () => { drag.current = null; setDragging(false); suppress.current = true }

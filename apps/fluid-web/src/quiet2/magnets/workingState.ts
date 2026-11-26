@@ -198,6 +198,33 @@ export function saveWorking(brainKey: string, id: string, s: MagnetSnapshot) {
     }))
   } catch { /* The Brain still retains collection and Conversation if storage is unavailable. */ }
 }
+/** THE COLLECTION BATCH THIS VIEWER WAS LAST SHOWN, kept beside the reading
+ *  position it belongs with.
+ *
+ *  Device working state like everything else in this file: the server keeps no
+ *  per-viewer notification state, so the new-item read is told which batch to
+ *  count from (`collection/new?since=`) and the client is what holds it. It is
+ *  written when the card is opened on a batch -- what the viewer has actually
+ *  looked at -- and nothing else writes it.
+ *
+ *  Its own key, so the working-state payload's shape is untouched and an older
+ *  release ignores it. A missing or unreadable value means "no baseline", which
+ *  the badge reports as unknown; it is never read as "nothing is new", which
+ *  would be a count this device cannot support. */
+const SHOWN_BATCH = /^adm-[a-zA-Z0-9]{6,40}$/
+export function loadShownBatch(brainKey: string, id: string): string | null {
+  try {
+    const key = workingKey(brainKey)
+    const kept = key ? localStorage.getItem(`${key}:${id}:shown`) : null
+    return typeof kept === 'string' && SHOWN_BATCH.test(kept) ? kept : null
+  } catch { return null }
+}
+export function saveShownBatch(brainKey: string, id: string, batch: string) {
+  try {
+    const key = workingKey(brainKey)
+    if (key && SHOWN_BATCH.test(batch)) localStorage.setItem(`${key}:${id}:shown`, batch)
+  } catch { /* Without storage there is no baseline, and the badge says so. */ }
+}
 export function openedMagnets(brainKey: string): string[] {
   try {
     const key = workingKey(brainKey), rows = key && JSON.parse(localStorage.getItem(`${key}:open`) ?? '[]')
