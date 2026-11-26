@@ -4,6 +4,7 @@ import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
 import type { MagnetCollectionResource } from './state'
 import { magnetIndicators, restingCount } from './indicators'
 import { retainedFiles } from './Inspection'
+import { perspectivesOf } from './perspectives'
 import { MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
 import { pendingScroll, reachedScroll, savesReportedScroll } from './position'
 import './design.css'
@@ -198,7 +199,9 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
   const filesKnown = files.length > 0 || s.status === 'ok' || s.status === 'partial'
   const counting: Counting = resource
   const latestBatch = s.activation?.artifact?.ref ?? null
-  const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial, newItems })
+  const inquiries = perspectivesOf(resource)
+  const inquiriesSnapshot = useSyncExternalStore(inquiries.subscribe, inquiries.snapshot, inquiries.snapshot)
+  const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial, newItems, perspectives: inquiriesSnapshot.rows.length })
   // Never fabricate a count: unknown until a retained read has returned.
   const counted = s.activation !== undefined ? posts.length + files.length : null
   /** The resting puck's one number: what is actually new since this viewer last

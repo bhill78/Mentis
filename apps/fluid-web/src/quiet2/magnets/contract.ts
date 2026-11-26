@@ -274,7 +274,8 @@ export type ManagedRefusalReason = keyof typeof MANAGED_REFUSAL
 /** The retained-content gate keeps its EXISTING refusal, unchanged and not
  *  renamed: `mentis.magnet.perspectives.require_grounded` already answers
  *  this, and section 2 requires it at request validation and again before any
- *  recovered execution while configured-source enforcement is unverified. */
+ *  recovered execution; configured-source enforcement is Part A's
+ *  `mentis/magnet/scope.py`. */
 export const RETAINED_GATE_CODE = 'grounded-answers-blocked'
 
 /* ---- Canonical JSON and digests (section 3) --------------------------------------

@@ -116,7 +116,7 @@ const openHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand
 ok(openHtml.includes('q2-magnet-indicators'), 'the open card shows the indicator ring')
 ok(openHtml.includes('Posts: 19 collected posts in the collection shown'), 'the posts tally names the collection it counted')
 ok(openHtml.includes('Files: 1 collected '), 'the files indicator says the collection is partial')
-ok(openHtml.includes('Perspectives unavailable'), 'Perspectives indicator names its unavailable explanation')
+ok(openHtml.includes('No question kept for this Magnet yet'), 'Perspectives indicator reports the count read from its own store, wired like the other counts')
 ok(openHtml.includes('New items unavailable'), 'with no baseline the new-item indicator says so, rather than showing a number')
 ok(!/50 new|6 changed|\bunread\b/i.test(openHtml), 'no fabricated unread/new counts appear anywhere in the rendered card')
 

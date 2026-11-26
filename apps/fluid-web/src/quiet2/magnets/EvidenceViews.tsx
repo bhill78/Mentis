@@ -168,10 +168,11 @@ export function evidenceSource(resource: MagnetResource): SearchSource {
  *  against a question instead of against a filter, and it occupies the working
  *  area only while it is open.
  *
- *  It is not an answer's chosen support, and never pretends to be: nothing read
- *  these items to answer anything, which is what `SUPPORTING_WHY` says beneath
- *  them. Opening one goes through the caller's own evidence opening, so the
- *  item is read in the card's one inspection with its one way back. */
+ *  It is not an answer's chosen support, and never pretends to be: the standing
+ *  answer names only the records it was written from, and `SUPPORTING_WHY`
+ *  says that beneath them. Opening one goes through the caller's own evidence
+ *  opening, so the item is read in the card's one inspection with its one way
+ *  back. */
 export function SupportingItems({ resource, question, onOpen }: {
   resource: MagnetResource
   /** The question these are offered against, in its own saved words. */
