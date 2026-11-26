@@ -55,6 +55,25 @@ Unknown fields are refused, so a typo can't silently change nothing.
 - **The Host header, path and query go on byte for byte.** Python's own Host check and grant checks still run behind the front.
 - **Inbound `X-Mentis-Peer` and `X-Mentis-Boot-Secret` are stripped,** then the real peer and the secret are added (`contracts/launcher.md`).
 - **Bodies stream in both directions.** The export ZIP and a 200 MB upload must not be buffered (`R1-acceptance.md`, Streaming).
+- **A client that leaves ends Python's request at once.** For a request with no body, the client's side is watched while Python works; its end (or a reset) drops the connection to Python then, not when the answer fails to write. Bytes the client sends ahead (a next request) count as still there. A half-close reads as leaving, as it does for the routes that watch their client.
+
+## Forwarded reads (2026-11-25)
+
+Code: `front/flights.rs`. Tests: `tests/forwarded_reads.rs`.
+
+**Why.** A `rust` route forwards a case it can't answer, most often because the live snapshot is stale (`contracts/live-snapshot.md`). That happens when Python is slow, so every client polling a view used to send Python its heaviest reads exactly when it had least to spare: on 2026-11-25, with Python overloaded, 642 of 669 `turns` reads forwarded, p95 52 s, and `conversation-fields` forwards had p95 210 s.
+
+Only these forwards change: a `GET` that a `rust` route's handler returned as not owned. A request the table gives to Python, and every write, is forwarded as above, unchanged.
+
+- **Identical reads in flight share one request.** A read joins one already on its way to Python when its request line (target and HTTP version), peer and headers are the same, credentials included, ignoring only headers Python doesn't answer by (`Connection`, `Keep-Alive`, `Priority`, `Referer`, `Cache-Control`, `Pragma`, `DNT`, `Sec-Fetch-*`, `Sec-CH-*`). Each gets Python's whole answer as Python sent it. A read with a body, `Content-Length` or `Transfer-Encoding` at all, `Expect`, or a worker grant (`X-Mentis-Worker`) is never shared.
+- **Never an answer older than the read's own writes.** A read joins only if no request other than a `GET` or `HEAD` was in hand at any moment since the shared one was sent. So a read made after any write has been answered (the client's own, or anyone's through this front) gets an answer asked for after that write, as it would without sharing. Writes, authority checks and grants are never shared or held.
+  **Limit: the fence sees only requests that pass through this front.** A change made any other way is invisible to it: for example an owner session revoked by rewriting the credential file (`owner_auth`'s command line) rather than through the front, or a write Python makes on its own. A read made after such a change may still join a read sent before it, with the same credentials. The window is only that shared read's time in flight (at most `SHARED_READ_GIVE_UP`), and the answer is one Python gave to an identical request sent within it: the same as if this read had been sent at that moment. Nothing is kept past it.
+- **Not a cache.** Nothing is kept once it is answered: the next read asks Python again.
+- **At most `MOST_FORWARDED_READS` (4) at once.** A read that can't be shared waits up to `WAIT_FOR_A_PLACE` (3 s) for a place. With none, nothing is sent, and it is answered `503` with `Retry-After: 2` and `{"error": "Mentis is busy: ...", "kind": "Busy"}`, the `kind` Fluid's Magnet answers already use for "nothing was done, ask again". Its time is filed as `<route>:busy`.
+- **A client leaving.** A read's client that leaves lets its share go. The request to Python ends only when the last read waiting for it has gone, and at once then.
+- **A shared read is given up after `SHARED_READ_GIVE_UP` (120 s)** from taking its place, and every request waiting for it is answered as Python gone (the front's 503, `Python-reached` words). So a Python that never answers can't hold the places, even when its waiters can no longer be watched for leaving (a client that has sent its next request ahead).
+- **What can't be shared** (an answer not framed by `Content-Length`, a 1xx, a head over 1 MiB, or a body over 32 MiB) **goes to the request that asked for it**: the front hands it Python's connection and what has come so far, and it relays the rest as any forward does, without asking again. Only the requests that joined it ask Python for their own.
+- **Freshness is unchanged.** These reads forward for the same reasons as before, and the pulse still says stale or unavailable as it did. Sharing changes only how many requests Python gets for them.
 
 ## Warning for P1.2: framing is Python's answer, not the library's
 

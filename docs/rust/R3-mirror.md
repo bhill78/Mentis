@@ -117,18 +117,19 @@ Held { boot, watch, owner, generation, table, confirmed_sent, behind }
 | Position answered while `Locating`, known schema | Open a watch on its `pid`, then send the pull. If the watch can't be opened, `Empty`: nothing is served without one |
 | Pull answered, known schema, `boot_id` = the position's | If the claim file says that boot and the owner lock's file opens, adopt, with `confirmed_sent` = the pull's send time, and replay `pending` of that boot above its generation; a gap pulls again. Otherwise close the watch, `Empty`: nothing is served for a boot that doesn't own this Brain |
 | Pull answered, another `boot_id` | Close the watch and discard: it may be on the wrong process (section 4). The discard is a trigger |
-| Position or pull refused, failed, or not whole within `POSITION_TIMEOUT` or `PULL_TIMEOUT` | Connection dropped, so no late answer can count. `Empty`, and `pending` goes with it, because any later pull includes those changes. Tried again at the next trigger below, not on a timer |
+| Position or pull refused, failed, not connected within `POSITION_TIMEOUT`, or not whole within `LOCATE_GIVE_UP` once sent | Connection dropped. `Empty`, and `pending` goes with it, because any later pull includes those changes. Tried again at the next trigger below, not on a timer. A sent position or pull is waited for, not abandoned at a short timeout: a busy Python works out the answer either way, and asking again only doubles that (correction, 2026-11-25) |
 | Push, same boot, `generation == held + 1` | Apply. **Doesn't touch `confirmed_sent`** (see section 4, row 6) |
 | Push, `generation <= held` | Already included. Ack |
 | Push, `generation > held + 1`, or another boot | Discard the table and pull. Ack, because nothing is served until a table taken after this arrives |
 | Push while `Empty`, `Locating` or `Pulling` | Keep in `pending`. Ack. A push that finds no pull in flight is itself a trigger |
 | Push, malformed | Discard, then 400 (above). Never ack |
-| Position, `generation == held`, not `down`, same boot | `confirmed_sent` = that poll's send time, `behind` cleared |
+| Position, `generation == held`, not `down`, same boot | `confirmed_sent` = that poll's send time, unless it already holds a later one, `behind` cleared |
 | Position, `generation > held`, or `down` | `behind`; pull |
 | Position, `generation < held` | Ignored, no lease credit: the poll raced a push it hasn't seen. A real regression never earns credit again, so it ends in forwarding |
 | Position, another boot, another `pid`, or unknown schema | Close the watch, discard; pull |
 | Poll connection ends, or is reset | Discard (Python gone). This is the `Snapshots` connection-in-hand behaviour. It saves the next read a check and **nothing relies on it** |
-| Poll not whole within `POSITION_TIMEOUT` | Connection dropped, no credit, and the next poll opens a new one. The lease keeps running out. A refused connect on Windows lands here, since it takes longer than the timeout |
+| Poll not whole within `POSITION_EVERY` | **Kept in hand, not dropped** (correction, 2026-11-25): no new poll is sent beside it, and its answer, when it comes, earns credit from its own send time like any position's, so the lease keeps running out meanwhile. It is dropped only after `POLL_GIVE_UP` (30 s). Before the correction it was dropped at 250 ms and asked again every 500 ms; production's Python logged about 19,000 aborted answers from it while overloaded |
+| Poll not connected within `POSITION_TIMEOUT` | No request was sent. No credit, and the next poll tries again. A refused connect on Windows lands here, since it takes longer than the timeout |
 | Poll non-200, unreadable | Nothing. The lease keeps running out |
 | The door finds the watch ended | Close it, discard; pull. This read forwards |
 | The tail finds another claim, the owner lock released, or the serve lock taken exclusive | Close the watch and the owner handle, discard; pull. This read forwards |
@@ -136,7 +137,7 @@ Held { boot, watch, owner, generation, table, confirmed_sent, behind }
 
 **Pull triggers:** front start; a discard; a push that needs one; a presented grant while not `Held`. Each starts at `Locating`. One at a time, and nothing retries on a timer.
 
-**Polling:** every `POSITION_EVERY`, one at a time, using the same in-hand connection as `Snapshots`, whenever `Held` with at least one grant or while pulling. Agents read at intervals longer than the 5 s the pulse uses, so asking on demand would forward nearly every read of a lone agent. Polling has no supervising role, and it stops when no grants are held.
+**Polling:** every `POSITION_EVERY` while answers are prompt (within 1 s, `POLL_PROMPT`), backing off by doubling after slow answers to at most `POSITION_EVERY_MOST` (1.5 s, half of `LEASE`), counted from each position's send. Unlike `/private/live`'s backoff (to 4 s, from the answer), which only costs freshness, a gap past `LEASE` would forward every granted read, so a Python answering steadily within about 1.5 s keeps the lease. One at a time, using the same in-hand connection as `Snapshots`, whenever `Held` with at least one grant or while pulling. Agents read at intervals longer than the 5 s the pulse uses, so asking on demand would forward nearly every read of a lone agent. Polling has no supervising role, and it stops when no grants are held.
 
 **A Python restart with an empty mirror:** no poll is running, but Python starts with `down` false, so its first mint pushes with a new `boot_id`, which discards and pulls.
 
@@ -146,8 +147,9 @@ Held { boot, watch, owner, generation, table, confirmed_sent, behind }
 |---|---|---|
 | `PUSH_TIMEOUT` | 500 ms | The whole push. Windows takes 2-2.5 s to refuse a loopback connect (`contracts/live-snapshot.md`), so a dead front costs this, not that |
 | `POSITION_EVERY` | 500 ms | As `/private/live` |
-| `POSITION_TIMEOUT` | 250 ms | One position, connect included. Its only cost when missed is one poll's credit: `LEASE` survives several in a row |
-| `PULL_TIMEOUT` | 500 ms | One pull, connect included. A miss means forwarding until the next trigger |
+| `POSITION_EVERY_MOST` | 1.5 s | The longest gap between positions' sends while answers are slow. Half of `LEASE`: asserted at compile time, and `a_steadily_slow_python_keeps_the_lease` holds the lease under a Python taking 1 s per position |
+| `POSITION_TIMEOUT` | 250 ms | Connecting for a position or a location. Nothing is sent until connected, so a miss costs Python nothing |
+| `LOCATE_GIVE_UP` | 10 s | A location's position, then its pull, once sent. Reads forward meanwhile, as they do while nothing is held. Replaces the earlier 250 ms and 500 ms (`PULL_TIMEOUT`) limits, which abandoned answers a busy Python was still working out |
 | `LEASE` | 3 s | Above C0's worst pulse p95, 565 ms (M), so a loaded Python doesn't normally push reads back to it. It only sets the worst-case fence |
 | `FENCE` | `LEASE` + 100 ms | Python's `perf_counter` and Rust's `Instant` read the same clock on Windows (QPC) and Linux (`CLOCK_MONOTONIC`). The margin is for scheduling, not drift |
 | `CLAIM_WAIT` | 30 s, **measured below** | How long a starting Python waits for the claim's two locks, then refuses (section 4). Has to exceed `SEND_BOUND`, or one stalled client could refuse a start. Safety assumes nothing about it: running out only refuses the start |

@@ -20,6 +20,7 @@ use tokio::sync::Notify;
 
 use super::held::{BrainFile, Ended, ProcessWatch};
 use crate::launch::SECRET_HEADER;
+use crate::live::{POLL_GIVE_UP, Pace};
 
 pub const SCHEMA: u64 = 1;
 pub const GRANTS_PATH: &str = "/private/grants";
@@ -27,9 +28,20 @@ const POSITION_PATH: &str = "/private/grants/position";
 
 /// How long a confirmation from Python, measured from when it was *sent*, says the mirror is current.
 pub const LEASE: Duration = Duration::from_secs(3);
+/// Poll this often while answers are prompt. Slower answers back off ([`Pace`]) up to
+/// [`POSITION_EVERY_MOST`].
 pub const POSITION_EVERY: Duration = Duration::from_millis(500);
+/// The longest wait between positions while answers are slow. Half of [`LEASE`], so a backoff alone
+/// never outlasts it: unlike `/private/live`'s 4 s, which only costs freshness, a gap past the lease
+/// would send every granted read back to Python.
+pub const POSITION_EVERY_MOST: Duration = Duration::from_millis(1500);
+/// How long a connection to Python may take, before any request is sent on it. A request once sent
+/// is waited for, not abandoned: see [`LOCATE_GIVE_UP`] and [`POLL_GIVE_UP`].
 pub const POSITION_TIMEOUT: Duration = Duration::from_millis(250);
-pub const PULL_TIMEOUT: Duration = Duration::from_millis(500);
+/// How long a location's position, and then its pull, are each waited for once sent. A busy Python
+/// still works out an answer the front has stopped waiting for, so it is waited for rather than
+/// abandoned and asked again. Reads forward meanwhile, as they do while nothing is held.
+pub const LOCATE_GIVE_UP: Duration = Duration::from_secs(10);
 /// Past it, a push or request body isn't read at all.
 pub const BODY_LOOK: u64 = 1024 * 1024;
 const MOST_ANSWER: usize = 64 * 1024 * 1024;
@@ -372,7 +384,9 @@ impl<W: Ended, O> State<W, O> {
                     held.behind = true;
                     self.wanted = true;
                 } else if position.generation == held.generation {
-                    held.confirmed_sent = sent;
+                    // Never moved back: a late answer to a poll sent before the table was pulled
+                    // is a true confirmation, but an older one than the pull's.
+                    held.confirmed_sent = held.confirmed_sent.max(sent);
                     held.behind = false;
                 }
                 // Below what is held: the poll raced a push it hasn't seen. No credit, and a real
@@ -519,33 +533,12 @@ impl Mirror {
         good
     }
 
-    /// Started once, by the front, and never returns.
-    pub async fn run(&self) {
-        let mut connection: Option<TcpStream> = None;
-        loop {
-            if self.locked().begin() {
-                connection = None;
-                self.locate_and_pull().await;
-                continue;
-            }
-            if self.locked().polling() {
-                let sent = Instant::now();
-                self.poll(&mut connection, sent).await;
-                let next = sent + POSITION_EVERY;
-                self.idle(&mut connection, next).await;
-            } else {
-                connection = None;
-                self.wake.notified().await;
-            }
-        }
-    }
-
     async fn locate_and_pull(&self) {
         let Ok(mut stream) = connect(self.upstream, POSITION_TIMEOUT).await else {
             self.locked().failed();
             return;
         };
-        let said = match self.ask(&mut stream, POSITION_PATH, POSITION_TIMEOUT).await {
+        let said = match self.ask(&mut stream, POSITION_PATH, LOCATE_GIVE_UP).await {
             Asked::Answer(200, body) => parse_position(&body),
             _ => {
                 self.locked().failed();
@@ -558,7 +551,7 @@ impl Mirror {
         if !located {
             return;
         }
-        match self.ask(&mut stream, GRANTS_PATH, PULL_TIMEOUT).await {
+        match self.ask(&mut stream, GRANTS_PATH, LOCATE_GIVE_UP).await {
             Asked::Answer(200, body) => {
                 let said = parse_pull(&body);
                 let brain = self.brain.clone();
@@ -568,45 +561,104 @@ impl Mirror {
         }
     }
 
-    /// One position, on the connection in hand or a new one. A poll not whole in time loses the
-    /// connection and earns nothing; a connection that ends says Python is gone.
-    async fn poll(&self, connection: &mut Option<TcpStream>, sent: Instant) {
-        if connection.is_none() {
-            match connect(self.upstream, POSITION_TIMEOUT).await {
-                Ok(stream) => *connection = Some(stream),
-                // A refused connect on Windows lands here, since it takes longer than the timeout.
-                Err(()) => return,
+    /// Started once, by the front, and never returns.
+    ///
+    /// **One position poll at a time, and a sent one is never abandoned for a slow answer** (until
+    /// [`POLL_GIVE_UP`]): a busy Python answers it when it can, and the answer earns credit from
+    /// when it was sent, as any position's does. While answers are slow the next poll waits longer
+    /// ([`Pace`]), counted from the send and never past [`POSITION_EVERY_MOST`] (half the lease); a
+    /// prompt answer puts it back to [`POSITION_EVERY`].
+    pub async fn run(&self) {
+        let mut connection: Option<TcpStream> = None;
+        let mut position: Option<InFlight> = None;
+        let mut pace = Pace::new(POSITION_EVERY, POSITION_EVERY_MOST);
+        loop {
+            if self.locked().begin() {
+                connection = None;
+                self.locate_and_pull().await;
+                continue;
             }
-        }
-        let stream = connection.as_mut().expect("just made");
-        match self.ask(stream, POSITION_PATH, POSITION_TIMEOUT).await {
-            Asked::Answer(200, body) => self.locked().positioned(parse_position(&body), sent),
-            // The lease keeps running out.
-            Asked::Answer(..) | Asked::Late => *connection = None,
-            Asked::Gone => {
-                *connection = None;
-                self.locked().discard();
+            let polling = self.locked().polling();
+            if !polling && position.is_none() {
+                connection = None;
+                self.wake.notified().await;
+                continue;
             }
+            let tick = Instant::now();
+            if polling && position.is_none() {
+                position = self.send_position(&mut connection, tick).await;
+                if position.is_none() {
+                    // Not connected: no request went, so nothing was asked of Python.
+                    pace.heard(false, Duration::ZERO);
+                }
+            }
+            let next = tick + pace.every();
+            self.idle(&mut connection, &mut position, &mut pace, next)
+                .await;
         }
     }
 
-    /// Until the next poll is due or something wakes this, with the connection in hand watched: its
-    /// end is a discard. **Nothing relies on this:** it saves the next read a check.
-    async fn idle(&self, connection: &mut Option<TcpStream>, next: Instant) {
-        let sleep = tokio::time::sleep_until(next.into());
-        tokio::pin!(sleep);
+    /// Sends one position on the connection in hand or a new one, and leaves its answer to come in
+    /// its own task. `None` if no connection could be had.
+    async fn send_position(
+        &self,
+        connection: &mut Option<TcpStream>,
+        sent: Instant,
+    ) -> Option<InFlight> {
+        let stream = match connection.take() {
+            Some(stream) => stream,
+            // A refused connect on Windows lands here, since it takes longer than the timeout.
+            None => connect(self.upstream, POSITION_TIMEOUT).await.ok()?,
+        };
+        let request = self.request(POSITION_PATH);
+        let task = tokio::spawn(async move {
+            let mut stream = stream;
+            let asked = exchange(&mut stream, request.as_bytes()).await;
+            (stream, asked)
+        });
+        Some(InFlight { task, sent })
+    }
+
+    /// Until the next poll is due or something wakes this, with the poll in hand awaited and the
+    /// connection in hand watched: its end is a discard. **Nothing relies on the watch:** it saves
+    /// the next read a check. A slow answer puts the next poll off, by `pace`.
+    async fn idle(
+        &self,
+        connection: &mut Option<TcpStream>,
+        position: &mut Option<InFlight>,
+        pace: &mut Pace,
+        next: Instant,
+    ) {
+        let mut next = next;
         loop {
+            if let Some(flight) = position.as_ref()
+                && flight.sent.elapsed() > POLL_GIVE_UP
+            {
+                // Given up: the only time a sent position is dropped.
+                if let Some(flight) = position.take() {
+                    flight.task.abort();
+                }
+                pace.heard(false, Duration::ZERO);
+            }
+            let sleep = tokio::time::sleep_until(next.into());
+            let watching = position.is_none();
             let ended = async {
-                match connection.as_mut() {
-                    Some(stream) => {
+                match (watching, connection.as_mut()) {
+                    (true, Some(stream)) => {
                         let mut one = [0; 1];
                         matches!(stream.peek(&mut one).await, Ok(0) | Err(_))
                     }
+                    _ => std::future::pending().await,
+                }
+            };
+            let answered = async {
+                match position.as_mut() {
+                    Some(flight) => (&mut flight.task).await,
                     None => std::future::pending().await,
                 }
             };
             tokio::select! {
-                () = &mut sleep => return,
+                () = sleep => return,
                 () = self.wake.notified() => {
                     if self.locked().is_wanted() {
                         return;
@@ -617,20 +669,52 @@ impl Mirror {
                     self.locked().discard();
                     return;
                 }
+                joined = answered => {
+                    let sent = position.take().map_or_else(Instant::now, |flight| flight.sent);
+                    let took = sent.elapsed();
+                    let good = match joined {
+                        Ok((stream, Asked::Answer(200, body))) => {
+                            *connection = Some(stream);
+                            self.locked().positioned(parse_position(&body), sent);
+                            true
+                        }
+                        // The lease keeps running out.
+                        Ok((_, Asked::Answer(..) | Asked::Late)) | Err(_) => false,
+                        Ok((_, Asked::Gone)) => {
+                            self.locked().discard();
+                            false
+                        }
+                    };
+                    pace.heard(good, took);
+                    // Counted from the send, not the answer, unlike `/private/live`'s: so the
+                    // next position goes at most `POSITION_EVERY_MOST` after this one was sent,
+                    // and an answer within about half the lease keeps it.
+                    next = next.max(sent + pace.every());
+                }
             }
         }
     }
 
-    async fn ask(&self, stream: &mut TcpStream, path: &str, limit: Duration) -> Asked {
-        let request = format!(
+    fn request(&self, path: &str) -> String {
+        format!(
             "GET {path} HTTP/1.1\r\nHost: {}\r\n{SECRET_HEADER}: {}\r\n\r\n",
             self.upstream, self.secret
-        );
+        )
+    }
+
+    async fn ask(&self, stream: &mut TcpStream, path: &str, limit: Duration) -> Asked {
+        let request = self.request(path);
         match tokio::time::timeout(limit, exchange(stream, request.as_bytes())).await {
             Ok(asked) => asked,
             Err(_) => Asked::Late,
         }
     }
+}
+
+/// A position sent and not yet answered, in its own task so that waiting for it never abandons it.
+struct InFlight {
+    task: tokio::task::JoinHandle<(TcpStream, Asked)>,
+    sent: Instant,
 }
 
 enum Asked {
@@ -1075,5 +1159,156 @@ mod tests {
         }
         let long = format!(" {}", " ".repeat(BODY_LOOK as usize));
         assert!(parse_push(long.as_bytes()).is_none());
+    }
+
+    #[test]
+    fn a_late_position_sent_before_the_pull_never_moves_the_lease_back() {
+        let start = Instant::now();
+        let (mut state, _) = held(start, 3);
+        state.positioned(position(3, false), start - Duration::from_secs(2));
+        assert_eq!(served(&mut state, start + LEASE), Ok(()));
+    }
+
+    /// A Python whose positions are answered `delay` after they are asked and whose pull at once,
+    /// for this process as the boot it names, counting positions and the most unanswered at once.
+    struct SlowPositions {
+        address: SocketAddr,
+        positions: Arc<std::sync::atomic::AtomicUsize>,
+        most_at_once: Arc<std::sync::atomic::AtomicUsize>,
+        connections: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    const PYTHON_BOOT: &str = "0123456789abcdef0123456789abcdef";
+
+    async fn slow_positions(delay: Duration) -> SlowPositions {
+        use std::sync::atomic::AtomicUsize;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let positions = Arc::new(AtomicUsize::new(0));
+        let most_at_once = Arc::new(AtomicUsize::new(0));
+        let connections = Arc::new(AtomicUsize::new(0));
+        let now = Arc::new(AtomicUsize::new(0));
+        let (counted, most, conns) = (positions.clone(), most_at_once.clone(), connections.clone());
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                conns.fetch_add(1, Ordering::SeqCst);
+                let (counted, most, now) = (counted.clone(), most.clone(), now.clone());
+                tokio::spawn(async move {
+                    let mut got = Vec::new();
+                    let mut chunk = [0; 4096];
+                    loop {
+                        let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") else {
+                            match stream.read(&mut chunk).await {
+                                Ok(0) | Err(_) => return,
+                                Ok(n) => got.extend_from_slice(&chunk[..n]),
+                            }
+                            continue;
+                        };
+                        let head = String::from_utf8_lossy(&got[..end]).into_owned();
+                        got.drain(..end + 4);
+                        let body = if head.starts_with(&format!("GET {POSITION_PATH} ")) {
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            let at_once = now.fetch_add(1, Ordering::SeqCst) + 1;
+                            most.fetch_max(at_once, Ordering::SeqCst);
+                            tokio::time::sleep(delay).await;
+                            now.fetch_sub(1, Ordering::SeqCst);
+                            format!(
+                                r#"{{"schema":1,"boot_id":"{PYTHON_BOOT}","generation":1,"down":false,"pid":{}}}"#,
+                                std::process::id()
+                            )
+                        } else {
+                            format!(
+                                r#"{{"schema":1,"boot_id":"{PYTHON_BOOT}","generation":1,"corpus":"c","grants":{{"{KEY}":{{"corpus":"c","scope":"worker","operations":null}}}}}}"#
+                            )
+                        };
+                        let answer = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                            body.len()
+                        );
+                        if stream.write_all(answer.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        SlowPositions {
+            address,
+            positions,
+            most_at_once,
+            connections,
+        }
+    }
+
+    fn mirror_brain(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mentis-mirror-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(CLAIM), PYTHON_BOOT).unwrap();
+        std::fs::write(dir.join(OWNER_LOCK), "").unwrap();
+        dir
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_slow_position_is_waited_for_once_and_its_answer_keeps_the_lease() {
+        let python = slow_positions(Duration::from_millis(600)).await;
+        let brain = mirror_brain("slow");
+        let mirror = Arc::new(Mirror::new(python.address, "s".into(), brain.clone()));
+        let running = {
+            let mirror = mirror.clone();
+            tokio::spawn(async move { mirror.run().await })
+        };
+        tokio::time::sleep(Duration::from_millis(4500)).await;
+        // Past `LEASE` from the pull, so only a credited position can be serving it now.
+        let served = matches!(mirror.serve(KEY), Serve::Grant(_));
+        running.abort();
+        let _ = std::fs::remove_dir_all(&brain);
+        assert!(served, "a late position earned no credit");
+        assert_eq!(python.most_at_once.load(Ordering::SeqCst), 1);
+        let positions = python.positions.load(Ordering::SeqCst);
+        // One every 600 ms answer, plus the location's own; never re-asked beside one unanswered.
+        assert!((5..=9).contains(&positions), "{positions} positions");
+        // The location's connection, then one kept for every poll: none dropped for a late answer.
+        let connections = python.connections.load(Ordering::SeqCst);
+        assert!(connections <= 2, "{connections} connections");
+    }
+
+    const _: () = assert!(POSITION_EVERY_MOST.as_millis() * 2 <= LEASE.as_millis());
+
+    #[test]
+    fn the_position_backoff_stays_well_inside_the_lease() {
+        let mut pace = Pace::new(POSITION_EVERY, POSITION_EVERY_MOST);
+        for _ in 0..40 {
+            pace.heard(false, Duration::ZERO);
+        }
+        assert_eq!(pace.every(), POSITION_EVERY_MOST);
+        assert!(POSITION_EVERY_MOST < LEASE);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_steadily_slow_python_keeps_the_lease() {
+        let python = slow_positions(Duration::from_millis(1000)).await;
+        let brain = mirror_brain("steady");
+        let mirror = Arc::new(Mirror::new(python.address, "s".into(), brain.clone()));
+        let running = {
+            let mirror = mirror.clone();
+            tokio::spawn(async move { mirror.run().await })
+        };
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let mut forwarded = Vec::new();
+        let until = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < until {
+            if let Serve::Forward(why) = mirror.serve(KEY) {
+                forwarded.push(why);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        running.abort();
+        let _ = std::fs::remove_dir_all(&brain);
+        assert!(forwarded.is_empty(), "forwarded: {forwarded:?}");
+        assert_eq!(python.most_at_once.load(Ordering::SeqCst), 1);
     }
 }
