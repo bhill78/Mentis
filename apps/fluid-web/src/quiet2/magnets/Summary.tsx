@@ -61,7 +61,7 @@
  *  bytes it is stored as. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
-import { Prose, blocksOf, isStructured, isTableDivider, isTableRow, rowCells } from '../../prose'
+import { Prose, blocksAt, blocksOf, isStructured, isTableDivider, isTableRow, rowCells, type Block } from '../../prose'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
 import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
@@ -809,13 +809,36 @@ function Cites({ resource, cites, part }: { resource: MagnetResource; cites: str
         onClick={() => inspect(resource, c.id, `cite-${c.id}`)}>{c.title}</button></span>)}</p>
 }
 
-/* WHICH PART OF A MERGED CONSTRUCT ONE ENTRY IS, in its own recorded words.
-   `Row`/`Rows` for the pipe table rows an entry holds, `Item`/`Items` for the
-   list items it holds, and the quoted words themselves for a statement or a
-   clause of one -- the same characters the construct above shows, so a reader
-   finds the row, item or phrase a citation line names by reading it. */
+/* WHICH PART OF A MERGED CONSTRUCT ONE ENTRY IS, in its own recorded words AND
+   at a stated occurrence. `Row`/`Rows` for the pipe table rows an entry holds,
+   `Item`/`Items` for the list items it holds, and the quoted words themselves
+   for a statement or a clause of one -- the same characters the construct above
+   shows, so a reader finds the row, item or phrase a citation line names by
+   reading it.
+
+   WORDS ALONE DO NOT IDENTIFY AN OCCURRENCE, which is what review
+   `ent-7ca49dfd8393` showed with seven reproductions: two table rows whose
+   recorded first cell is the same 66 characters label identically once cut at
+   `PART_AT_MOST`, `1. Calibration completed.` and `2. Calibration completed.`
+   label identically because the item's number is the list's and not the item's
+   words, and a phrase a briefing repeats labels identically wherever it is
+   repeated. In each, moving the group's only citation from one entry to the
+   next produced byte-for-byte identical HTML, so what the server recorded could
+   not be read off the surface at all.
+
+   So every citation line in a group of more than one entry states WHICH
+   RECORDED PART of that group it is -- `Part 2`, counted in the order the
+   entries were recorded, which is the order their citation lines are drawn --
+   and, where the reader of the assembled body can determine it, which drawn row
+   or item that part produced (`Part 2, Row 3`). The part number is what makes
+   every label distinct, including where an entry cites nothing and emits no
+   line at all; the row or item number is what maps the label to something
+   visible. Where the mapping cannot be determined the number is simply left
+   out: nothing is guessed, and no label claims a position the body's own reader
+   did not give. */
 export const CITED_ROW = 'Row', CITED_ROWS = 'Rows'
 export const CITED_ITEM = 'Item', CITED_ITEMS = 'Items'
+export const CITED_PART = 'Part'
 
 /** How much of an entry's words a label carries before it is cut at a word
  *  boundary. Long enough to identify the part among its neighbours, short
@@ -849,15 +872,39 @@ function rowWords(text: string): string[] {
   return (data.length ? data : rows).map((l) => rowCells(l).filter(Boolean).join(' · '))
 }
 
-/** WHAT ONE RECORDED ENTRY IS, named by its own recorded characters. */
-export function citedPart(text: string): string {
+/** WHERE IN THE DRAWN GROUP one recorded entry's words are. `part` is which
+ *  recorded part of the group the entry is, counted from 1 -- always known,
+ *  because the group is the entries it was built from. `rows` and `items` are
+ *  the first and last ordinal, counted from 1, of the drawn table rows or list
+ *  items that entry's words produced, read out of the assembled body by the
+ *  renderer's own reader (`placeIn`); absent where it could not be determined. */
+export interface CitedPlace { part: number; rows?: [number, number]; items?: [number, number] }
+
+const span = ([from, to]: [number, number]): string => (from === to ? `${from}` : `${from}–${to}`)
+
+/** WHAT ONE RECORDED ENTRY IS, named by its own recorded characters and -- given
+ *  its place in the group (`CitedPlace`) -- at a stated occurrence.
+ *
+ *  The words are the entry's rows, its items, or the statement itself; the
+ *  position is the one the group's own assembled body gave them, and is left
+ *  out where there was none to read. A statement inside a paragraph has no
+ *  numbered part to name, so the recorded part number is all such a label
+ *  honestly carries -- and it is enough to tell one occurrence of a repeated
+ *  phrase from another. */
+export function citedPart(text: string, place?: CitedPlace): string {
   const rows = rowWords(text)
-  if (rows.length) return `${rows.length > 1 ? CITED_ROWS : CITED_ROW} ${rows.map(quoted).join(', ')}`
   const read = blocksOf(text)
   const only = read.length === 1 ? read[0] : null
-  if (only?.kind === 'list' && only.items.length)
-    return `${only.items.length > 1 ? CITED_ITEMS : CITED_ITEM} ${only.items.map(quoted).join(', ')}`
-  return quoted(text)
+  const items = only?.kind === 'list' ? only.items : []
+  /* An entry whose own text is neither rows nor one list can still have landed
+     in a list: a continuation that finished the item above it. */
+  const of = rows.length ? 'row' : items.length || place?.items ? 'item' : ''
+  const where = of === 'row' ? place?.rows : of === 'item' ? place?.items : undefined
+  const words = (rows.length ? rows : items.length ? items : [text]).map(quoted)
+  const many = words.length > 1 || (!!where && where[1] > where[0])
+  const noun = of === 'row' ? (many ? CITED_ROWS : CITED_ROW) : of === 'item' ? (many ? CITED_ITEMS : CITED_ITEM) : ''
+  const position = [place ? `${CITED_PART} ${place.part}` : '', where ? `${noun} ${span(where)}` : noun]
+  return [position.filter(Boolean).join(', '), words.join(', ')].filter(Boolean).join(' ')
 }
 
 /** What a recorded entry's own text, read alone, leaves open for the entry
@@ -911,6 +958,18 @@ function isOrphanRows(text: string): boolean {
  *  that group left open: orphan rows under a table, a list item of the same
  *  ordering, prose continuing a sentence that was cut off.
  *
+ *  AN ENTRY THAT BEGINS AS A CONTINUATION AND THEN CARRIES MORE. What decides
+ *  this is the entry's FIRST block, not the whole entry: review
+ *  `ent-7ca49dfd8393` recorded three real splits in which the continuing
+ *  fragment arrives with another block behind it -- two orphan rows and then a
+ *  concluding paragraph, a cut-off list item's rest and then the next item, half
+ *  a sentence and then the next heading -- and rejecting all of them (the old
+ *  `read.length !== 1`) left rows as literal pipes outside the table, restarted
+ *  an ordered list at 1, and split one sentence across two paragraphs. The first
+ *  block is joined the way its construct is written and THE REST OF THE ENTRY IS
+ *  KEPT VERBATIM after it, its own blank lines included, so what follows is read
+ *  as the blocks it was recorded as.
+ *
  *  A list item continued by plain prose is the one case that needs more than a
  *  newline. `blocksOf` reads a plain line as continuing the item above it only
  *  where that line is INDENTED, and `answerLines` trims every recorded entry,
@@ -918,20 +977,83 @@ function isOrphanRows(text: string): boolean {
  *  `ent-c0f9cca287b7` found such a continuation closing the list and starting a
  *  second one, numbered from 1 again. The group restores the indentation (two
  *  spaces) when it joins the fragment, which is the construct's own shape and
- *  not a recorded character altered -- the words are the recorded words. */
+ *  not a recorded character altered -- the words are the recorded words. Only
+ *  the continuing block is indented; a later line of the same entry is the line
+ *  it was recorded as. */
 function continues(tail: Tail, text: string): string | null {
   if (!tail) return null
-  const read = blocksOf(text)
-  if (read.length !== 1) return null
-  const only = read[0]
-  if (tail.kind === 'table') return only.kind === 'para' && isOrphanRows(text) ? `\n${text}` : null
+  const read = blocksAt(text)
+  const first = read[0]
+  if (!first) return null
+  const lines = text.split('\n')
+  const head = lines.slice(0, first.end), rest = lines.slice(first.end)
+  const headText = head.join('\n')
+  /* The first thing after the continuing block, if the entry carries one. */
+  const next = rest.find((l) => l.trim()) ?? ''
+  const joined = (fragment: string[]) => `\n${[...fragment, ...rest].join('\n')}`
+  if (tail.kind === 'table')
+    /* A row line right after the rows would be read as this table's row too --
+       including a divider, which would be drawn as data. An entry whose later
+       block is a table of its own is left to be its own body. */
+    return first.kind === 'para' && isOrphanRows(headText) && !isTableRow(next) ? joined(head) : null
   if (tail.kind === 'list') {
-    if (only.kind === 'list') return only.ordered === tail.ordered ? `\n${text}` : null
-    if (only.kind === 'para' && tail.open && !isOrphanRows(text))
-      return `\n${text.split('\n').map((l) => `  ${l.trim()}`).join('\n')}`
+    if (first.kind === 'list') return first.ordered === tail.ordered ? joined(head) : null
+    if (first.kind === 'para' && tail.open && !isOrphanRows(headText))
+      return joined(head.map((l) => (l.trim() ? `  ${l.trim()}` : l)))
     return null
   }
-  return tail.open && only.kind === 'para' ? `\n${text}` : null
+  return tail.open && first.kind === 'para' ? joined(head) : null
+}
+
+/** WHETHER THE JOIN DID WHAT IT MEANT TO, asked of the renderer's own reader
+ *  rather than of a rule about the characters: the blocks the group already had
+ *  are still those blocks, none of them was swallowed, and the one at the end --
+ *  the construct being continued -- is still that construct and has grown. A
+ *  join the reader does not confirm is not taken, and the entry becomes its own
+ *  body: the surface then shows two blocks where the writer wrote one, which is
+ *  a visible shortcoming and not a corrupted table or a renumbered list. */
+function absorbs(src: string, more: string): boolean {
+  const was = blocksOf(src), now = blocksOf(src + more)
+  if (now.length < was.length) return false
+  const last = was.length - 1
+  for (let i = 0; i < last; i++) if (JSON.stringify(was[i]) !== JSON.stringify(now[i])) return false
+  const before = was[last], after = now[last]
+  if (!before || !after || before.kind !== after.kind) return false
+  if (before.kind === 'table' && after.kind === 'table')
+    return after.head.join('|') === before.head.join('|')
+      && after.rows.length >= before.rows.length
+      && before.rows.every((row, i) => row.join('|') === after.rows[i]?.join('|'))
+  if (before.kind === 'list' && after.kind === 'list')
+    return after.ordered === before.ordered && after.items.length >= before.items.length
+      && before.items.every((item, i) => (i === before.items.length - 1
+        ? (after.items[i] ?? '').startsWith(item) : after.items[i] === item))
+  if (before.kind === 'para' && after.kind === 'para') return after.text.startsWith(before.text)
+  return false
+}
+
+/** WHERE ONE ENTRY'S WORDS LANDED IN THE ASSEMBLED BODY, read by comparing what
+ *  the renderer's reader made of the group before this entry with what it makes
+ *  of it after -- never by counting the characters of the entry itself. The
+ *  rows or items the entry added are the ones the construct gained; a
+ *  continuation that finished the item already there is that item. Anything the
+ *  comparison does not settle leaves the entry named by its recorded part alone,
+ *  which is honest about what is known. */
+function placeIn(part: number, before: Block[], after: Block[]): CitedPlace {
+  const i = Math.max(0, before.length - 1)
+  const was = before[i], now = after[i]
+  if (now?.kind === 'table') {
+    const from = was?.kind === 'table' ? was.rows.length + 1 : 1
+    return now.rows.length >= from ? { part, rows: [from, now.rows.length] } : { part }
+  }
+  if (now?.kind === 'list') {
+    const had = was?.kind === 'list' ? was.items.length : 0
+    /* An entry that FINISHED the item already there begins at that item, whether
+       or not it went on to start the next one: its first words are in it. */
+    const finished = had > 0 && (now.items[had - 1] ?? '').length > ((was as typeof now).items[had - 1] ?? '').length
+    const from = finished ? had : had + 1
+    return now.items.length >= from ? { part, items: [from, now.items.length] } : { part }
+  }
+  return { part }
 }
 
 /** A GROUP OF RECORDED ENTRIES THAT ARE ONE MARKDOWN CONSTRUCT.
@@ -949,19 +1071,26 @@ function continues(tail: Tail, text: string): string | null {
  *  implies a citation supports a statement it was not recorded against. Each
  *  entry keeps its own citations, listed in order and, in a group of more than
  *  one, naming the part of the construct they were recorded against
- *  (`citedPart`); they are never pooled into one set. */
-export interface BriefingGroup { lines: AnswerLine[]; src: string }
+ *  (`citedPart`); they are never pooled into one set.
+ *
+ *  Every group also carries, per entry and in the same order, WHERE that
+ *  entry's words landed in the body it assembled (`places`), so a citation line
+ *  can state the occurrence it was recorded against and not only its wording. A
+ *  proposed join is taken only where the reader confirms it (`absorbs`). */
+export interface BriefingGroup { lines: AnswerLine[]; src: string; places: CitedPlace[] }
 export function briefingGroups(lines: AnswerLine[]): BriefingGroup[] {
   const groups: BriefingGroup[] = []
   let tail: Tail = null
   for (const line of lines) {
     const group = groups[groups.length - 1]
     const more = group ? continues(tail, line.text) : null
-    if (group && more !== null) {
+    if (group && more !== null && absorbs(group.src, more)) {
+      const before = blocksOf(group.src)
       group.lines.push(line)
       group.src += more
+      group.places.push(placeIn(group.places.length + 1, before, blocksOf(group.src)))
     } else {
-      groups.push({ lines: [line], src: line.text })
+      groups.push({ lines: [line], src: line.text, places: [placeIn(1, [], blocksOf(line.text))] })
     }
     tail = tailOf(groups[groups.length - 1].src)
   }
@@ -1002,7 +1131,7 @@ export function Briefing({ resource, answer }: { resource: MagnetResource; answe
     return <>{briefingGroups(answerLines(answer)).map((group, i) => <div key={`answer-${i}`} className="q2-prose">
       <Prose src={group.src} scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
       {group.lines.map((line, j) => <Cites key={j} resource={resource} cites={line.cites}
-        part={group.lines.length > 1 ? citedPart(line.text) : undefined} />)}
+        part={group.lines.length > 1 ? citedPart(line.text, group.places[j]) : undefined} />)}
     </div>)}</>
   }
   return <>{withoutRecordCount(answerLines(answer)).map((line, i) => <div key={`answer-${i}`}>

@@ -35,7 +35,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import type { RouteResult } from '../src/fluid/surface/magnet/route'
 import Summary, {
-  BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_ROW, CITED_ROWS, DATED_WHY,
+  BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_PART, CITED_ROW, CITED_ROWS, DATED_WHY,
   NAMES_NOTHING_YET, WRITTEN_FROM,
   answerLines, answerRecordCount, briefingGroups, citedPart, citedRows, collectionOverview, datedMaterial,
   datedTable, isWrittenBriefing,
@@ -321,11 +321,11 @@ test('each citation under a merged table names the row it was recorded against (
   assert.equal(lines.length, 3, 'one citation line per contributing entry')
   // The row each line names is that entry's own recorded cells, so a reader
   // scanning the drawn table finds the row a source supports.
-  assert.ok(lines[1].words.startsWith(`${CITED_ROW} “Europa Clipper · NASA” — ${WRITTEN_FROM}`),
+  assert.ok(lines[1].words.startsWith(`${CITED_PART} 2, ${CITED_ROW} 2 “Europa Clipper · NASA” — ${WRITTEN_FROM}`),
     `the second row's line names that row: ${lines[1].words}`)
   assert.ok(lines[1].markup.includes(`id="cite-${CLIPPER}"`), 'and carries that row’s own citation')
-  assert.ok(lines[2].words.startsWith(`${CITED_ROW} “Artemis Programme · Space”`), lines[2].words)
-  assert.ok(lines[0].words.startsWith(`${CITED_ROW} “Roman Space Telescope · NASA”`),
+  assert.ok(lines[2].words.startsWith(`${CITED_PART} 3, ${CITED_ROW} 3 “Artemis Programme · Space”`), lines[2].words)
+  assert.ok(lines[0].words.startsWith(`${CITED_PART} 1, ${CITED_ROW} 1 “Roman Space Telescope · NASA”`),
     'the header is the table’s first line, not something a citation was recorded against')
   // THE PROBE THE REVIEW RAN: moving a citation from one entry to another must
   // change what the surface says. It used to produce identical HTML.
@@ -334,7 +334,7 @@ test('each citation under a merged table names the row it was recorded against (
   assert.notEqual(swapped, rendered, 'a citation that moves between entries moves what is rendered')
   const after = citeLines(swapped)
   assert.equal(after.length, 2, 'the entry that no longer cites anything shows no citation line')
-  assert.ok(after[0].words.startsWith(`${CITED_ROW} “Europa Clipper · NASA”`),
+  assert.ok(after[0].words.startsWith(`${CITED_PART} 2, ${CITED_ROW} 2 “Europa Clipper · NASA”`),
     'and the line that holds both citations still names the one row it was recorded against')
   assert.ok(after[0].markup.includes(`id="cite-${ROMAN}"`) && after[0].markup.includes(`id="cite-${CLIPPER}"`))
 })
@@ -349,7 +349,7 @@ test('a citation whose row is not held leaves the surviving lines still named', 
   ]) }))
   const lines = citeLines(rendered)
   assert.equal(lines.length, 1, 'a citation the batch shown does not hold is still dropped, not substituted')
-  assert.ok(lines[0].words.startsWith(`${CITED_ROW} “Europa Clipper · NASA”`),
+  assert.ok(lines[0].words.startsWith(`${CITED_PART} 2, ${CITED_ROW} 2 “Europa Clipper · NASA”`),
     'and the line that remains names its own row, so it cannot be read as the first row’s')
 })
 
@@ -370,7 +370,7 @@ test('two table rows recorded in one entry still join the table (review ent-c0f9
   assert.ok(!/<p>[^<]*\|/.test(rendered), 'no row is left as literal pipes in a paragraph')
   const lines = citeLines(rendered)
   assert.equal(lines.length, 2, 'each entry keeps its own citation line')
-  assert.ok(lines[1].words.startsWith(`${CITED_ROWS} “Europa Clipper · NASA”, “Artemis Programme · Space”`),
+  assert.ok(lines[1].words.startsWith(`${CITED_PART} 2, ${CITED_ROWS} 2–3 “Europa Clipper · NASA”, “Artemis Programme · Space”`),
     `an entry of two rows names both: ${lines[1].words}`)
 })
 
@@ -393,10 +393,10 @@ test('a list item continued in the next entry stays one item, numbering unbroken
     'the item reads as the one sentence it was written as')
   const lines = citeLines(rendered)
   assert.equal(lines.length, 3, 'all three entries keep their own citations')
-  assert.ok(lines[0].words.startsWith(`${CITED_ITEM} “Roman Space Telescope cleared thermal`), lines[0].words)
-  assert.ok(lines[1].words.startsWith('“testing at Goddard.”'),
-    'a continuation names the words it contributed, not the whole item')
-  assert.ok(lines[2].words.startsWith(`${CITED_ITEM} “Europa Clipper refined its Mars gravity`), lines[2].words)
+  assert.ok(lines[0].words.startsWith(`${CITED_PART} 1, ${CITED_ITEM} 1 “Roman Space Telescope cleared thermal`), lines[0].words)
+  assert.ok(lines[1].words.startsWith(`${CITED_PART} 2, ${CITED_ITEM} 1 “testing at Goddard.”`),
+    'a continuation names the words it contributed and the item they were read into, not the whole item')
+  assert.ok(lines[2].words.startsWith(`${CITED_PART} 3, ${CITED_ITEM} 2 “Europa Clipper refined its Mars gravity`), lines[2].words)
 })
 
 test('a construct that is complete is never merged into the one before it', async () => {
@@ -456,6 +456,194 @@ test('what a citation names is read out of the entry’s own characters', () => 
   ])
   assert.equal(groups.length, 2, 'the orphan row joins the table; the statement after it does not')
   assert.deepEqual(groups.map((g) => g.lines.length), [2, 1])
+})
+
+/* --- the correction for review ent-7ca49dfd8393 ----------------------------
+   The second independent re-review ran seven reproductions against 188dfead
+   and both of its properties failed on them. Each is reproduced here with the
+   reviewer's own inputs, and one source id is reused across the whole group
+   (as the reviewer did) so that source identity cannot be what distinguishes
+   an occurrence.
+
+   F1 -- four probes moved the group's only citation from one entry to the
+   next and got byte-for-byte identical HTML: labels truncate at 56 characters
+   with no collision handling, repeated wording labels identically, and a list
+   label discarded its item number. The citation line now states WHICH
+   recorded part of the group it is, and -- where the reader of the assembled
+   body can determine it -- which drawn row or item that part produced.
+
+   F2 -- three probes recorded an entry that BEGINS as a continuation and then
+   carries further blocks. `continues` rejected every such entry outright, so
+   a table lost its later rows to literal pipes, a list restarted at 1, and a
+   sentence was split into two paragraphs. The continuation is now read from
+   the entry's FIRST block, with the rest of the entry kept verbatim after it,
+   and the join is confirmed with the renderer's own reader before it is
+   taken. ------------------------------------------------------------------- */
+
+/** The reviewer's long first cell: 66 characters, so two labels built from it
+ *  are identical after the 56-character cut. */
+const LONG_CELL = 'Roman Space Telescope completed the planned thermal vacuum testing'
+
+/** One group rendered twice, with the only citation on a different entry each
+ *  time: what the reviewer's probes compared. */
+async function moved(id: `mag-${string}`, texts: string[], from: number, to: number) {
+  store()
+  const r = resource(id)
+  await r.read()
+  const at = (which: number) => answered(texts.map((text, i) => ({ text, cites: i === which ? [ROMAN] : [] })))
+  return { before: html(createElement(Briefing, { resource: r, answer: at(from) })),
+    after: html(createElement(Briefing, { resource: r, answer: at(to) })) }
+}
+
+test('a citation that moves between two identically worded table rows changes the surface (review ent-7ca49dfd8393 §1)', async () => {
+  const texts = [
+    `| Mission | Status |\n|---|---|\n| ${LONG_CELL} | ready |`,
+    `| ${LONG_CELL} | delayed |`,
+  ]
+  const { before, after } = await moved('mag-pduprow', texts, 0, 1)
+  assert.notEqual(before, after, 'the recorded attribution is readable off the surface, not identical HTML')
+  assert.equal((before.match(/<table class="pr-table">/g) ?? []).length, 1, 'still one table')
+  assert.ok(citeLines(before)[0].words.startsWith('Part 1, Row 1 '),
+    `the first row's citation names row 1: ${citeLines(before)[0].words}`)
+  assert.ok(citeLines(after)[0].words.startsWith('Part 2, Row 2 '),
+    `and the second row's names row 2: ${citeLines(after)[0].words}`)
+})
+
+test('a citation that moves between two identical list items changes the surface (review ent-7ca49dfd8393 §2)', async () => {
+  const texts = ['1. Calibration completed.', '2. Calibration completed.']
+  const { before, after } = await moved('mag-pdupitem', texts, 0, 1)
+  assert.notEqual(before, after, 'the item a source was recorded against is distinguishable')
+  assert.equal((before.match(/<ol class="pr-list">/g) ?? []).length, 1, 'one list, as written')
+  assert.ok(citeLines(before)[0].words.includes(`${CITED_ITEM} 1`), citeLines(before)[0].words)
+  assert.ok(citeLines(after)[0].words.includes(`${CITED_ITEM} 2`),
+    `the second item is named as the second: ${citeLines(after)[0].words}`)
+})
+
+test('a citation that moves between two fragments of one paragraph changes the surface (review ent-7ca49dfd8393 §3)', async () => {
+  // As the reviewer worded it the two fragments differ, and their own words
+  // already distinguish them; the case that collides is the same wording
+  // recorded twice, which is checked second.
+  const differing = await moved('mag-ppara', ['## Findings', 'The same pattern recurred and', 'the launch was delayed.'], 1, 2)
+  assert.notEqual(differing.before, differing.after, 'moving the citation between fragments changes the surface')
+  const REPEATED = 'the same pattern recurred and'
+  const same = await moved('mag-pparadup', ['## Findings', REPEATED, REPEATED], 1, 2)
+  assert.notEqual(same.before, same.after, 'and still does where the two fragments are worded identically')
+  const lines = citeLines(same.after)
+  assert.equal(lines.length, 1, 'only the entry that cites anything shows a citation line')
+  assert.ok(lines[0].words.startsWith('Part 2 '),
+    `an occurrence inside a paragraph is named by which recorded part it is: ${lines[0].words}`)
+  assert.equal((same.before.match(/<p>/g) ?? []).length, 1, 'the two fragments are the one paragraph they were written as')
+})
+
+test('list labels that collide after truncation still name their own item (review ent-7ca49dfd8393 §4)', async () => {
+  const texts = [`1. ${LONG_CELL} and is ready.`, `2. ${LONG_CELL} and is delayed.`]
+  const { before, after } = await moved('mag-ptruncitem', texts, 0, 1)
+  assert.notEqual(before, after, 'a label cut at 56 characters is no longer all that identifies the item')
+  const [one] = citeLines(before), [two] = citeLines(after)
+  assert.notEqual(one.words, two.words, `${one.words} / ${two.words}`)
+  assert.ok(one.words.startsWith(`Part 1, ${CITED_ITEM} 1 `) && two.words.startsWith(`Part 2, ${CITED_ITEM} 2 `),
+    `${one.words} / ${two.words}`)
+})
+
+test('an entry of orphan rows and a paragraph keeps both (review ent-7ca49dfd8393 F2 §1)', async () => {
+  store()
+  const r = resource('mag-prowspara')
+  await r.read()
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '| Mission | Status |\n|---|---|\n| Roman | ready |', cites: [ROMAN] },
+    { text: '| Europa | refined |\n| JUICE | flown |\n\nThese are completed tests.', cites: [CLIPPER] },
+  ]) }))
+  assert.equal((rendered.match(/<table class="pr-table">/g) ?? []).length, 1, 'one table')
+  assert.equal((rendered.match(/<tr>/g) ?? []).length, 4, 'header plus all three rows')
+  assert.ok(!/<p>[^<]*\|/.test(rendered), 'no row is left as literal pipes in a paragraph')
+  assert.ok(/<p>These are completed tests\.<\/p>/.test(rendered), 'and the entry’s own paragraph is still a paragraph')
+  const lines = citeLines(rendered)
+  assert.equal(lines.length, 2, 'each entry keeps its own citation line')
+  assert.ok(lines[1].words.startsWith(`Part 2, ${CITED_ROWS} 2–3 `), lines[1].words)
+})
+
+test('an entry that continues a list item and then starts the next keeps one list (review ent-7ca49dfd8393 F2 §2)', async () => {
+  store()
+  const r = resource('mag-plistmixed')
+  await r.read()
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '1. Roman completed thermal vacuum', cites: [ROMAN] },
+    { text: 'testing at Goddard.\n2. Europa refined its assist.', cites: [CLIPPER] },
+  ]) }))
+  assert.equal((rendered.match(/<ol class="pr-list">/g) ?? []).length, 1,
+    'one list, so the second item is the second and not a new list numbered from 1')
+  assert.equal((rendered.match(/<li>/g) ?? []).length, 2, 'two items')
+  assert.ok(rendered.includes('Roman completed thermal vacuum testing at Goddard.'),
+    'the first item reads as the one sentence it was written as')
+  assert.ok(!/<p>testing at Goddard\.<\/p>/.test(rendered), 'the continuation is not a paragraph between two lists')
+  const lines = citeLines(rendered)
+  assert.equal(lines.length, 2, 'each entry keeps its own citation line')
+  assert.ok(lines[1].words.startsWith(`${CITED_PART} 2, ${CITED_ITEMS} 1–2 `),
+    `an entry that finished one item and started the next names both: ${lines[1].words}`)
+})
+
+test('a join the body’s own reader does not confirm is not taken (review ent-7ca49dfd8393)', async () => {
+  store()
+  const r = resource('mag-pnotconfirmed')
+  await r.read()
+  // An entry whose rows are followed by a table OF ITS OWN: appending the lot
+  // would feed the second table's header and divider to the first as data rows.
+  // The entry stays its own body instead -- its leading row is then drawn as the
+  // pipes it is, which is a visible shortcoming and not a corrupted table.
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '| Mission | Status |\n|---|---|\n| Roman | ready |', cites: [ROMAN] },
+    { text: '| Europa | refined |\n| Mission | Arrival |\n|---|---|\n| JUICE | 2031 |', cites: [CLIPPER] },
+  ]) }))
+  assert.equal((rendered.match(/<table class="pr-table">/g) ?? []).length, 2, 'two tables, as recorded')
+  assert.ok(!rendered.includes('<td>---</td>'), 'no divider is drawn as data')
+  assert.ok(!/<td>Mission<\/td>/.test(rendered), 'and no header is drawn as data')
+  assert.equal(citeLines(rendered).length, 2, 'both citations are still shown')
+  for (const line of citeLines(rendered))
+    assert.ok(!line.words.includes(`${CITED_PART} `), 'and neither claims to be a part of the other’s construct')
+})
+
+test('an entry that continues a sentence and then carries a heading keeps the sentence whole (review ent-7ca49dfd8393 F2 §3)', async () => {
+  store()
+  const r = resource('mag-pparamixed')
+  await r.read()
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '## Findings\n\nRoman completed thermal vacuum', cites: [ROMAN] },
+    { text: 'testing at Goddard.\n\n## Implications\n\nLaunch preparations continue.', cites: [CLIPPER] },
+  ]) }))
+  assert.equal((rendered.match(/<p>/g) ?? []).length, 2,
+    'the split sentence is one paragraph, and the conclusion the other')
+  assert.ok(/<p>Roman completed thermal vacuum\s*testing at Goddard\.<\/p>/.test(rendered),
+    `the sentence is not split across paragraphs: ${rendered}`)
+  assert.ok(rendered.includes('Implications'), 'and the entry’s own later heading is still a heading')
+  assert.equal((rendered.match(/class="pr-h pr-h2"/g) ?? []).length, 2, 'both headings drawn once, as headings')
+})
+
+test('ordinary prose keeps one citation line per statement, unnumbered and unmerged', async () => {
+  store()
+  const r = resource('mag-pordinary')
+  await r.read()
+  // THE NORMAL CASE, which the correction must not disturb: complete sentences,
+  // each recorded on its own, each with its own citation. Nothing is merged, so
+  // no entry is a part of anything and no label is added at all.
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '## What launched', cites: [] },
+    { text: 'The Roman Space Telescope completed thermal vacuum testing at Goddard.', cites: [ROMAN] },
+    { text: 'Europa Clipper refined its Mars gravity assist.', cites: [CLIPPER] },
+  ]) }))
+  assert.equal((rendered.match(/<p>/g) ?? []).length, 2, 'two statements, two paragraphs')
+  const lines = citeLines(rendered)
+  assert.equal(lines.length, 2, 'one citation line each')
+  for (const line of lines) {
+    assert.ok(line.words.startsWith(WRITTEN_FROM), `no part label where nothing was merged: ${line.words}`)
+    assert.ok(!/Part \d/.test(line.words), line.words)
+  }
+  const groups = briefingGroups(answerLines(answered([
+    { text: 'The Roman Space Telescope completed thermal vacuum testing at Goddard.', cites: [ROMAN] },
+    { text: 'Europa Clipper refined its Mars gravity assist.', cites: [CLIPPER] },
+  ])))
+  assert.equal(groups.length, 2, 'two finished statements are two groups')
+  assert.deepEqual(groups.map((g) => g.places.map((p) => p.part)), [[1], [1]],
+    'each is the first and only recorded part of its own group')
 })
 
 test('a written answer’s change is not a diff of its Markdown lines', async () => {

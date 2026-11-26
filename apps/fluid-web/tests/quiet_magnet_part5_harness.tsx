@@ -163,7 +163,16 @@ const BRIEFING = [
  *  With both, every citation line under a merged construct now NAMES the row,
  *  item or phrase it was recorded against -- which is what the same review
  *  found missing: the citations sat under the whole construct and said nothing
- *  about which part of it each supported. */
+ *  about which part of it each supported.
+ *
+ *  Re-review `ent-7ca49dfd8393` found that naming by words alone still does not
+ *  identify an OCCURRENCE (repeated or truncated wording labels identically) and
+ *  that an entry which begins as a continuation and then carries another block
+ *  was rejected outright. Both shapes are photographed here now: each citation
+ *  line states which recorded part of its group it is and the drawn rows or
+ *  items that part produced, and the fixture records a row that arrives with the
+ *  sentence closing the table, and an entry that finishes one list item and
+ *  starts the next. */
 const BRIEFING_MULTI: { text: string; cites: string[] }[] = [
   { text: '## What launched, and what was found', cites: [] },
   { text: 'The **Roman Space Telescope** finished thermal vacuum testing at Goddard and is cleared to ship, and',
@@ -176,12 +185,17 @@ const BRIEFING_MULTI: { text: string; cites: string[] }[] = [
   // `ent-c0f9cca287b7` reproduced as literal pipes outside the table.
   { text: '| Europa Clipper | 2025-11-02 | Gravity assist refined; Jupiter arrival 2030 |\n| Artemis Programme | 2024-06-14 | Artemis III shortlist narrowed |',
     cites: ['adm-bbb222222222', 'adm-ccc333333333'] },
-  { text: '| JUICE | 2024-08-20 | First lunar-Earth assist flown |', cites: ['adm-eee444444444'] },
-  // AN ITEM CUT OFF MID-SENTENCE, continued by a plain entry of its own: the
-  // split that closed the list and started a second one numbered from 1.
+  // A ROW AND THEN THE SENTENCE THAT CLOSES THE TABLE, in one entry: the split
+  // re-review `ent-7ca49dfd8393` found every such entry rejected outright, so
+  // the row was left as literal pipes and the table lost it.
+  { text: '| JUICE | 2024-08-20 | First lunar-Earth assist flown |\n\nEvery row above is one collected record, opened by pressing the record named under it.',
+    cites: ['adm-eee444444444'] },
+  // AN ITEM CUT OFF MID-SENTENCE, continued by a plain entry that then starts
+  // the NEXT item -- the shape `ent-7ca49dfd8393` reproduced. It closed the list
+  // and started a second one numbered from 1 again.
   { text: '1. Thermal vacuum testing completed for the Roman Space Telescope, which is now', cites: ['adm-aaa111111111'] },
-  { text: 'cleared to ship to its launch site.', cites: ['adm-aaa111111111'] },
-  { text: '2. Mars gravity assist refined for Europa Clipper.', cites: ['adm-bbb222222222'] },
+  { text: 'cleared to ship to its launch site.\n2. Mars gravity assist refined for Europa Clipper.',
+    cites: ['adm-aaa111111111', 'adm-bbb222222222'] },
   { text: '3. First lunar-Earth gravity assist flown for JUICE.', cites: ['adm-eee444444444'] },
 ]
 

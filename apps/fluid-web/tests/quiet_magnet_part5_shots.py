@@ -15,12 +15,14 @@ dev server. It photographs the states the owner will judge:
   05-summary-briefing-multi.png  the same document recorded across several
                             entries -- a paragraph cut off mid-sentence and
                             continued in the next, a table whose entries hold
-                            one row and two rows, an ordered list with one
-                            entry per item and one item continued by a plain
-                            entry -- each still naming only the record it
-                            cites, and each citation naming the row, item or
-                            phrase it was recorded against (corrections for
-                            reviews `ent-19c3c55af28c` and `ent-c0f9cca287b7`)
+                            one row, two rows, and a row with the sentence that
+                            closes the table, an ordered list with one entry per
+                            item and one entry that finishes an item and starts
+                            the next -- each still naming only the record it
+                            cites, and each citation naming WHICH RECORDED PART
+                            it is and the row or item that part produced
+                            (corrections for reviews `ent-19c3c55af28c`,
+                            `ent-c0f9cca287b7` and `ent-7ca49dfd8393`)
 
 It asserts nothing about behaviour -- `quiet_magnet_presentation_unit.ts` does
 that. It fails loudly if the page logs an error or the expected words are not on
@@ -95,6 +97,15 @@ def main():
                     "Artemis III shortlist narrowed",
                     # the list item continued by a plain entry, read as one item
                     "cleared to ship to its launch site.",
+                    # the occurrence each citation was recorded against, stated
+                    # (correction for review `ent-7ca49dfd8393`): the recorded
+                    # part, and the drawn rows or items it produced
+                    "Part 1, Row 1",
+                    "Part 2, Rows 2–3",
+                    # the entry that finished one item and started the next, and
+                    # the row recorded with the sentence that closes the table
+                    "Items 1–2",
+                    "Every row above is one collected record",
                 ]),
             ]:
                 page.goto(f"{BASE}?state={state}")
