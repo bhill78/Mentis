@@ -314,7 +314,14 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
      again each time the plain list is fetched (record movement, every minute). Only that answer
      is drawn with details and with answering here; the plain list (`got`) is shown only where
      that answer could not be read, without details, exactly as before this work. */
-  const about = useNeedsBound(opened, got)
+  /* ...BUT ONLY WHEN WHAT IS LISTED MOVED (2026-11-26). Every fetch of the plain list -- each
+     minute, each change the store's loop names -- is a new object, and keying the details read on
+     it re-read every item's details on the server each time, unchanged lists included (3-9 s each
+     on DAY-TO-DAY while agents wrote). The items, their questions and where each was asked are
+     what the details are of; when none of those moved there is nothing new to read. */
+  const listed = useMemo(() => (got?.items ?? []).map((it) =>
+    [it.key, it.kind, it.post ?? '', (it.asks ?? []).join(',')].join('|')).join('\n'), [got])
+  const about = useNeedsBound(opened, got === null ? null : listed)
   const shown = about.shown
   const items = shown ? shown.items : about.first ? [] : (got?.items ?? [])
   /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED IS DROPPED: answered or withdrawn anywhere, it

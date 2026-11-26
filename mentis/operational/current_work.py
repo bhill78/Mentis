@@ -788,6 +788,96 @@ class CurrentWork:
                 self._moved.wait(left)
         return self._model
 
+    #: at most this many expectations are evaluated afresh by `owed_now`;
+    #: past it the record is asked directly
+    OWED_NOW_MOST = 300
+
+    def owed_now(self, participant) -> list | None:
+        """The ids of the expectations `participant` carries and nobody has
+        answered, AS THE RECORD STANDS NOW, never as the kept model last
+        caught up: the model's `owed`, with every expectation a write since
+        its cursor may have moved evaluated afresh (`expectation_state`), by
+        the same placing `_update` uses (an expectation is touched when a
+        written act or entry names anything its state read). New
+        expectations are evaluated too. Write order, as `owed`.
+
+        FOR NEEDS YOU (2026-11-26): it asked `expectations(of=owner)`, the
+        state of every expectation the owner had ever carried -- 871 to find
+        one -- and under agents' writes the whole Brain's 6,231 (3-9 s per
+        read). The kept model holds those states already; only what moved
+        since it caught up is read here, and it is read at one moment with
+        the cursor (`Store.one_moment`). It never waits for the maintainer.
+
+        None -- the caller then asks the record -- when there is no model yet
+        or its last refresh failed, when the record moved further than
+        `CAP` rows or in a way the model would rebuild for, or when more
+        than `OWED_NOW_MOST` expectations would be evaluated."""
+        model = self._model
+        if model is None or self._broken:
+            return None
+        cv = self.cv
+        store = cv._c._store
+        if store._writer == threading.get_ident():
+            return None                 # inside its own write: not a moment
+        if self._thread is not None:
+            self._wanted.set()          # the maintainer catches up meanwhile
+        with store.one_moment():
+            got = store.since(parse_cursor(model.cursor), CAP,
+                              acts_in_full=True)
+            if got is None:
+                return None
+            entries, acts, _delivered = got
+            sreach = model.sreach()
+            moved = set()
+
+            def place(*refs):
+                for ref in refs:
+                    if ref:
+                        moved.update(sreach.get(ref, ()))
+
+            for eid, kind, frm, to, rel in entries:
+                k = kind or rel
+                if rel in ("supersedes", "deletes"):
+                    if to in sreach:
+                        place(to)
+                        continue
+                    target = cv._entry(to) if to else []
+                    if target and cv._kind_of(target[0]) == "contribution":
+                        continue
+                    return None
+                if (k == "establishes" and to
+                        and self._kind_of_entry(to) in ESTABLISHED_UNREAD):
+                    place(eid, frm, to)
+                    continue
+                if k in REBUILDS or k not in PLACED:
+                    return None
+                place(eid, frm, to)
+            for a in acts:
+                if a["act"] == "conversation-deleted":
+                    return None
+                place(a.get("caused_by"), a["id"], a.get("turn"),
+                      a.get("execution"), *(a.get("about") or ()))
+                if a["act"] == "expectation-recorded":
+                    moved.add(a["id"])
+            if len(moved) > self.OWED_NOW_MOST:
+                return None
+            fresh = {}
+            for e in moved:
+                try:
+                    fresh[e] = cv.expectation_state(e)
+                except ValueError:
+                    pass                # not an expectation after all
+            new_ids = [a["id"] for a in acts
+                       if a["act"] == "expectation-recorded"
+                       and a["id"] not in model.states]
+        out = []
+        for e, s in list(model.states.items()) + [
+                (e, fresh[e]) for e in new_ids if e in fresh]:
+            s = fresh.get(e, s)
+            if s["expected_of"] == participant and not s["response_present"]:
+                out.append(e)
+        return out
+
     def standing(self, model, cid=None) -> dict | None:
         """HOW THIS ANSWER STANDS, said only when it is not current: the
         record has moved past the model (`behind`), the last refresh failed

@@ -64,7 +64,12 @@ def post(world, path, payload):
         world["base"] + path, data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req) as r:
-        return json.loads(r.read())
+        got = json.loads(r.read())
+    # AN ANSWER IS ACKNOWLEDGED BEFORE WHAT IT DEFERRED HAS RUN (2026-11-26):
+    # what the tests read next is the record once that has run too
+    from mentis.web import after_answers_settled
+    after_answers_settled()
+    return got
 
 
 def get(world, path):

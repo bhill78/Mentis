@@ -510,7 +510,43 @@ class Corpus:
         appends, before it began -- unmoved. `steady` is the rule that holds
         beside the writer too; a try that starts while a commit is under way
         is not computed at all, because it could not be accepted.
-        In-process only, as `writes` is."""
+        In-process only, as `writes` is.
+
+        ONE READ TRANSACTION, WHERE ONE CAN BE HAD (2026-11-26). A thread that
+        is not inside its own write transaction computes once, inside
+        `Store.one_moment()`: every read in it sees the record as committed at
+        one moment, so nothing is half-seen and nothing that moment held is
+        missed -- what the two equal counts proved, now by construction, and
+        across processes too. Under agents' writes the counts rarely stayed
+        equal and `otherwise` -- the whole-record read -- answered almost
+        every time (Needs You: 0.45 s became 6-9 s). The counted tries remain
+        for a thread inside its own write transaction, which must see its own
+        appends, and for a computation that tried to write: a snapshot
+        refuses writes, and that refusal is redone here as it always was,
+        unless an enclosing `reading_beside_writer()` scope owns the redo."""
+        import threading
+        from .store import (WriteWhileReadingBeside, _reading_beside,
+                            beside_writer_refused)
+        store = self._store
+        if store._writer != threading.get_ident():
+            outer = _reading_beside()
+            try:
+                with store.one_moment():
+                    value = compute()
+                refused = beside_writer_refused()
+            except Exception as exc:                      # noqa: BLE001
+                # THE REFUSAL ITSELF, OR ANYTHING AFTER A SWALLOWED ONE, is
+                # redone below as before; any other failure is the caller's
+                if outer or not (isinstance(exc, WriteWhileReadingBeside)
+                                 or beside_writer_refused()):
+                    raise
+                refused = True
+            if not refused:
+                return value
+            if outer:
+                # the enclosing scope discards its answer and redoes it
+                # outside, every read under the lock (`_beside`)
+                return value
         for _ in range(tries):
             before = self.steady
             if before is None:
@@ -984,6 +1020,10 @@ class Corpus:
     def home_numbers(self, to, ids, **kw) -> dict:
         """Ranks among what is linked to `to`. See `store.home_numbers`."""
         return self._store.home_numbers(to, ids, **kw)
+
+    def home_ranks(self, to, **kw) -> dict:
+        """Every rank among what is linked to `to`. See `store.home_ranks`."""
+        return self._store.home_ranks(to, **kw)
 
     def reply_closure(self, root, **kw) -> list:
         """Everything under `root` by a relation. See `store.reply_closure`."""
