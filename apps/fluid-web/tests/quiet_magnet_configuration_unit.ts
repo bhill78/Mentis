@@ -15,8 +15,8 @@ import CollectionConfiguration from '../src/quiet2/magnets/CollectionConfigurati
 import {
   canonicalDefinition, collectionChange, collectionIssue, collectionRhythm, configurationDigest, configurationFacts,
   dayOf, durableDefinition, findConfigurationLocation, findHoldingArrangement, identityChange, magnetName,
-  MAGNET_NAME_MOST, nameIssue, NO_SAVED_PLACE, NO_SOURCE_TO_COLLECT, savedPlace, saveCollection,
-  sourceIdentity, withDay,
+  MAGNET_NAME_MOST, nameIssue, NO_SAVED_PLACE, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES,
+  savedPlace, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, withDay,
 } from '../src/quiet2/magnets/configuration'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
@@ -103,6 +103,58 @@ test('a Magnet is named in its own definition, independently of where it is show
   assert.match(configurationFacts(config({ identity: { name: 'Tide study' } }))[0], /^Name: Tide study \(this Magnet's own/)
   assert.match(configurationFacts(config())[0], /taken from where it is shown/)
   assert.match(configurationFacts(config())[1], /^Configured sources: none yet/)
+})
+
+/** PART C: WHAT THE "NO ADAPTER" LIST MAY STILL SAY.
+ *
+ *  A `file` source now reads one exact path, everything under a path prefix, or
+ *  a whole acquired collection, and a Git repository collection reads the same
+ *  way -- its tree and its recent commits are rows alike
+ *  (`mentis/magnet/activation.py` `file_choice`,
+ *  `crates/mentis-ops/src/magnet/collection_files.rs`). So "Repositories" has
+ *  left the proposed list, because it works; nothing else has, because nothing
+ *  else does yet. Web pages and Web searches stay listed until Part W's
+ *  connectors land, and the Magnet kinds that nothing reads -- Topics,
+ *  Databases, Connected services -- stay listed with their reason unchanged. */
+test('the no-adapter list has lost exactly what now works, and kept the rest', () => {
+  const proposed: string[] = PROPOSED_SOURCES.map((s) => s.words)
+  assert.ok(!proposed.includes('Repositories'), 'a Git repository collection is read by a file source now')
+  assert.deepEqual(proposed, ['Topics', 'Web pages', 'Web searches', 'Databases', 'Connected services'],
+    'nothing else was lifted: Part W owns the two web entries and tells this file when they move')
+  // The reason the remaining entries carry is unchanged: it is the server's own.
+  assert.match(PROPOSED_REASON, /^Proposed only, and not interactive here/)
+  assert.match(PROPOSED_REASON, /this build has no adapter for them/)
+  // The supported list says the three things a file source may now name, and
+  // still says that opening, saving and collecting never scan a folder.
+  const file = SUPPORTED_SOURCES.find((s) => s.kind === 'file')!
+  for (const said of ['one exact path', 'path prefix', 'the whole collection', 'Git repository']) {
+    assert.ok(file.words.includes(said), `the supported wording says "${said}": ${file.words}`)
+  }
+  assert.ok(!SUPPORTED_SOURCES.some((s) => /one exact path at a time/.test(s.words)),
+    'the exact-file-only wording is gone, not merely reworded around')
+  assert.match(SUPPORTED_REASON, /No folder is scanned or refreshed/)
+  // Each kind the proposed list names is one the Magnet schema has, and none of
+  // them is a kind the supported list claims.
+  const supported = new Set(SUPPORTED_SOURCES.map((s) => s.kind as string))
+  for (const s of PROPOSED_SOURCES) {
+    assert.ok(['brain', 'web', 'database', 'other', 'connector'].includes(s.kind), s.kind)
+    assert.ok(!supported.has(s.kind), `${s.kind} cannot be both supported and proposed`)
+  }
+})
+
+/** The configured-source line and the identity of a collection-scoped source.
+ *  `sourceIdentity` is what the panel lists and what `collectionChange` refuses
+ *  twice over, so a whole-collection source and an exact one under it are two
+ *  different sources and both may be configured. */
+test('a collection-scoped file source has an identity of its own', () => {
+  const whole: MagnetSource = { kind: 'file', collection: 'col-held' }
+  const prefix: MagnetSource = { kind: 'file', collection: 'col-held', path: 'notes/' }
+  assert.equal(sourceIdentity(whole), 'file:col-held:')
+  assert.equal(sourceIdentity(prefix), 'file:col-held:notes/')
+  assert.notEqual(sourceIdentity(whole), sourceIdentity(prefix))
+  assert.notEqual(sourceIdentity(prefix), sourceIdentity(HELD))
+  assert.match(configurationFacts(config({ sources: [whole, HELD] }))[1],
+    /^Configured sources: file:col-held: · file:col-held:notes\/a\.txt$/)
 })
 
 /** THE CANONICAL FORM AND DIGEST, against the one file both halves are held to

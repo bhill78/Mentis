@@ -225,15 +225,15 @@ export async function saveCollection(at: { brainKey: string; arrangement: string
  *  `crates/mentis-ops/src/magnet.rs`. */
 export const SUPPORTED_SOURCES = [
   { kind: 'conversation', words: 'Conversations recorded in this Brain, by post capture — posts and their file or image attachments.' },
-  { kind: 'file', words: 'Plain text files Mentis already holds, chosen one exact path at a time.' },
+  { kind: 'file', words: 'Plain text Mentis already holds in an acquired collection — one exact path, everything under a path prefix, or the whole collection. A Git repository collection reads the same way: files in its tree and its recent commits are rows alike.' },
 ] as const
 export const PROPOSED_SOURCES = [
   { kind: 'brain', words: 'Topics' }, { kind: 'web', words: 'Web pages' },
   { kind: 'web', words: 'Web searches' }, { kind: 'database', words: 'Databases' },
-  { kind: 'other', words: 'Repositories' }, { kind: 'connector', words: 'Connected services' },
+  { kind: 'connector', words: 'Connected services' },
 ] as const
 export const PROPOSED_REASON = 'Proposed only, and not interactive here: the Magnet schema names these kinds, but this build has no adapter for them and the server refuses collection from them. An existing connector does not enable a Magnet adapter.'
-export const SUPPORTED_REASON = 'Collect from Conversations and from plain text files Mentis already holds. Opening or saving never collects. No folder is scanned or refreshed.'
+export const SUPPORTED_REASON = 'Collect from Conversations, and from the plain text Mentis already holds in an acquired collection — one file, a path prefix, or the whole collection, a Git repository included. Opening or saving never collects. No folder is scanned or refreshed.'
 /** The three near-identical paragraphs the panel used to stack under its date
  *  fields, said once. Nothing was dropped: individual post selection, schedules,
  *  automatic collection and the relevance and semantic filters are each still
