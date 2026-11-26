@@ -121,7 +121,7 @@ export function CategoryToggles({ d, value, onChange }: { d: Descriptor; value: 
 
 const lines = (s: string) =>
   s
-    .split(/[\n,]/)
+    .split(/[\n,\s]+/)
     .map((x) => x.trim())
     .filter(Boolean)
 
