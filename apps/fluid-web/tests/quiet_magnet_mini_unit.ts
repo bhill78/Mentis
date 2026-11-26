@@ -796,6 +796,19 @@ test('mini interactions never navigate, poll, inject markup or touch the main st
   assert.match(code, /POSTS_PATH = '\/fluid\/api\/posts'/)
 })
 
+test('the mini view checks the recorded agent-reply boundary on the same live read, never a poll of its own', () => {
+  const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(view, /setInterval|setTimeout\(.*finaliz/i, 'no timer drives this')
+  // Read through the exact same posts the live pulse keeps current (`flow.read`),
+  // never a second fetch of this view's own.
+  const boundary = view.slice(view.indexOf('THE RECORDED AGENT-REPLY BOUNDARY'))
+  assert.match(boundary, /flow\.read\?\.top/)
+  assert.match(boundary, /e\.id === bound\.request && e\.answered_by/)
+  assert.match(boundary, /finalizeReply\(inquiries, active, answered\.turn\)/)
+  // Never acted on until the bound ask's own Perspective is still the active one.
+  assert.match(boundary, /active\.perspective !== bound\.perspective/)
+})
+
 /* -- what it draws ----------------------------------------------------------- */
 
 test('an unavailable own Conversation is visibly unavailable and offers no composer', () => {
