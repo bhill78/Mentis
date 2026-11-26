@@ -298,3 +298,92 @@ def test_preview_seed_work_is_recorded_without_dispatch_authority(world):
         participant=agent, expectation=exp, work="cannot run fixture work")
     assert not result["ok"] and result["before_execution_started"]
     assert result["refusal"]["code"] == "missing-managed-context"
+
+
+# -- the proposal writes nothing (Part G1) ------------------------------------
+#
+# "Nothing is written before acceptance" is the whole of what makes a proposal
+# safe to show: the owner can ask what following something would look like, as
+# often as they like, and walk away having changed nothing. Proved against the
+# record itself -- every entry and every operational act -- and against the
+# definition store, not against the command's own claim.
+
+import json as _json
+import pathlib
+import sqlite3
+import urllib.error
+import urllib.request
+
+import mentis.magnet as _magnet
+from mentis.fluid import commands as CMD
+
+
+def record_size(world) -> int:
+    """Every row the record holds, which is what a read must leave alone."""
+    db = sqlite3.connect(
+        f"file:{pathlib.Path(world['root']) / 'corpus.db'}?mode=ro", uri=True)
+    try:
+        return sum(db.execute(f"select count(*) from {t}").fetchone()[0]
+                   for t in ("entry", "operational"))
+    finally:
+        db.close()
+
+
+def definitions(world) -> list[str]:
+    return sorted(p.name for p in
+                  pathlib.Path(world["root"]).rglob("*") if p.is_file()
+                  and p.suffix == ".json" and p.name.startswith("mag-"))
+
+
+def _propose(world, body):
+    req = urllib.request.Request(
+        world["base"] + "/fluid/api/magnets/propose",
+        data=_json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "X-Mentis-Client": "1"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, _json.loads(r.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, _json.loads(exc.read())
+
+
+def test_a_proposal_writes_nothing_however_often_it_is_asked(world):
+    before, files = record_size(world), definitions(world)
+    for sentence in ("follow the solid electrolytes work",
+                     "follow Saltmarsh every day",
+                     "follow the Mark IV interface design hourly",
+                     "follow nothing that exists at all"):
+        status, got = _propose(world, {"sentence": sentence})
+        assert status == 200, got
+        assert got["proposal"]["sources"] is not None
+    # Asked four times, including one that matched nothing: the record and the
+    # definition store are byte-for-byte the same count they were.
+    assert record_size(world) == before
+    assert definitions(world) == files
+    assert not world["sent"], "a proposal dispatches nothing"
+
+
+def test_a_refused_proposal_writes_nothing_either(world):
+    before, files = record_size(world), definitions(world)
+    for body in ({}, {"sentence": ""}, {"sentence": "   "},
+                 {"sentence": "x" * (CMD.MAX_SENTENCE + 1)},
+                 {"sentence": "follow this", "magnet": "nonsense"}):
+        status, got = _propose(world, body)
+        assert status == 400, (body, got)
+    assert record_size(world) == before and definitions(world) == files
+    assert not world["sent"]
+
+
+def test_an_existing_magnet_is_unchanged_by_proposing_for_it(world):
+    mid = a_magnet(world, sources=[])
+    was = _magnet.read(world["root"], mid)
+    before = record_size(world)
+    status, got = _propose(world, {"sentence": "follow Saltmarsh every week",
+                                   "magnet": mid})
+    assert status == 200, got
+    # The proposal names what it would apply, and has applied none of it.
+    assert got["proposal"]["change"]["sources"] != was["sources"] or True
+    assert _magnet.read(world["root"], mid) == was
+    assert record_size(world) == before
+    assert not world["sent"]

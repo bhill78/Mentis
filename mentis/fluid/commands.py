@@ -152,9 +152,12 @@ nothing again.
 from __future__ import annotations
 
 import json
+import re
 
 from mentis.conversation import posting
+from mentis.magnet import schema as S
 
+from . import _checks as W
 from . import read as _read
 
 #: The commands this door answers. Any other POST under /fluid/api is 405.
@@ -186,6 +189,8 @@ MAGNET_DEFINITION_ACTS = {"delete": "magnet-delete",
                           "conversation": "magnet-conversation"}
 MAGNET_LIFT = "magnet-lift"
 MAGNET_ACTIVATE = "magnet-activate"
+#: `magnets/propose`: one sentence in, a proposal out (Part G1). Reads only.
+MAGNET_PROPOSE = "magnet-propose"
 WORKSPACES = "workspaces"
 #: A workspace's own acts, `workspaces/<id>/<verb>`.
 WORKSPACE_ACTS = {"rename": "workspace-rename", "objects": "workspace-add",
@@ -231,6 +236,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return SET_OPEN, None
     if rest == f"{MAGNETS}/lift":
         return MAGNET_LIFT, None
+    if rest == f"{MAGNETS}/propose":
+        return MAGNET_PROPOSE, None
     head, _, tail = rest.partition("/")
     tid, _, verb = tail.partition("/")
     if head == MAGNETS and tid and verb in MAGNET_DEFINITION_ACTS:
@@ -678,6 +685,322 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
     except arrangements.Unreadable as exc:
         return 409, {"error": str(exc), "kind": "Unreadable"}, []
     return 200, out, []
+
+
+# -- one sentence becomes a proposal (Part G1) -----------------------------------
+#
+# WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT. The owner says one sentence --
+# "follow what the ACP work is doing" -- and gets back a proposal in ordinary
+# words: these sources, this much of them, this often. It is INERT: this command
+# reads the record and writes nothing at all, so a proposal that is never
+# accepted leaves no trace. Acceptance is the existing doors, in order, from one
+# press: `arrangements/<key>/magnets` (a new Magnet's seed) or
+# `.../magnets/<id>/reconfigure` (an existing one), then `magnets/<id>/activate`
+# for the first collection, then one more `reconfigure` carrying the cadence.
+# No new accept command exists, because the ones that apply a configuration
+# already do (`docs/magnets/part-b-collection-api.md`, "The proposal").
+#
+# NOTHING HERE NAMES A SOURCE KIND. What reads is asked of the code that reads
+# it: `mentis.sources.registry.descriptors()` says which connectors are
+# available, and `mentis.magnet.activation` says whether a definition carrying a
+# candidate source could run. So as Part C widens what a `file` source may read
+# and Part W makes the web connectors available, the proposal picks them up with
+# no change here, and it can never propose a kind that does not read.
+
+#: What a proposal asks for, at most: `mentis.magnet.schema.MAX_CRITERIA` is
+#: where the sentence is kept, so that is what one may be.
+MAX_SENTENCE = 2000
+#: How many sources one proposal may name. Well under the schema's 20: a
+#: proposal is an opening suggestion, not an exhaustive sweep of the Brain.
+PROPOSE_MOST = 5
+#: The cadences a sentence may ask for, in the order they are looked for, each
+#: an ISO 8601 duration `mentis.magnet.schema._when` accepts. The last is the
+#: default: "follow this" means come back without being asked, and six hours is
+#: often enough to be useful and seldom enough to be unremarkable.
+CADENCES = ((("every hour", "hourly", "each hour"), "PT1H", "Every hour"),
+            (("every day", "daily", "each day", "once a day"), "P1D", "Every day"),
+            (("every week", "weekly", "each week"), "P1W", "Every week"),
+            ((), "PT6H", "Every six hours"))
+#: Words a sentence opens with that say nothing about what to follow.
+_OPENERS = ("i want to follow", "i want to track", "i want to watch",
+            "i would like to follow", "keep an eye on", "keep track of",
+            "keep up with", "follow", "track", "watch", "monitor",
+            "collect", "gather", "tell me about", "show me", "stay on top of")
+#: Words too common to match a Conversation or a collection by.
+_NOISE = frozenset((
+    "a", "an", "and", "any", "anything", "are", "as", "at", "about", "all",
+    "be", "but", "by", "down", "everything", "for", "from", "going", "happens",
+    "has", "have", "how", "in", "into", "is", "it", "its", "me", "my", "new",
+    "of", "on", "or", "our", "out", "over", "please", "something", "that",
+    "the", "their", "them", "then", "there", "these", "this", "those", "to",
+    "up", "what", "whatever", "when", "where", "which", "who", "with",
+    "work", "working"))
+
+
+def _sentence_words(sentence: str) -> list[str]:
+    """The sentence's own words, lowercased, with the noise taken out."""
+    return [w for w in re.findall(r"[0-9a-z]+", sentence.lower())
+            if len(w) > 2 and w not in _NOISE]
+
+
+def proposed_name(sentence: str) -> str:
+    """A NAME DERIVED, NEVER DEMANDED (#815, amendment §4). What the owner
+    actually typed, with the words that only address the machine removed, cut
+    to what a Magnet may be called. A sentence that is nothing but an opener
+    still gets a name, because a Magnet always has one."""
+    said = " ".join(sentence.split())
+    low = said.lower()
+    for opener in _OPENERS:
+        if low.startswith(opener + " "):
+            said = said[len(opener) + 1:].lstrip()
+            break
+    said = said.strip(" .,:;!?-–—\"'").strip()
+    if not said:
+        said = " ".join(sentence.split()).strip(" .,:;!?-–—\"'") or "New Magnet"
+    if len(said) > S.MAX_NAME:
+        cut = said[:S.MAX_NAME].rsplit(" ", 1)[0]
+        said = (cut or said[:S.MAX_NAME]).rstrip(" .,:;-–—")
+    return said[:1].upper() + said[1:]
+
+
+def proposed_cadence(sentence: str) -> tuple[str, str]:
+    """The cadence the sentence asks for, and that cadence in ordinary words.
+
+    THE CADENCE IS PART OF THE PROPOSAL (amendment §4), so periodic refresh is
+    on from the start rather than being something to go and switch on. It is
+    checked here by the schema's own rule, so an unsupported one cannot be
+    proposed."""
+    low = " ".join(sentence.lower().split())
+    for asked, when, words in CADENCES:
+        if any(a in low for a in asked):
+            S._when(when, "collection.schedule")
+            return when, words
+    when, words = CADENCES[-1][1], CADENCES[-1][2]
+    S._when(when, "collection.schedule")
+    return when, words
+
+
+def runnable_definition(sources, types, criteria, *, mid="mag-proposal") -> dict:
+    """The definition a FIRST COLLECTION runs from, checked by the schema.
+
+    Exactly the facets `mentis.magnet.activation` requires of a definition it
+    will run, so what is proposed is what can be collected. The cadence is not
+    in here: it is applied after the first collection, by its own reconfigure,
+    because this build's manual activation is the thing that runs that first
+    collection (see the contract document's "Why the cadence lands last")."""
+    selection = {}
+    if criteria:
+        selection["criteria"] = criteria
+    if types:
+        selection["informationTypes"] = list(types)
+    return S.magnet_config({
+        "id": mid, "sources": list(sources), "selection": selection,
+        "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+        "notifications": {"newItems": False, "changes": False,
+                          "failures": False},
+        "presentation": {"renderer": "disc"},
+        "activation": {"mode": "manual"},
+        "processing": {"operations": [{"op": "extract"}]},
+        "ai": {"mode": "none"}, "outputs": ["records"],
+        "destinations": [{"kind": "magnet-conversation"}]}, "proposal")
+
+
+def reads_here(source) -> bool:
+    """Whether a definition carrying just this source could actually collect.
+
+    ASKED OF THE CODE THAT READS, NOT OF A LIST. `_cannot_run_code` is the
+    activation contract's own first-failing-line check and `runnable_files` its
+    own file rule, so this answer moves when they move -- which is how Part C's
+    widened file reads become proposable with no change here.
+
+    SEAM: both are `mentis.magnet.activation`'s, and the first is private to
+    that module. A public name for "could this definition run" belongs there;
+    Part C holds that file in this round, so this reaches for it rather than
+    adding one. Named for its owner or the integrator."""
+    from mentis.magnet import activation as ACT
+    try:
+        value = runnable_definition([source], ("post",), None)
+    except S.Refused:
+        return False
+    return ACT._cannot_run_code(value) is None and ACT.runnable_files(value)
+
+
+def _scored(words, text) -> int:
+    """How much of the sentence a candidate's own name actually says."""
+    if not words:
+        return 0
+    have = set(re.findall(r"[0-9a-z]+", (text or "").lower()))
+    return sum(1 for w in set(words) if w in have)
+
+
+def _conversation_candidates(st, words) -> list[dict]:
+    """Conversations in this Brain, best match to the sentence first."""
+    from . import read as _r
+    try:
+        rows = (_r.conversation_list(st.corpus, st.cv, 40, state="active",
+                                     agents=getattr(st, "agents", None))
+                or {}).get("conversations") or []
+    except Exception:                                         # noqa: BLE001
+        return []
+    out = []
+    for row in rows:
+        cid, name = row.get("id"), row.get("name") or ""
+        if not isinstance(cid, str) or not W._TURN.fullmatch(cid):
+            continue
+        source = {"kind": "conversation", "conversation": cid}
+        if not reads_here(source):
+            continue
+        out.append({"source": source, "title": name or cid,
+                    "says": "Conversation · posts and their attachments",
+                    "score": _scored(words, name)})
+    out.sort(key=lambda c: -c["score"])
+    return out
+
+
+def _collection_candidates(st, words) -> tuple[list[dict], list[dict]]:
+    """Declared source collections a Magnet could read, and the ones it cannot.
+
+    WHICH CONNECTORS ARE AVAILABLE IS THE REGISTRY'S ANSWER, read now: a
+    collection whose connector `descriptors()` reports unavailable is never
+    proposed, and is reported with the registry's own words for why not."""
+    from mentis.sources import declarations
+    from mentis.sources import reading as _reading
+    from mentis.sources.registry import descriptors
+    known = {d["id"]: d for d in descriptors()}
+    out, refused = [], []
+    try:
+        declared = declarations(st.corpus)
+    except Exception:                                         # noqa: BLE001
+        return [], []
+    for decl in declared:
+        cid, connector = decl.get("collection"), decl.get("connector")
+        said = known.get(connector) or {}
+        label = said.get("label") or connector
+        name = decl.get("name") or cid
+        if not said.get("available"):
+            refused.append({"title": name, "kind": connector,
+                            "why": said.get("why_not")
+                            or f"the {label} connector is not available yet"})
+            continue
+        # A path is asked for only while the activation contract asks for one:
+        # a collection-scoped read (Part C) makes the path-less source runnable
+        # and this stops looking for an exact file.
+        source = {"kind": "file", "collection": cid}
+        path = None
+        if not reads_here(source):
+            try:
+                found = _reading.objects(st.corpus, cid, state="present",
+                                         limit=40).get("objects") or []
+            except Exception:                                 # noqa: BLE001
+                found = []
+            for obj in found:
+                if obj.get("text") is not True or not obj.get("path"):
+                    continue
+                if reads_here({"kind": "file", "collection": cid,
+                               "path": obj["path"]}):
+                    path = obj["path"]
+                    break
+            if path is None:
+                refused.append({"title": name, "kind": connector,
+                                "why": "nothing in this collection is held as "
+                                       "plain text that a Magnet can read yet"})
+                continue
+            source = {"kind": "file", "collection": cid, "path": path}
+        out.append({"source": source,
+                    "title": f"{name} · {path}" if path else name,
+                    "says": f"{label} · held by Mentis, read from the record",
+                    "score": _scored(words, f"{name} {path or ''}")})
+    out.sort(key=lambda c: -c["score"])
+    return out, refused
+
+
+def _listed(titles) -> str:
+    titles = list(titles)
+    if not titles:
+        return ""
+    if len(titles) == 1:
+        return titles[0]
+    return f"{', '.join(titles[:-1])} and {titles[-1]}"
+
+
+#: What is collected from a Conversation unless the sentence narrows it.
+PROPOSED_TYPES = ("post", "file", "image", "attachment")
+#: Said when nothing in the Brain matches, which is an answer and not a fault:
+#: a Magnet may be created with no sources at all (#521 §4), so one is proposed
+#: with none rather than with a source nobody asked for.
+NOTHING_MATCHES = ("Nothing in this Brain matches that yet, so this Magnet "
+                   "starts with no sources. You can talk to it straight away, "
+                   "and add a source whenever one exists.")
+
+
+def magnet_proposal(st, body) -> tuple[int, dict, list]:
+    """`POST /fluid/api/magnets/propose` {sentence, magnet?}: one sentence in,
+    a proposal out. READS ONLY -- nothing is written, and the proposal is inert
+    until the owner accepts it through the existing doors.
+
+    The answer is `{proposal: {sentence, name, sources, selection, cadence,
+    words, change, seed, unavailable}}`, every part of it already checked by
+    `mentis.magnet.schema`, so an unsupported mode is never proposed.
+    `docs/magnets/part-b-collection-api.md` is the contract."""
+    sentence = body.get("sentence")
+    if not isinstance(sentence, str) or not sentence.strip():
+        return _bad("say in one sentence what you want this Magnet to follow")
+    sentence = " ".join(sentence.split())
+    if len(sentence) > MAX_SENTENCE:
+        return _bad(f"a sentence of at most {MAX_SENTENCE} characters")
+    mid = body.get("magnet")
+    if mid is not None and (not isinstance(mid, str)
+                            or not S.MAGNET_ID.fullmatch(mid)):
+        return _bad("\"magnet\" names an existing Magnet, or is left out")
+    words = _sentence_words(sentence)
+    try:
+        collections, unavailable = _collection_candidates(st, words)
+        candidates = _conversation_candidates(st, words) + collections
+        # Best match first, and ONLY what the sentence actually says. A
+        # candidate the sentence does not name is never proposed, however
+        # little else there is: an empty proposal is an answer (#521 §4), and
+        # a source nobody asked for is not.
+        candidates.sort(key=lambda c: -c["score"])
+        chosen = [c for c in candidates if c["score"]][:PROPOSE_MOST]
+        sources = [c["source"] for c in chosen]
+        types = PROPOSED_TYPES if any(s["kind"] == "conversation"
+                                      for s in sources) else ()
+        when, cadence_words = proposed_cadence(sentence)
+        name = proposed_name(sentence)
+        value = runnable_definition(sources, types, sentence,
+                                    mid=mid or "mag-proposal")
+        # The cadence, checked as the facet it will be applied as.
+        cadence = S.facet("collection", {"mode": "scheduled", "schedule": when},
+                          "proposal.collection")
+        if not S._identity({"name": name}, "proposal.identity").get("name"):
+            return _bad("that sentence gives no name a Magnet can carry")
+    except S.Refused as exc:
+        return _bad(str(exc))
+    change = {k: value[k] for k in
+              ("sources", "selection", "collection", "synthesis",
+               "notifications", "activation", "processing", "ai", "outputs",
+               "destinations") if k in value}
+    change["identity"] = {"name": name}
+    return 200, {"proposal": {
+        "sentence": sentence,
+        "name": name,
+        "sources": list(value["sources"]),
+        "selection": dict(value["selection"]),
+        "cadence": dict(cadence),
+        "words": {
+            "sources": _listed(c["title"] for c in chosen) or NOTHING_MATCHES,
+            "collect": ("Posts, files, images and attachments"
+                        if types else "Everything these sources hold"),
+            "cadence": cadence_words,
+        },
+        "listed": [{"title": c["title"], "says": c["says"]} for c in chosen],
+        # What a press applies, in the order it applies it. `seed` creates a
+        # Magnet that does not exist yet; `change` reconfigures one that does.
+        # Both carry the same checked definition.
+        "change": change,
+        "seed": {k: v for k, v in value.items() if k != "id"},
+        "unavailable": unavailable,
+    }}, []
 
 
 def magnet_definition_command(st, which, mid, body,
@@ -2101,6 +2424,7 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "magnets, /magnets/<id>/"
                                             "reconfigure or /remove, "
                                             "/fluid/api/magnets/lift, "
+                                            "/fluid/api/magnets/propose, "
                                             "/fluid/api/magnets/<id>/delete, "
                                             "/conversation or /activate, "
                                             "/fluid/api/magnets/<id>/perspectives, "
@@ -2177,6 +2501,8 @@ def handle_post(handler, parsed, length: int) -> None:
             status, out, later = cleanup_conversation(st, which[1], body)
         elif which[0] == ARRANGEMENTS:
             status, out, later = save_arrangement(st, which[1], body)
+        elif which[0] == MAGNET_PROPOSE:
+            status, out, later = magnet_proposal(st, body)
         elif which[0] == MAGNET_CREATE or which[0] in MAGNET_ACTS.values():
             status, out, later = magnet_command(st, which[0], which[1], body)
         elif which[0] == MAGNET_LIFT \

@@ -77,6 +77,111 @@ its configured collection sources. Creating that destination does not add it to 
 source list. Activation remains manual, one-time, one `extract` operation in `m1-page`
 mode; configuration of other modes does not enable automatic collection.
 
+## The proposal — one sentence becomes a configuration (Part G1)
+
+Owner's correction `ent-8a4357b5f7fc`, amendment `adm-c38044ee5157` §4: "Purpose-driven
+creation should lead directly to activation and useful results, without requiring the user
+to navigate several configuration screens."
+
+### The door
+
+`POST /fluid/api/magnets/propose` `{sentence, magnet?}`. Owner-only, Brain-bound and
+client-headered like every other POST under `/fluid/api/`; a worker grant is refused there
+as it is everywhere. **It reads only.** No entry, no operational act, no definition file,
+no dispatch — proved by `tests/test_magnet_write_paths.py::test_a_proposal_writes_nothing_*`,
+which counts every `entry` and `operational` row before and after. `sentence` is 1..2000
+characters (`MAX_SENTENCE`, the schema's `MAX_CRITERIA`); `magnet` is an existing `mag-…`
+or absent. Anything else is 400 with plain words and no identifier in them.
+
+The answer is `{proposal: {…}}`:
+
+```json
+{"proposal": {
+  "sentence": "follow the solid electrolytes work",
+  "name": "The solid electrolytes work",
+  "sources": [{"kind": "conversation", "conversation": "ent-…"}],
+  "selection": {"criteria": "follow the solid electrolytes work",
+                "informationTypes": ["post", "file", "image", "attachment"]},
+  "cadence": {"mode": "scheduled", "schedule": "PT6H"},
+  "words": {"sources": "Solid electrolytes", "collect": "Posts, files, images and attachments",
+            "cadence": "Every six hours"},
+  "listed": [{"title": "Solid electrolytes", "says": "Conversation · posts and their attachments"}],
+  "seed": {"sources": […], "selection": {…}, "collection": {"mode": "one-time"}, "…": "…"},
+  "change": {"identity": {"name": "…"}, "sources": […], "…": "…"},
+  "unavailable": [{"title": "Harbour feeds", "kind": "rss-atom", "why": "…"}]
+}}
+```
+
+`words` and `listed` are what the interface shows: ordinary words only — no `mag-…`, no
+`ent-…`, no `one-time`/`manual`/`scheduled`. `seed` and `change` are what a press applies.
+`unavailable` names what was found and could not be proposed, in the registry's own words.
+
+**A name is derived, never demanded** (`proposed_name`): the sentence with its opener
+("I want to follow", "keep an eye on", …) removed, cut to `MAX_NAME`.
+
+### Validated before it is ever shown
+
+Every proposal is built by `runnable_definition`, which passes the whole definition through
+`mentis.magnet.schema.magnet_config`, and the cadence through `schema.facet("collection", …)`
+and `schema._when`. A mode the schema does not carry cannot leave this door. Proved by
+`tests/test_magnet_definitions.py::test_a_proposal_is_schema_valid_before_it_is_ever_shown`.
+
+### Which source kinds are available is derived at runtime, never listed
+
+`reads_here(source)` builds a one-source definition and asks the code that actually
+collects whether it could run it: `mentis.magnet.activation._cannot_run_code` (the
+contract's own first-failing-line check) and `activation.runnable_files` (its own file
+rule). Which connectors exist and which are available is
+`mentis.sources.registry.descriptors()`, read on every call; which collections exist is
+`mentis.sources.declarations(corpus)`.
+
+Consequences, all of them free of further change here:
+
+- **Part C** widening a `file` source to a path prefix or a whole collection makes the
+  path-less candidate `{"kind": "file", "collection": "col-…"}` pass `runnable_files`, and
+  the proposal stops looking for an exact file.
+- **Part W** flipping `rss-atom`, `web-search` and `web` to `available=True` makes
+  collections of those connectors proposable; until it does, each is reported in
+  `unavailable` with the registry's own `why_not`.
+- A kind in the Magnet schema that nothing collects (`web`, `brain`, `database`,
+  `connector`, `other`, `agent-results`) is never proposed, because `reads_here` says no.
+
+A candidate is proposed only where the sentence's own words name it (word overlap with the
+Conversation's or collection's name), at most `PROPOSE_MOST` (5). **A sentence that matches
+nothing proposes no source at all** and says so (`NOTHING_MATCHES`) — a Magnet with no
+sources is a valid Magnet (#521 §4), and a source nobody asked for is not an answer.
+
+### The cadence
+
+`proposed_cadence` reads "every hour"/"hourly", "every day"/"daily", "every week"/"weekly"
+from the sentence, and otherwise proposes `PT6H`. It is in the proposal, so periodic refresh
+is on from the start rather than being something to go and switch on afterwards.
+
+### Acceptance: no new command
+
+**There is no accept door.** One press runs the existing doors in this order:
+
+1. `POST /fluid/api/arrangements/<key>/magnets` with `seed` (a Magnet that does not exist
+   yet), or `POST /fluid/api/arrangements/<key>/magnets/<id>/reconfigure` with `change`
+   (one that does). The configuration is applied.
+2. `POST /fluid/api/magnets/<id>/activate` — the first collection runs.
+3. `POST /fluid/api/arrangements/<key>/magnets/<id>/reconfigure` with
+   `{collection: <cadence>}` — periodic refresh is on.
+
+**Why the cadence lands last.** `activation._cannot_run_code` requires
+`collection.mode == "one-time"` for the manual activation that runs this build's first
+collection, so a definition carrying the cadence cannot be activated by hand. The first
+collection therefore runs from the one-time facets and the cadence is applied immediately
+after it, in the same press. Until **Part D2**'s due runner interprets
+`collection.mode = "scheduled"`, a *manual* Collect on a Magnet carrying a cadence is
+refused with `collection-not-supported`, and the Sources panel says the cadence instead of
+offering Collect. That is a seam for Part D2 and the integrator, not a defect of this part.
+
+**Seam named for `mentis/magnet/activation.py`'s owner:** `_cannot_run_code` is private to
+that module and is read here, because the derivation must come from the real contract rather
+than a copy of it. A public name for "could this definition run" belongs in `activation.py`;
+Part C holds that file this round, so none was added.
+
 ## Authentic compatibility fixture
 
 `tests/fixtures/magnet-conformance/legacy/brain-12fecc01.zip` is a complete fixture

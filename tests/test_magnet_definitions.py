@@ -1100,3 +1100,153 @@ def test_recreated_magnet_recovers_its_conversation_for_every_author(
     assert status == 200 and recovered["created"] is False, recovered
     assert recovered["conversation"] == original
     assert M.read(world["root"], mid)["conversation"] == original
+
+
+# -- one sentence becomes a proposal (Part G1) ---------------------------------
+#
+# The contract is `docs/magnets/part-b-collection-api.md`, "The proposal".
+# Three things are proved here, because they are the three the owner's
+# correction turns on: a sentence returns a proposal that names real
+# collections and a cadence; the proposal is schema-valid, so an unsupported
+# mode can never be shown; and which source kinds are available is derived at
+# runtime rather than listed, so Part C and Part W widen it with no change here.
+
+from mentis.fluid import commands as CMD  # noqa: E402
+
+
+def _propose(world, sentence, **more):  # noqa: F811
+    return _post(world, "magnets/propose", {"sentence": sentence, **more})
+
+
+def _get(world, path):  # noqa: F811
+    req = urllib.request.Request(world["base"] + "/fluid/api/" + path,
+                                 headers={"X-Mentis-Client": "1"})
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())
+
+
+def test_a_sentence_returns_a_proposal_naming_real_sources_and_a_cadence(
+        world):  # noqa: F811
+    status, got = _propose(world, "I want to follow the solid electrolytes work")
+    assert status == 200, got
+    p = got["proposal"]
+    # Named after what was asked, not asked for separately.
+    assert p["name"] == "The solid electrolytes work"
+    assert len(p["name"]) <= S.MAX_NAME
+    # Real sources: every one names a Conversation that exists in this Brain.
+    assert p["sources"], p
+    existing = {c["id"] for c in _get(world, "conversations?activity=1&limit=40")
+                ["conversations"]}
+    for s in p["sources"]:
+        assert s["kind"] in ("conversation", "file"), s
+        if s["kind"] == "conversation":
+            assert s["conversation"] in existing, s
+    assert any("electrolyte" in (row["title"] or "").lower()
+               for row in p["listed"]), p["listed"]
+    # A cadence, in the proposal, so periodic refresh is on from the start.
+    assert p["cadence"] == {"mode": "scheduled", "schedule": "PT6H"}
+    assert p["words"]["cadence"] == "Every six hours"
+    # Ordinary words, and no raw identifier among them.
+    for words in p["words"].values():
+        assert "mag-" not in words and "ent-" not in words, words
+        assert "one-time" not in words and "manual" not in words, words
+    # The sentence itself is what the configuration says it collects.
+    assert p["selection"]["criteria"] == "I want to follow the solid electrolytes work"
+
+
+def test_the_cadence_the_sentence_asks_for_is_the_one_proposed(
+        world):  # noqa: F811
+    for said, when in (("follow Saltmarsh every day", "P1D"),
+                       ("follow Saltmarsh hourly", "PT1H"),
+                       ("follow Saltmarsh every week", "P1W"),
+                       ("follow Saltmarsh", "PT6H")):
+        status, got = _propose(world, said)
+        assert status == 200, got
+        assert got["proposal"]["cadence"]["schedule"] == when, said
+
+
+def test_a_proposal_is_schema_valid_before_it_is_ever_shown(world):  # noqa: F811
+    status, got = _propose(world, "follow the Mark IV interface design")
+    assert status == 200, got
+    p = got["proposal"]
+    # Both halves of what a press applies pass the Magnet schema whole; an
+    # unsupported mode could not have survived this.
+    S.magnet_config({"id": "mag-proof", **p["seed"]}, "seed")
+    applied = {**p["seed"], **p["change"], "id": "mag-proof"}
+    S.magnet_config(applied, "change")
+    assert p["seed"]["collection"]["mode"] in S.COLLECTION_MODES
+    assert p["cadence"]["mode"] in S.COLLECTION_MODES
+    assert S.facet("collection", p["cadence"], "cadence") == p["cadence"]
+    # And the first collection's own facets are the ones this build runs.
+    from mentis.magnet import activation as ACT
+    assert ACT._cannot_run_code(S.magnet_config(
+        {"id": "mag-proof", **p["seed"]})) is None
+
+
+def test_a_proposal_never_names_a_source_kind_that_does_not_read(
+        world):  # noqa: F811
+    status, got = _propose(world, "follow absolutely everything")
+    assert status == 200, got
+    for s in got["proposal"]["sources"]:
+        assert CMD.reads_here(s), s
+    # The derivation is the activation contract's own answer, not a list here:
+    # a web source is in the Magnet schema and is refused by it today.
+    assert not CMD.reads_here({"kind": "web", "url": "https://example.org/x"})
+    assert not CMD.reads_here({"kind": "brain", "brain": "ent-aaaaaaaaaaaa"})
+    assert CMD.reads_here({"kind": "conversation",
+                           "conversation": "ent-aaaaaaaaaaaa"})
+
+
+def test_availability_is_read_from_the_registry_at_runtime(
+        world, monkeypatch):  # noqa: F811
+    """Part W flips three connectors to available; nothing here lists them."""
+    from mentis.sources import registry as REG
+    seen = {}
+    real = REG.descriptors
+
+    def watched():
+        got = real()
+        seen["ids"] = [d["id"] for d in got]
+        return got
+    monkeypatch.setattr(REG, "descriptors", watched)
+    status, got = _propose(world, "follow the feeds")
+    assert status == 200, got
+    # The registry was actually asked, and asked for everything it holds.
+    assert "rss-atom" in seen["ids"] and "web" in seen["ids"], seen
+    # Nothing unavailable was proposed from it.
+    for s in got["proposal"]["sources"]:
+        assert s["kind"] != "web", s
+
+
+def test_a_sentence_matching_nothing_proposes_no_source_rather_than_a_wrong_one(
+        world):  # noqa: F811
+    status, got = _propose(world, "follow zzqqxx nothingatallhere")
+    assert status == 200, got
+    p = got["proposal"]
+    assert p["sources"] == [], p
+    assert p["words"]["sources"] == CMD.NOTHING_MATCHES
+    # Still a complete, schema-valid proposal: a Magnet may have no sources.
+    S.magnet_config({"id": "mag-proof", **p["seed"]}, "seed")
+
+
+def test_a_proposal_refuses_a_sentence_it_cannot_derive_anything_from(
+        world):  # noqa: F811
+    for bad in ("", "   ", "x" * (CMD.MAX_SENTENCE + 1)):
+        status, got = _propose(world, bad)
+        assert status == 400, (bad, got)
+        assert got["error"] and "mag-" not in got["error"]
+    status, got = _propose(world, "follow Saltmarsh", magnet="not-a-magnet")
+    assert status == 400, got
+
+
+def test_an_existing_magnet_is_named_in_its_own_proposal(world):  # noqa: F811
+    status, made = _post(world, "arrangements/home/magnets",
+                         {"seed": seed(), "attach": {**attach(),
+                                                     "base": layout(version=2)}})
+    assert status == 200, made
+    mid = made["magnet"]["id"]
+    status, got = _propose(world, "follow Saltmarsh", magnet=mid)
+    assert status == 200, got
+    # The change is addressed at that Magnet's definition; the seed is not used.
+    assert "identity" in got["proposal"]["change"]
+    S.magnet_config({**got["proposal"]["seed"], "id": mid}, "change")
