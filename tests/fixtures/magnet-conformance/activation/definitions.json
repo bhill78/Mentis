@@ -1165,7 +1165,46 @@
     },
     "schema_version": 1
    },
-   "answer": "collection-not-supported"
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "scheduled",
+     "schedule": "PT1H"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    }
+   }
   },
   {
    "id": "collection-continuous",

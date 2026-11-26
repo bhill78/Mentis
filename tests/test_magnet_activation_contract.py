@@ -563,7 +563,8 @@ def executable_verdict(definition) -> str:
         return "schema-version-not-supported"
     if (definition.get("activation") or {}).get("mode") != "manual":
         return "activation-not-supported"
-    if definition["collection"]["mode"] != "one-time":
+    # PART D2: `scheduled` is run, by the due runner, through this same path.
+    if definition["collection"]["mode"] not in ("one-time", "scheduled"):
         return "collection-not-supported"
     if definition["synthesis"]["mode"] != "manual":
         return "synthesis-not-supported"

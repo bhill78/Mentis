@@ -8406,6 +8406,15 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     # between a delegation's commit and its run's start: one bounded pass,
     # now -- the port is bound, so the runs it starts can call back, and no
     # request has been served (`dispatch.recover_delegations`, round 4 C2).
+    # SCHEDULED MAGNET COLLECTION, ONE BOUNDED PASS PER INTERVAL from now on
+    # (`mentis.magnet.due`, Part D2): started once, here, after the port is
+    # bound and before a request is served; ended when this server stops. An
+    # idle server with no scheduled Magnet does nothing at all.
+    from mentis.magnet import due as _magnet_due
+    try:
+        _magnet_due.start(_Handler.state)
+    except Exception as e:      # a bad record must not keep the Brain unserved
+        print(f"could not start the scheduled Magnet collection pass: {e}")
     from mentis.web.dispatch import recover_delegations
     try:
         recovered = recover_delegations(_Handler.state, start=dispatch_soon)
@@ -8425,6 +8434,7 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     except KeyboardInterrupt:
         pass
     httpd.server_close()
+    _magnet_due.stop(_Handler.state)        # the due keeper ends with the server
     _Handler.state.agents.close()
     # The store's clean close checkpoints the WAL (TRUNCATE) and gives up the
     # OPEN lock; then this server's claim and the SERVE lock.

@@ -15,8 +15,10 @@ about the body, the author, the key and the definition, verifying what comes bac
 The two private paths exist only behind a boot secret (`mentis.web`). The secret proves who could read it
 and nothing else, so nothing here takes a word of the artifact for what the record already knows.
 
-Nothing runs here by itself: no queue, retry, schedule or runtime. `m1-page` is the first mode of `extract`,
-not what `extract` means.
+Nothing runs here by itself: no queue, retry or runtime. A scheduled collection is asked for through
+exactly these three steps by the bounded due runner, which is the only thing that reads a cadence
+(`mentis.magnet.due`); all this file knows of it is `DUE_OP_PREFIX`, which decides words and no
+authority. `m1-page` is the first mode of `extract`, not what `extract` means.
 """
 from __future__ import annotations
 
@@ -57,6 +59,20 @@ KEPT_MOST = 64 * 1024
 
 #: A length past any limit here. A body this long is refused, never read, so the number itself isn't used.
 LENGTH_BEYOND = 2 ** 63 - 1
+
+#: WHAT THIS BUILD COLLECTS. `one-time` is a collection asked for by hand, and `scheduled` is the
+#: same collection asked for when its stored cadence says it is due (`mentis.magnet.due`): one
+#: activation, the same path, the same checks. `continuous` and `paused` are still refused.
+COLLECTABLE_MODES = ("one-time", "scheduled")
+
+#: THE OPERATION KEY OF AN UNATTENDED COLLECTION (Part D2; `mentis.magnet.due.op_for`). The key is
+#: the ONE thing that tells a commit this collection was due on the schedule the owner configured
+#: rather than asked for by a press, and all it changes is the words the record keeps (`_because`).
+#: IT CHANGES NOTHING ABOUT AUTHORITY: the author is still checked by `commands._author`, the
+#: owner's session is still checked at whichever door the request came through, no grant is read or
+#: minted here or anywhere near here, and `written_by` is still only what the server observed of
+#: the request. A body that names this key and comes from a press is in every way a press.
+DUE_OP_PREFIX = "magnet-due:"
 
 _PUBLIC_PATH = re.compile(r"/fluid/api/magnets/[^/]+/activate/*")
 _PRIVATE_PATH = re.compile(r"/private/magnets/([^/]+)/activate/(preflight|commit)")
@@ -332,7 +348,9 @@ def _cannot_run_code(value) -> str | None:
     is asked before this, because the full check refuses one."""
     if (value.get("activation") or {}).get("mode") != "manual":
         return "activation-not-supported"
-    if value["collection"]["mode"] != "one-time":
+    # PART D2: `scheduled` is run, not refused. Its stored cadence decides when (`magnet.due`);
+    # the collection it runs is this one, by this path, with every check below unchanged.
+    if value["collection"]["mode"] not in COLLECTABLE_MODES:
         return "collection-not-supported"
     if value["synthesis"]["mode"] != "manual":
         return "synthesis-not-supported"
@@ -650,6 +668,20 @@ def _what_the_file_names(st, mid, captured) -> str | None:
     return (config or {}).get("conversation")
 
 
+def unattended(op) -> bool:
+    """WHETHER THIS COLLECTION WAS DUE RATHER THAN ASKED FOR (Part D2). The operation key says so
+    and nothing else does: it is the key the due runner derives from the Magnet and its cadence
+    slot (`mentis.magnet.due.op_for`), so the same slot is the same key and the record keeps one
+    collection for it however often it arrives. This decides words, never authority."""
+    return isinstance(op, str) and op.startswith(DUE_OP_PREFIX)
+
+
+def _because(op) -> str:
+    """The reason the record keeps for this activation, in the record's own voice."""
+    return ("its Magnet's collection was due on the schedule its configuration sets"
+            if unattended(op) else "its Magnet was activated by hand")
+
+
 def _said(summary, state) -> str:
     results, sources = summary["results"], summary["sources"]
     return (f"Extracted one page from this Magnet ({state}): {results} result{'' if results == 1 else 's'} "
@@ -692,7 +724,7 @@ def _record(st, mid, got, digest, size) -> dict:
         artifact = {"ref": adm, "digest": digest, "size": size, "media_type": MEDIA_TYPE}
         artifacts.record_generated(
             corpus, cv, adm, act=MAGNET_EXTRACTED, actor=by, conversation=cid, turn=post,
-            because="its Magnet was activated by hand", written_by=wrote,
+            because=_because(op), written_by=wrote,
             detail={"magnet": mid, "mode": MODE, "operation": {"index": got["operation"]["index"],
                                                                "name": got["operation"]["name"]},
                     "definition_sha256": got["definition_sha256"],
@@ -734,7 +766,8 @@ def commit(st, segment, raw, digest, ctype) -> dict:
                      {**recorded, "replayed": False, "cursor": _cursor_now(st)})
 
 
-__all__ = ["ANSWER_MOST", "ARTIFACT_MOST", "COMMIT_BODY_S", "COMMIT_PLACE", "DIGEST_HEADER", "MAGNET_EXTRACTED",
+__all__ = ["ANSWER_MOST", "ARTIFACT_MOST", "COLLECTABLE_MODES", "COMMIT_BODY_S", "COMMIT_PLACE",
+           "DIGEST_HEADER", "DUE_OP_PREFIX", "MAGNET_EXTRACTED",
            "PUBLIC_BODY_MOST", "PUBLIC_BODY_TOO_LARGE", "artifact_too_large", "busy", "commit",
            "internal_protocol_error", "length_by_value", "names_activation", "preflight", "private_step",
-           "public", "refused", "wire"]
+           "public", "refused", "unattended", "wire"]

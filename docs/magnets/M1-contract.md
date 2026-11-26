@@ -252,7 +252,7 @@ Python answers `ready` only for a definition that passes the full schema and eve
 |---|---|
 | `schema_version` absent or one this build supports | `schema-version-not-supported` |
 | `activation.mode` `manual` (absent isn't) | `activation-not-supported` |
-| `collection.mode` `one-time` | `collection-not-supported` |
+| `collection.mode` `one-time` or `scheduled` | `collection-not-supported` |
 | `synthesis.mode` `manual` | `synthesis-not-supported` |
 | Every notification flag false | `notifications-not-supported` |
 | `processing.operations` exactly one, `extract`, with `name` optional | `pipeline-not-supported` |
