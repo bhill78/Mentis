@@ -39,7 +39,10 @@
  *     carries -- the one thing that makes a statement checkable -- was thrown
  *     away before the reader saw it. It is read now, and every statement is
  *     pressable to the captured records it was written from (`answerLines`,
- *     `citedRows`, `Briefing`).
+ *     `citedRows`, `Briefing`) -- a written briefing included: where the
+ *     server recorded `lines`, each is drawn as its own prose block with its
+ *     own citations, rather than the whole document read straight into
+ *     `Prose` and its citations dropped.
  *  2. A recorded answer that is a written document rather than one statement
  *     per line is rendered as prose by the Fluid renderer that already exists
  *     (`Prose`, `src/prose.tsx`): headings, paragraphs, lists and pipe tables,
@@ -48,8 +51,9 @@
  *  3. The lead before any answer exists was a record count ("This Magnet holds
  *     72 collected files, collected …"). It is what the material NAMES now
  *     (`materialLead`), read out of the rows' own captured words; every
- *     measurement -- the counts, the span, the word total, the counted words --
- *     is behind the one facts disclosure it always had.
+ *     measurement -- the counts, the span, the word total, the counted words,
+ *     and the synthesis's own trailing record-count line (`answerRecordCount`)
+ *     -- is behind the one facts disclosure it always had.
  *
  *  And where the collected material records when it was published, that dated
  *  shape is drawn as a table rather than described (`datedMaterial`,
@@ -197,8 +201,12 @@ export function frequentWords(results: RouteResult[], limit = 6): CountedWord[] 
     .slice(0, limit).map(([word, count]) => ({ word, count }))
 }
 
-/** When the collected material itself was written, from what was captured with
- *  it -- not when the batch was collected, which is a different fact. */
+/** The range of the collected rows' own recorded `at`, read as when each row
+ *  entered this collection -- not when the batch as a whole was collected,
+ *  which `s.activation.at` already says, and not when an acquired row's
+ *  material was itself written: for a held or acquired row, `at` is when this
+ *  Magnet fetched it (see `rowPublication`, which reads the row's own
+ *  recorded `Published:` line for that fact where one exists). */
 export function collectedSpan(results: RouteResult[]): { first: number; last: number } | null {
   const times = results.map((r) => r.at).filter((at): at is number => typeof at === 'number' && Number.isFinite(at))
   return times.length ? { first: Math.min(...times), last: Math.max(...times) } : null
@@ -279,8 +287,8 @@ export function collectionOverview(saved: SavedMagnet, s: MagnetSnapshot): strin
   if (from.length) lines.push(`They came from ${from.length > 1
     ? `${from.slice(0, -1).join(', ')} and ${from[from.length - 1]}` : from[0]}.`)
   if (span) lines.push(day(span.first) === day(span.last)
-    ? `The collected material is all from ${day(span.first)}.`
-    : `The collected material was written between ${day(span.first)} and ${day(span.last)}.`)
+    ? `The collected material was all collected on ${day(span.first)}.`
+    : `The collected material was collected between ${day(span.first)} and ${day(span.last)}.`)
   if (words) lines.push(`Its collected text runs to about ${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}.`)
   // The counted words moved to `summaryFacts`: see the note there. Every line
   // left here is still a measurement, and the view keeps all of them behind the
@@ -719,6 +727,31 @@ export function answerLines(e?: InquiryEvent | null): AnswerLine[] {
   return statements(answerText(e)).map((text) => ({ text, cites: [] }))
 }
 
+/** The one line a statement-per-line synthesis closes with, counting what it
+ *  read (`mentis/magnet/perspectives_work.py::_state_of`'s fixed closing
+ *  sentence, "This Magnet has gathered N records from M sources…") --
+ *  recognised by its fixed lead-in, not derived from its position, so the
+ *  main answer never shows it above the fold (plan Part 5) while nothing it
+ *  says is lost: it is kept, among the collection's other measurements, in
+ *  the facts disclosure (`answerRecordCount`, used beside `measured`). */
+const RECORD_COUNT_LINE = /^This Magnet has gathered \d+ records? from /
+
+/** `lines`, with a trailing record-count line pulled out rather than shown. */
+function withoutRecordCount(lines: AnswerLine[]): AnswerLine[] {
+  if (!lines.length || !RECORD_COUNT_LINE.test(lines[lines.length - 1].text)) return lines
+  return lines.slice(0, -1)
+}
+
+/** The demoted record-count line's own words, for the facts disclosure --
+ *  `null` where the answer is a written briefing (it does not close with
+ *  one) or recorded none. */
+export function answerRecordCount(e?: InquiryEvent | null): string | null {
+  if (!e || isWrittenBriefing(answerText(e))) return null
+  const lines = answerLines(e)
+  const last = lines[lines.length - 1]
+  return last && RECORD_COUNT_LINE.test(last.text) ? last.text : null
+}
+
 export interface Cited { id: string; title: string }
 /** The rows a statement cites, named by their own words and in the order the
  *  statement names them. A row the batch shown does not hold is dropped: this
@@ -767,16 +800,32 @@ function Cites({ resource, cites }: { resource: MagnetResource; cites: string[] 
  *
  *  A written briefing is prose: `Prose` draws its headings, paragraphs, lists
  *  and pipe tables, and in a browser the marked `timeline`/`chart` blocks of
- *  the registry it already reads. A statement-per-line synthesis keeps the
- *  layout that suits it -- the statement, the record's own words under it
- *  (`AnswerStatement`, `links.tsx`), and the records it was written from as
- *  presses. Either way the recorded characters are the recorded ones. */
+ *  the registry it already reads. Where the server recorded it as `lines`
+ *  (0e's structured contract), each recorded line is drawn as its own prose
+ *  block with the records it was written from as presses beneath it --
+ *  `Prose` still draws the Markdown each block holds, and a block spanning a
+ *  multi-line construct (a pipe table, a list) keeps its own lines together,
+ *  because the server recorded it as one line of the contract. An answer with
+ *  no recorded `lines` (written before the contract existed) still reads
+ *  whole, the one case nothing can be cited against. A statement-per-line
+ *  synthesis keeps the layout that suits it -- the statement, the record's
+ *  own words under it (`AnswerStatement`, `links.tsx`), and the records it
+ *  was written from as presses -- with its trailing record-count line held
+ *  back for the facts disclosure instead of shown here (plan Part 5,
+ *  `answerRecordCount`). Either way the recorded characters are the recorded
+ *  ones. */
 export function Briefing({ resource, answer }: { resource: MagnetResource; answer: InquiryEvent | null }) {
   const words = answerText(answer)
   if (!words) return null
-  if (isWrittenBriefing(words))
-    return <div className="q2-prose"><Prose src={words} scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
-  return <>{answerLines(answer).map((line, i) => <div key={`answer-${i}`}>
+  if (isWrittenBriefing(words)) {
+    if (!Array.isArray(answer?.data?.lines) || !answer.data.lines.length)
+      return <div className="q2-prose"><Prose src={words} scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
+    return <>{answerLines(answer).map((line, i) => <div key={`answer-${i}`} className="q2-prose">
+      <Prose src={line.text} scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
+      <Cites resource={resource} cites={line.cites} />
+    </div>)}</>
+  }
+  return <>{withoutRecordCount(answerLines(answer)).map((line, i) => <div key={`answer-${i}`}>
     <AnswerStatement line={line.text} lead={!i} />
     <Cites resource={resource} cites={line.cites} />
   </div>)}</>
@@ -926,6 +975,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
 
   const lead = materialLead(s)
   const measured = collectionOverview(resource.saved, s)
+  const recordCount = answerRecordCount(summary?.current ?? null)
   const excerpts = collectedExcerpts(s.results)
   const dated = datedMaterial(s.results)
   const starting = startingAction(resource.saved)
@@ -1132,6 +1182,11 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                 from the reader; it moved it to where the owner kept the rest
                 of the measurements. */}
             {measured.map((line, i) => <p key={`measured-${i}`}>{line}</p>)}
+            {/* THE ANSWER'S OWN RECORD-COUNT LINE, demoted the same way as the
+                counted lead above: the synthesis still counts what it read,
+                last, and the count is kept here rather than shown above the
+                fold in the answer itself (plan Part 5). */}
+            {recordCount && <p>{recordCount}</p>}
             {summaryFacts(resource.saved, s).map((line, i) => <p key={i}>{line}</p>)}
           </div>
         </details>

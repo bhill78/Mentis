@@ -36,7 +36,7 @@ import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import type { RouteResult } from '../src/fluid/surface/magnet/route'
 import Summary, {
   BRIEFING_REWRITTEN, Briefing, DATED_WHY, NAMES_NOTHING_YET, WRITTEN_FROM,
-  answerLines, citedRows, collectionOverview, datedMaterial, datedTable, isWrittenBriefing,
+  answerLines, answerRecordCount, citedRows, collectionOverview, datedMaterial, datedTable, isWrittenBriefing,
   materialLead, namedSubjects, offeredQuestions, rowPublication, summaryFacts, worthTabulating,
 } from '../src/quiet2/magnets/Summary'
 import Inspection, { CapturedWords, NOTHING_BUT_A_HEADER } from '../src/quiet2/magnets/Inspection'
@@ -207,6 +207,25 @@ test('a written briefing is rendered as prose, headings and tables included', as
   assert.ok(!rendered.includes('q2-magnet-statement'), 'a document is not split into one statement per line')
 })
 
+test('a written briefing keeps each recorded block’s own citations (review ent-e3c43663010a)', async () => {
+  store()
+  const r = resource('mag-pprosecites')
+  await r.read()
+  // Two recorded blocks, each a prose fragment with its own cites -- the
+  // structured contract a written briefing used to be read straight into
+  // `Prose` without, dropping every citation its fixture carried.
+  const rendered = html(createElement(Briefing, { resource: r, answer: answered([
+    { text: '## What launched\n\nThe **Roman Space Telescope** cleared thermal testing.', cites: [ROMAN] },
+    { text: 'Europa Clipper refined its Mars gravity assist.', cites: [CLIPPER] },
+  ]) }))
+  assert.ok(/<h\d class="pr-h/.test(rendered), 'the written block is still drawn as prose')
+  assert.ok(rendered.includes('<strong>Roman Space Telescope</strong>'), 'its emphasis is still emphasis')
+  assert.equal((rendered.match(new RegExp(WRITTEN_FROM, 'g')) ?? []).length, 2,
+    'each recorded block carries its own citations, not one dropped for the whole document')
+  assert.ok(rendered.includes(`id="cite-${ROMAN}"`), 'the first block’s citation is a press')
+  assert.ok(rendered.includes(`id="cite-${CLIPPER}"`), 'and so is the second block’s')
+})
+
 test('a written answer’s change is not a diff of its Markdown lines', async () => {
   store()
   const r = resource('mag-pchange')
@@ -277,6 +296,21 @@ test('the lead before an answer names subjects, and no count is above the fold',
   assert.ok(rendered.slice(rendered.indexOf('Limits and dates')).includes('This Magnet holds 3 collected files'),
     'in the facts disclosure, which is where the view renders them')
   assert.match(summaryFacts(r.saved, s).join(' | '), /Most used words, counted/, 'as are the counted words')
+})
+
+test('a recorded answer’s own trailing record-count line is kept out of the answer and into the facts disclosure (review ent-e3c43663010a)', async () => {
+  store()
+  const r = resource('mag-pcount')
+  await r.read()
+  const answer = answered(SYNTHESIS)
+  assert.match(answerLines(answer).at(-1)?.text ?? '', /^This Magnet has gathered \d+ records? from /,
+    'the fixture itself closes with the server’s count line')
+  assert.match(answerRecordCount(answer) ?? '', /^This Magnet has gathered 3 records from 1 source/,
+    'the count line is read out for the facts disclosure')
+  const briefing = html(createElement(Briefing, { resource: r, answer }))
+  assert.doesNotMatch(briefing, /This Magnet has gathered \d+ records? from/, 'and never shown in the answer itself')
+  assert.equal(answerRecordCount(answered([{ text: '## Briefing\n\nProse body.', cites: [] }])), null,
+    'a written briefing never closes with this line, so nothing is pulled from it')
 })
 
 test('an offered question asks about a subject the material names', async () => {

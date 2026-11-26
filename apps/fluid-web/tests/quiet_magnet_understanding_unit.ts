@@ -132,7 +132,10 @@ test('the written overview says what was collected, from where, when and how muc
     `the written overview carries no recorded identifier: ${line}`)
   assert.ok(summaryFacts(r.saved, r.snapshot()).join(' | ').includes(`Conversation ${SOURCE} (2 collected items)`),
     'and the per-source breakdown is still stated on demand')
-  assert.match(text, /The collected material was written between .+ and .+\./, 'it states the span of the material itself')
+  // Not "written": `collectedSpan` reads each row's own `at`, which for an
+  // acquired row is when this Magnet fetched it, not when its material was
+  // written (Part 5 review ent-e3c43663010a).
+  assert.match(text, /The collected material was collected between .+ and .+\./, 'it states the span of collection, not of writing')
   assert.match(text, /Its collected text runs to about \d+ words\./, 'it measures the text it holds')
   // THE COUNTED WORDS ARE A FACT, SAID WHERE THE FACTS ARE (plan Part 5). They
   // were a sentence of the written overview, so "Most used words, counted: …"
