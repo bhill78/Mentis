@@ -42,7 +42,7 @@ import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conver
 import { setQuestionDraft, panelAt } from './panelDrafts'
 import {
   answerDiff, answerText, changeWords, grounding, perspectivesOf, provenanceOf, statements,
-  NOTHING_NEW_CODE, WRITTEN_BY_MENTIS,
+  NOTHING_NEW_CODE,
   type AnswerChange, type InquiryEvent, type Perspective, type StandingSummary,
 } from './perspectives'
 import './summary.css'
@@ -682,7 +682,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
               {statements(answered).map((line, i) =>
                 <p className={`mgd-p${i ? '' : ' q2-magnet-lead'}`} key={`answer-${i}`}>{line}</p>)}
               <Grounded answer={summary?.current ?? null} />
-              <p className="mgd-subtle">{typeof summary?.current?.data?.written_by === 'string' ? summary.current.data.written_by : WRITTEN_BY_MENTIS} {SUMMARY_IS_A_QUESTION}</p>
+              {/* Who wrote it is said ONCE, by the grounding statement above
+                  ("Written from this Magnet's collected records and nothing
+                  else"). What this adds is the one thing that statement does
+                  not: that it is a kept question's answer, with its earlier
+                  answers under it. The answer package's own `written_by`
+                  sentence is on the recorded answer, one press away. */}
+              <p className="mgd-subtle">{SUMMARY_IS_A_QUESTION}</p>
             </section>
           : <><p className="mgd-p mgd-muted q2-magnet-lead">{lead}</p>
               <p className="mgd-subtle">{answering ? 'Writing an answer from this collection…' : NOT_ANSWERED_YET}</p></>}
