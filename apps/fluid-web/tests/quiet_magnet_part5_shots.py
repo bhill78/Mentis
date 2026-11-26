@@ -14,10 +14,13 @@ dev server. It photographs the states the owner will judge:
                             heading, its address a link, its words prose
   05-summary-briefing-multi.png  the same document recorded across several
                             entries -- a paragraph cut off mid-sentence and
-                            continued in the next, a table with one entry per
-                            row, an ordered list with one entry per item --
-                            each still naming only the record it cites
-                            (correction for review `ent-19c3c55af28c`)
+                            continued in the next, a table whose entries hold
+                            one row and two rows, an ordered list with one
+                            entry per item and one item continued by a plain
+                            entry -- each still naming only the record it
+                            cites, and each citation naming the row, item or
+                            phrase it was recorded against (corrections for
+                            reviews `ent-19c3c55af28c` and `ent-c0f9cca287b7`)
 
 It asserts nothing about behaviour -- `quiet_magnet_presentation_unit.ts` does
 that. It fails loudly if the page logs an error or the expected words are not on
@@ -87,6 +90,11 @@ def main():
                     "What launched, and what was found",
                     "First lunar-Earth assist flown",
                     "Mars gravity assist refined for Europa Clipper",
+                    # the two rows recorded in one entry, named as rows
+                    "Rows ",
+                    "Artemis III shortlist narrowed",
+                    # the list item continued by a plain entry, read as one item
+                    "cleared to ship to its launch site.",
                 ]),
             ]:
                 page.goto(f"{BASE}?state={state}")

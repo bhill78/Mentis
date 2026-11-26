@@ -61,7 +61,7 @@
  *  bytes it is stored as. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
-import { Prose, blocksOf, isStructured, isTableRow } from '../../prose'
+import { Prose, blocksOf, isStructured, isTableDivider, isTableRow, rowCells } from '../../prose'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
 import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
@@ -786,14 +786,78 @@ export const WRITTEN_FROM = 'Written from'
 export const BRIEFING_REWRITTEN = 'This answer is written as a document, and was rewritten from the collection shown. It is read whole above; the answer it superseded is kept under this Magnet’s standing question.'
 
 /** The collected records one statement was written from, each a press that
- *  opens the captured copy inside this card. */
-function Cites({ resource, cites }: { resource: MagnetResource; cites: string[] }) {
+ *  opens the captured copy inside this card -- and, where this entry is one of
+ *  several that were merged into a single Markdown construct, WHICH PART of
+ *  that construct the records were recorded against (`part`).
+ *
+ *  Without the part, a table assembled from three recorded entries shows three
+ *  "Written from" lines under the whole table and nothing says which row each
+ *  supports: review `ent-c0f9cca287b7` moved a citation from one entry to
+ *  another and got byte-for-byte identical HTML, which makes the recorded
+ *  attribution unrecoverable from the rendered surface. The part is the entry's
+ *  own recorded words, shortened (`citedPart`) -- never a guess at what a
+ *  source supports -- so what a reader can map is exactly what the server
+ *  recorded, and a citation that moves to another entry moves its label with
+ *  it. A group of one entry needs no part: its citations sit under the one
+ *  thing they were recorded against. */
+function Cites({ resource, cites, part }: { resource: MagnetResource; cites: string[]; part?: string }) {
   const rows = citedRows(cites, resource.snapshot().results)
   if (!rows.length) return null
-  return <p className="mgd-subtle">{WRITTEN_FROM}{' '}
+  return <p className="mgd-subtle">{part ? `${part} — ` : ''}{WRITTEN_FROM}{' '}
     {rows.map((c, i) => <span key={c.id}>{i ? ' · ' : ''}
       <button type="button" className="mgd-link mgd-small" id={`cite-${c.id}`}
         onClick={() => inspect(resource, c.id, `cite-${c.id}`)}>{c.title}</button></span>)}</p>
+}
+
+/* WHICH PART OF A MERGED CONSTRUCT ONE ENTRY IS, in its own recorded words.
+   `Row`/`Rows` for the pipe table rows an entry holds, `Item`/`Items` for the
+   list items it holds, and the quoted words themselves for a statement or a
+   clause of one -- the same characters the construct above shows, so a reader
+   finds the row, item or phrase a citation line names by reading it. */
+export const CITED_ROW = 'Row', CITED_ROWS = 'Rows'
+export const CITED_ITEM = 'Item', CITED_ITEMS = 'Items'
+
+/** How much of an entry's words a label carries before it is cut at a word
+ *  boundary. Long enough to identify the part among its neighbours, short
+ *  enough to stay one quiet line under the construct. */
+const PART_AT_MOST = 56
+
+/** One entry's recorded words as a label: whitespace collapsed, the emphasis
+ *  markers the drawn construct already shows as emphasis dropped, and a cut at
+ *  a word boundary. Nothing is added, reworded or reordered. */
+function shortened(words: string): string {
+  const one = words.replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim()
+  if (one.length <= PART_AT_MOST) return one
+  const cut = one.slice(0, PART_AT_MOST)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > PART_AT_MOST / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, '')}…`
+}
+
+const quoted = (words: string): string => `“${shortened(words)}”`
+
+/** The table rows one entry holds, each named by its own cells in the order
+ *  the drawn table shows them. A header row is named only where the entry
+ *  holds nothing else: where the entry carries data rows under its divider,
+ *  those rows are what it is, and the header is the table's first line rather
+ *  than anything a citation was recorded against. */
+function rowWords(text: string): string[] {
+  const lines = text.split('\n').filter((l) => l.trim())
+  const rows = lines.filter((l) => isTableRow(l) && !isTableDivider(l))
+  if (!rows.length) return []
+  const divider = lines.findIndex((l) => isTableDivider(l))
+  const data = divider < 0 ? rows : lines.slice(divider + 1).filter((l) => isTableRow(l) && !isTableDivider(l))
+  return (data.length ? data : rows).map((l) => rowCells(l).filter(Boolean).join(' · '))
+}
+
+/** WHAT ONE RECORDED ENTRY IS, named by its own recorded characters. */
+export function citedPart(text: string): string {
+  const rows = rowWords(text)
+  if (rows.length) return `${rows.length > 1 ? CITED_ROWS : CITED_ROW} ${rows.map(quoted).join(', ')}`
+  const read = blocksOf(text)
+  const only = read.length === 1 ? read[0] : null
+  if (only?.kind === 'list' && only.items.length)
+    return `${only.items.length > 1 ? CITED_ITEMS : CITED_ITEM} ${only.items.map(quoted).join(', ')}`
+  return quoted(text)
 }
 
 /** What a recorded entry's own text, read alone, leaves open for the entry
@@ -803,33 +867,71 @@ function Cites({ resource, cites }: { resource: MagnetResource; cites: string[] 
  *  one block (a heading followed by a paragraph) can still leave its last
  *  block open; a heading, quote, code or rule can't be continued into, so it
  *  closes whatever follows. */
-type Tail = { kind: 'table' } | { kind: 'list'; ordered: boolean } | { kind: 'para'; open: boolean } | null
+type Tail =
+  | { kind: 'table' }
+  | { kind: 'list'; ordered: boolean; open: boolean }
+  | { kind: 'para'; open: boolean }
+  | null
 
-const ENDS_A_SENTENCE = /[.!?:;]['"’”)\]]*$/
+/** Whether words stop at the end of a sentence. The terminal mark may be
+ *  followed by the marks that close around it -- a quote, a bracket, or the
+ *  emphasis opened before it: `**Roman is ready.**` ends its sentence, and
+ *  review `ent-c0f9cca287b7` found it read as open (so it swallowed the next
+ *  statement) while the identical unemphasised sentence read as closed. */
+const ENDS_A_SENTENCE = /[.!?:;][*_`'"’”)\]]*$/
+const endsASentence = (words: string): boolean => ENDS_A_SENTENCE.test(words.trim())
 
 function tailOf(text: string): Tail {
   const read = blocksOf(text)
   const last = read[read.length - 1]
   if (!last) return null
   if (last.kind === 'table') return { kind: 'table' }
-  if (last.kind === 'list') return { kind: 'list', ordered: last.ordered }
-  if (last.kind === 'para') return { kind: 'para', open: !ENDS_A_SENTENCE.test(last.text.trim()) }
+  if (last.kind === 'list')
+    return { kind: 'list', ordered: last.ordered, open: !endsASentence(last.items[last.items.length - 1] ?? '.') }
+  if (last.kind === 'para') return { kind: 'para', open: !endsASentence(last.text) }
   return null
 }
 
-/** Whether a recorded entry, read alone, is itself nothing but a fragment
- *  that completes the kind of thing `tail` left open: an orphan table row (a
- *  row with no header of its own, so `blocksOf` reads it as a lone paragraph
- *  that happens to be shaped like one), a list item of the same ordering, or
- *  plain prose continuing a paragraph that did not end at a sentence. */
-function continuesTail(tail: Tail, text: string): boolean {
-  if (!tail) return false
+/** Whether an entry is nothing but ORPHAN TABLE ROWS: every line of it is a
+ *  pipe row and none is a header's divider, so `blocksOf` reads the lot as one
+ *  paragraph that happens to be shaped like rows. One such line is how a
+ *  table's row arrives recorded on its own; SEVERAL of them is how two rows
+ *  recorded in one entry arrive, which review `ent-c0f9cca287b7` found
+ *  rendering as literal pipes outside the table because a newline disqualified
+ *  the fragment. An entry carrying its own divider is a table of its own, not a
+ *  fragment of the one before it -- merging that one turns its header and
+ *  divider into data rows. */
+function isOrphanRows(text: string): boolean {
+  const lines = text.split('\n').filter((l) => l.trim())
+  return !!lines.length && lines.every((l) => isTableRow(l) && !isTableDivider(l))
+}
+
+/** WHAT ONE ENTRY ADDS TO THE GROUP BEFORE IT, or `null` where it adds nothing
+ *  -- where it is a statement of its own rather than a fragment completing what
+ *  that group left open: orphan rows under a table, a list item of the same
+ *  ordering, prose continuing a sentence that was cut off.
+ *
+ *  A list item continued by plain prose is the one case that needs more than a
+ *  newline. `blocksOf` reads a plain line as continuing the item above it only
+ *  where that line is INDENTED, and `answerLines` trims every recorded entry,
+ *  so the indentation the writer used is already gone by here: review
+ *  `ent-c0f9cca287b7` found such a continuation closing the list and starting a
+ *  second one, numbered from 1 again. The group restores the indentation (two
+ *  spaces) when it joins the fragment, which is the construct's own shape and
+ *  not a recorded character altered -- the words are the recorded words. */
+function continues(tail: Tail, text: string): string | null {
+  if (!tail) return null
   const read = blocksOf(text)
-  if (read.length !== 1) return false
+  if (read.length !== 1) return null
   const only = read[0]
-  if (tail.kind === 'table') return only.kind === 'table' || (only.kind === 'para' && !text.includes('\n') && isTableRow(text))
-  if (tail.kind === 'list') return only.kind === 'list' && only.ordered === tail.ordered
-  return tail.open && only.kind === 'para'
+  if (tail.kind === 'table') return only.kind === 'para' && isOrphanRows(text) ? `\n${text}` : null
+  if (tail.kind === 'list') {
+    if (only.kind === 'list') return only.ordered === tail.ordered ? `\n${text}` : null
+    if (only.kind === 'para' && tail.open && !isOrphanRows(text))
+      return `\n${text.split('\n').map((l) => `  ${l.trim()}`).join('\n')}`
+    return null
+  }
+  return tail.open && only.kind === 'para' ? `\n${text}` : null
 }
 
 /** A GROUP OF RECORDED ENTRIES THAT ARE ONE MARKDOWN CONSTRUCT.
@@ -840,21 +942,24 @@ function continuesTail(tail: Tail, text: string): boolean {
  *  handed to `Prose` on its own (review `ent-19c3c55af28c`). This groups
  *  consecutive entries only where one is nothing but a fragment continuing
  *  the one before it (an orphan table row, a list item of the same order, an
- *  unfinished sentence), and joins their text with the single newline that
- *  keeps the construct one block when the group is read as one body. Two
- *  complete statements -- the ordinary case, each ending its own sentence --
- *  are never merged into one paragraph: nothing here implies a citation
- *  supports a statement it was not recorded against. Each entry keeps its
- *  own citations, listed in order; they are never pooled into one set. */
+ *  unfinished sentence), and joins each fragment the way that construct is
+ *  written (`continues`), so the group read as one body is the one block it
+ *  was written as. Two complete statements -- the ordinary case, each ending
+ *  its own sentence -- are never merged into one paragraph: nothing here
+ *  implies a citation supports a statement it was not recorded against. Each
+ *  entry keeps its own citations, listed in order and, in a group of more than
+ *  one, naming the part of the construct they were recorded against
+ *  (`citedPart`); they are never pooled into one set. */
 export interface BriefingGroup { lines: AnswerLine[]; src: string }
 export function briefingGroups(lines: AnswerLine[]): BriefingGroup[] {
   const groups: BriefingGroup[] = []
   let tail: Tail = null
   for (const line of lines) {
     const group = groups[groups.length - 1]
-    if (group && continuesTail(tail, line.text)) {
+    const more = group ? continues(tail, line.text) : null
+    if (group && more !== null) {
       group.lines.push(line)
-      group.src += '\n' + line.text
+      group.src += more
     } else {
       groups.push({ lines: [line], src: line.text })
     }
@@ -876,7 +981,11 @@ export function briefingGroups(lines: AnswerLine[]): BriefingGroup[] {
  *  split across several (`briefingGroups`): either way those lines are
  *  grouped and read as one body before `Prose` sees them, and each
  *  contributing entry still shows the records it was written from beneath the
- *  group, never blended into one set. An answer with no recorded `lines`
+ *  group, never blended into one set -- naming, where the group holds more
+ *  than one entry, the row, item or statement those records were recorded
+ *  against, so which source supports which part of the construct is readable
+ *  from the surface itself and not only from the record. An answer with no
+ *  recorded `lines`
  *  (written before the contract existed) still reads whole, the one case
  *  nothing can be cited against. A statement-per-line synthesis keeps the
  *  layout that suits it -- the statement, the record's own words under it
@@ -892,7 +1001,8 @@ export function Briefing({ resource, answer }: { resource: MagnetResource; answe
       return <div className="q2-prose"><Prose src={words} scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
     return <>{briefingGroups(answerLines(answer)).map((group, i) => <div key={`answer-${i}`} className="q2-prose">
       <Prose src={group.src} scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
-      {group.lines.map((line, j) => <Cites key={j} resource={resource} cites={line.cites} />)}
+      {group.lines.map((line, j) => <Cites key={j} resource={resource} cites={line.cites}
+        part={group.lines.length > 1 ? citedPart(line.text) : undefined} />)}
     </div>)}</>
   }
   return <>{withoutRecordCount(answerLines(answer)).map((line, i) => <div key={`answer-${i}`}>

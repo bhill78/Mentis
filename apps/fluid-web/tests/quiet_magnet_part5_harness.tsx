@@ -20,11 +20,14 @@
  *    briefing   an answer written as a document: prose, a heading and a table,
  *               drawn by `Prose` -- the presentation Part 3's dispatched run
  *               produces, shown now over a recorded answer of that shape
- *    briefing-multi the same document, but recorded as review `ent-19c3c55af28c`
- *               found a real one can be: a paragraph cut off mid-sentence and
- *               continued in the next entry, a table with one entry per row,
- *               and an ordered list with one entry per item -- each entry
- *               naming only the record it was actually written from
+ *    briefing-multi the same document, but recorded as reviews
+ *               `ent-19c3c55af28c` and `ent-c0f9cca287b7` found a real one can
+ *               be: a paragraph cut off mid-sentence and continued in the next
+ *               entry, a table whose entries hold one row and two rows, and an
+ *               ordered list with one entry per item, one of them cut off and
+ *               continued by a plain entry -- each entry naming only the record
+ *               it was actually written from, and each citation naming the row,
+ *               item or phrase it was recorded against
  *    unanswered no answer recorded: the lead is what the material NAMES, and no
  *               count is above the fold
  *    inspect    one collected record opened: its headline a heading, its address
@@ -150,18 +153,34 @@ const BRIEFING = [
  *  heading, the paragraph (cut off mid-sentence, continued in the next
  *  entry), the table (one entry per row) and the ordered list (one entry per
  *  item) are each split exactly where review `ent-19c3c55af28c` asked for --
- *  and each entry still names only the record it was actually written from. */
+ *  and each entry still names only the record it was actually written from.
+ *
+ *  Re-review `ent-c0f9cca287b7` found two splits this did not cover and which
+ *  a real answer does arrive in, so they are photographed here too: an entry
+ *  holding TWO orphan table rows (which rendered as literal pipes outside the
+ *  table), and a list item cut off mid-sentence and continued by a plain entry
+ *  (which closed the list and started a second one numbered from 1 again).
+ *  With both, every citation line under a merged construct now NAMES the row,
+ *  item or phrase it was recorded against -- which is what the same review
+ *  found missing: the citations sat under the whole construct and said nothing
+ *  about which part of it each supported. */
 const BRIEFING_MULTI: { text: string; cites: string[] }[] = [
   { text: '## What launched, and what was found', cites: [] },
   { text: 'The **Roman Space Telescope** finished thermal vacuum testing at Goddard and is cleared to ship, and',
     cites: ['adm-aaa111111111'] },
   { text: '**Europa Clipper** trimmed its Mars gravity assist and still arrives at Jupiter in 2030.',
     cites: ['adm-bbb222222222'] },
-  { text: '| Published | Mission | What the record says |\n|---|---|---|\n| 2026-03-27 | Roman Space Telescope | Thermal vacuum testing complete |',
+  { text: '| Mission | Published | What the record says |\n|---|---|---|\n| Roman Space Telescope | 2026-03-27 | Thermal vacuum testing complete |',
     cites: ['adm-aaa111111111'] },
-  { text: '| 2025-11-02 | Europa Clipper | Gravity assist refined; Jupiter arrival 2030 |', cites: ['adm-bbb222222222'] },
-  { text: '| 2024-08-20 | JUICE | First lunar-Earth assist flown |', cites: ['adm-eee444444444'] },
-  { text: '1. Thermal vacuum testing completed for Roman Space Telescope.', cites: ['adm-aaa111111111'] },
+  // TWO ROWS IN ONE ENTRY, written from one record: the split re-review
+  // `ent-c0f9cca287b7` reproduced as literal pipes outside the table.
+  { text: '| Europa Clipper | 2025-11-02 | Gravity assist refined; Jupiter arrival 2030 |\n| Artemis Programme | 2024-06-14 | Artemis III shortlist narrowed |',
+    cites: ['adm-bbb222222222', 'adm-ccc333333333'] },
+  { text: '| JUICE | 2024-08-20 | First lunar-Earth assist flown |', cites: ['adm-eee444444444'] },
+  // AN ITEM CUT OFF MID-SENTENCE, continued by a plain entry of its own: the
+  // split that closed the list and started a second one numbered from 1.
+  { text: '1. Thermal vacuum testing completed for the Roman Space Telescope, which is now', cites: ['adm-aaa111111111'] },
+  { text: 'cleared to ship to its launch site.', cites: ['adm-aaa111111111'] },
   { text: '2. Mars gravity assist refined for Europa Clipper.', cites: ['adm-bbb222222222'] },
   { text: '3. First lunar-Earth gravity assist flown for JUICE.', cites: ['adm-eee444444444'] },
 ]

@@ -55,6 +55,17 @@ const cells = (line: string): string[] =>
  *  split across separately recorded entries, never by `placedIn` itself. */
 export const isTableRow = (line: string): boolean => ROW.test(line)
 
+/** A line shaped like the divider under a pipe table's header -- the line that
+ *  makes the rows above and below it a table rather than prose with pipes in
+ *  it. `isTableRow` matches it too (it is pipes and dashes), so a caller
+ *  reassembling rows asks this to tell a data row from the header's rule. */
+export const isTableDivider = (line: string): boolean => DIVIDER.test(line)
+
+/** One pipe table line's cells, trimmed, exactly as the table reader reads
+ *  them -- so a caller naming a row by its own first cell names the same
+ *  characters the drawn table shows in that column. */
+export const rowCells = (line: string): string[] => cells(line)
+
 /* AN IMAGE PLACED IN THE POST. A paragraph that holds nothing but one
    Admission -- `![alt](adm-…)`, or the bare `adm-…` -- is where the author
    put a figure, the way a figure sits in a source document. It is drawn as
