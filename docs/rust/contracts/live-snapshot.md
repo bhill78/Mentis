@@ -55,10 +55,17 @@ For each added field, copy its real objects, project its named JSON members and 
 | Rule | Value | Constant |
 |---|---|---|
 | Every | 500 ms | `POLL_EVERY` |
-| Timeout | 250 ms | `POLL_TIMEOUT` |
+| Counted as timed out after | 250 ms | `POLL_TIMEOUT` |
+| An answer is prompt within | 1 s | `POLL_PROMPT` |
+| Every, at most, while answers are slow | 4 s | `POLL_EVERY_MOST` |
+| A sent poll is given up after | 30 s | `POLL_GIVE_UP` |
 | Only while a pulse was asked for within | 5 s | `POLL_WHILE_ASKED_WITHIN` |
 
-One poll at a time. A late answer is discarded. No retry beyond the next tick. On the first pulse after polling was off, polling starts, and that pulse doesn't wait for it.
+One poll at a time. **A poll unanswered at `POLL_TIMEOUT` is kept, not abandoned:** it is counted as timed out, stays in hand, and no new poll is sent beside it. When its answer comes, however late, it is that poll's answer: taken with that poll's send time (so its age is counted from then, the safe direction) and that poll's marker. Only a poll unanswered for `POLL_GIVE_UP` is dropped, and the next one asks on a new connection. No retry beyond the next tick. On the first pulse after polling was off, polling starts, and that pulse doesn't wait for it.
+
+(Correction, 2026-11-25. Before it, a late answer was discarded and the next tick asked again. Under a Python busy enough to answer in more than 250 ms, every answer was thrown away, the snapshot stayed stale, and every read that needs live state forwarded to that same busy Python: the front added load exactly when Python had least to spare. On 2026-11-25 production, with Python overloaded, forwarded 642 of 669 `turns` reads this way.)
+
+**Backoff.** An answer within `POLL_PROMPT` keeps polling every `POLL_EVERY`: a Python answering that fast can be held fresh. An answer slower than that, or a poll that comes to nothing, doubles the wait, up to `POLL_EVERY_MOST`, and the next poll waits that long after the slow answer. One prompt answer puts it back to `POLL_EVERY`. `POLL_EVERY_MOST` is well inside the 10 s bound on unavailable, so slowness alone reads as stale, not unavailable, while answers come within a few seconds. Freshness rules are unchanged: a slow Python is stale and the reads that need live state forward, as before; the backoff only stops the poll itself adding to it. `live::Pace` holds the rule; tests `live::tests::polling_backs_off_while_slow_and_returns_on_a_prompt_answer`, `front::snapshot::tests::a_poll_past_its_timeout_is_kept_and_its_late_answer_taken_with_one_request_at_a_time` and `while_python_is_slow_polls_back_off`.
 
 **While polling is on, one connection to Python is always in hand,** and never more than one: the poll unanswered, or between polls an open connection with nothing sent on it, which the next poll asks on. It isn't a poll, and it costs Python a handler waiting to read and nothing else, because a request is counted only once it is parsed. It goes when polling stops. This is how a kill is heard as it happens, because the connection in hand ends with the process. A new connection to a closed port can't say so that fast: Windows keeps it pending for about 2.5 s before reporting it refused.
 
@@ -85,7 +92,8 @@ So resuming from idle, however long the idle was:
 | The poll meets | Effect |
 |---|---|
 | A good answer, same `boot_id`, same or higher `generation` | Replaces what is held. Age restarts from this poll's send time |
-| A timeout, a non-200, or an unreadable body | Nothing changes, and age keeps growing. This is what a suspended or very busy Python looks like, and a 403 from a Python holding another secret |
+| No answer yet at `POLL_TIMEOUT` | Nothing changes yet, and age keeps growing. The poll stays in hand and its answer, when it comes, is taken as the first row says, with its own send time. This is what a suspended or very busy Python looks like |
+| A non-200, an unreadable body, or no answer for `POLL_GIVE_UP` | Nothing changes, and age keeps growing. A 403 from a Python holding another secret is this |
 | Connection refused, or reset before an answer, or the connection in hand ending with nothing said | **Python is gone: unavailable at once,** not after 10 s. With polling on that is as the process ends. With polling off nothing is in hand, so after a kill during idle it is when the first poll's new connection is refused, measured at 2047 ms after the pulse that turned polling on, and until then the pulse is `stale` |
 | A changed `boot_id` or a lower `generation` | **Discards what is held and isn't adopted.** Unavailable. With nothing held, the next poll's answer is adopted |
 | An unknown `schema` | Discards what is held. Unavailable until a known schema answers |
