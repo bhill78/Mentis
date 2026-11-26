@@ -146,6 +146,26 @@ pub async fn forward(
         return Ok(relay_until_python_ends(&mut from_python, &mut to_client, &[]).await);
     }
 
+    if declared == 0 {
+        // Nothing to carry, so the client's side is watched instead: a client that leaves before
+        // the answer ends the request to Python at once, rather than when the answer can't be
+        // written, and Python's work is not waited on for nobody.
+        let (mut from_client, mut to_client) = client.split();
+        let (mut from_python, _) = python.split();
+        let relay = relay_answer(&mut from_python, &mut to_client, client_closes);
+        let left = async {
+            let mut byte = [0; 1];
+            if matches!(from_client.peek(&mut byte).await, Ok(got) if got > 0) {
+                // A next request sent ahead: it's still there, and isn't looked at again.
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(relay);
+        return tokio::select! {
+            relayed = &mut relay => relayed,
+            () = left => Ok(Forwarded::Close),
+        };
+    }
     let relayed = {
         let (mut from_client, mut to_client) = client.split();
         let (mut from_python, mut to_python) = python.split();
@@ -214,7 +234,7 @@ async fn pump_body(
 pub(super) struct AnswerHead {
     pub(super) status: u16,
     pub(super) content_length: Option<u64>,
-    says_close: bool,
+    pub(super) says_close: bool,
     /// Framed some way the front doesn't read, so it ends when Python ends it.
     pub(super) other_framing: bool,
 }

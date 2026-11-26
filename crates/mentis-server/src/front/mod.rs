@@ -11,6 +11,7 @@ pub mod brain;
 pub mod checks;
 mod connection;
 mod door;
+pub mod flights;
 pub mod forward;
 pub mod grants;
 pub mod head;
@@ -37,6 +38,7 @@ use crate::handlers::Context;
 use crate::launch::DRAIN_LIMIT;
 use crate::route_table::{LiveRouteTable, REREAD_EVERY, Reread};
 use checks::AllowedHosts;
+use flights::Flights;
 use grants::Mirror;
 use latency::Latency;
 use snapshot::Snapshots;
@@ -147,6 +149,8 @@ pub struct Shared {
     table: LiveRouteTable,
     context: Arc<Context>,
     mirror: Arc<Mirror>,
+    /// Forwarded reads of the front's own routes: shared, and only so many at once.
+    flights: Arc<Flights>,
     upstream: SocketAddr,
     secret: String,
     allowed_hosts: AllowedHosts,
@@ -299,6 +303,7 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
             config.secret.clone(),
             config.brain,
         )),
+        flights: Arc::new(Flights::new(config.upstream)),
         upstream: config.upstream,
         secret: config.secret,
         allowed_hosts: AllowedHosts::from_env(),
