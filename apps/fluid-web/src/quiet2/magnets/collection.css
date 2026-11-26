@@ -75,8 +75,37 @@
 .q2 .q2-magnet-collected .q2-magnet-row-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.15; }
 .q2 .q2-magnet-collected .q2-magnet-row-line b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .q2 .q2-magnet-collected .q2-magnet-row-line small { flex: none; white-space: nowrap; }
-.q2 .q2-magnet-collected .q2-magnet-row-more { display: none; margin: 1px 0 0; }
-.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-preview { margin: 1px 0; line-height: 1.25; }
+/* THE PREVIEW NEVER MOVES A ROW (correction, review ent-f94e543d798e: an
+   excerpt-bearing row's revealed block used to grow the row's own flow
+   height, which pushed every row under it down and dropped the complete,
+   unoccluded count from the required 20 to 19 as soon as a real excerpt
+   -- not the headline-only fixture's bare link -- was hovered or focused.
+   `position: absolute` removes the block from flow entirely, so no row
+   ever moves and the complete-row count is the same at rest, on hover and
+   on focus, whatever a row's own excerpt is. It floats over the row(s)
+   beneath it while open, the same floating idiom `app.css`'s `.pop` and
+   the global `--raised`/`--pop-lift`/`--radius-pop` tokens already give
+   every other surface that has to appear without reflowing its neighbours
+   -- the "existing UI pattern" this correction reuses rather than
+   inventing a tooltip of its own. Its own scroll keeps it from growing
+   past a readable height; `.mgd-item`'s own padding gives it the same
+   left/right edges as the row above it. */
+.q2 .q2-magnet-collected-items .mgd-item { position: relative; }
+.q2 .q2-magnet-collected .q2-magnet-row-more {
+  display: none;
+  position: absolute;
+  left: 2px; right: 2px; top: 100%;
+  z-index: 2;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: var(--radius-pop);
+  background: var(--magnet-brown);
+  border: 1px solid var(--magnet-rule);
+  box-shadow: var(--pop-lift);
+}
+.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-preview { margin: 0 0 3px; line-height: 1.35; }
 .q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-row-link { display: inline-block; margin-top: 1px; line-height: 1.25; }
 .q2 .q2-magnet-collected-items .mgd-item:hover .q2-magnet-row-more,
 .q2 .q2-magnet-collected-items .mgd-item:focus-within .q2-magnet-row-more { display: block; }
@@ -84,10 +113,14 @@
 /* THE ROW ITSELF, COMPACTED. `mgd-item`'s own rule and vertical rhythm is
    kept -- one line per row is still a ruled row, not a borderless list --
    only its height is: at least 20 complete rows of the astronomy Magnet's 72
-   must fit in one viewport where 4-6 did, at rest and while a row's hover
-   block is open (correction, review ent-e23af56bb855: the first measured
-   build landed at 18-19, verified against the scroll container's own actual
-   clipped bounds, not a DOM count). */
+   must fit in one viewport where 4-6 did (correction, review
+   ent-e23af56bb855: the first measured build landed at 18-19, verified
+   against the scroll container's own actual clipped bounds, not a DOM
+   count). This count no longer depends on whether a row's hover/focus
+   block is open or how long its excerpt is (correction, review
+   ent-f94e543d798e): `.q2-magnet-row-more` floats above the rows under it
+   rather than pushing them down, so opening it never changes how many
+   complete rows fit. */
 .q2 .q2-magnet-collected-items .mgd-item { padding: 0 2px; }
 .q2 .q2-magnet-collected-items .mgd-item b { font-size: 14px; }
 

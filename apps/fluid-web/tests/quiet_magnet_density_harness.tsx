@@ -6,12 +6,27 @@
  *  3-site/5-day shape and its 900x1200 forced panel. The card here keeps its
  *  DEFAULT size: wide, no `dimensions` override, so the geometry cap in
  *  Magnet.tsx (740 px tall) applies exactly as it does for a reader who has
- *  never dragged the panel. Driven by quiet_magnet_density_shots.py. */
+ *  never dragged the panel. Driven by quiet_magnet_density_shots.py.
+ *
+ *  REPRESENTATIVE EXCERPTS, AND THE REAL BASE STYLES (correction, review
+ *  ent-f94e543d798e): the prior fixture carried only a headline and a link
+ *  on every row, which never exercised `.q2-magnet-row-more`'s excerpt
+ *  paragraph at all, and it imported only `host.css` -- the canvas's own
+ *  positioning -- never `theme.css`/`app.css`/`atmosphere.css`, so none of
+ *  the type, colour or `--radius-pop`/`--pop-lift` tokens the real app
+ *  always has loaded were present. A quarter of these rows (every 4th,
+ *  starting at the very first so the most obvious case is covered) carry a
+ *  short captured excerpt after their header, the same shape a directly
+ *  fetched article gives `rowBody` where a bare feed entry gives none; the
+ *  rest keep the headline-only shape most of the real batch actually has. */
 import { createRoot } from 'react-dom/client'
 import Magnet from '../src/quiet2/magnets/Magnet'
 import EvidenceViews from '../src/quiet2/magnets/EvidenceViews'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { setOpen, goTab } from '../src/quiet2/magnets/places'
+import '../src/theme.css'
+import '../src/app.css'
+import '../src/atmosphere.css'
 import '../src/quiet2/magnets/host.css'
 
 const source = 'ent-source654321', id = 'mag-density'
@@ -27,6 +42,18 @@ const TITLES = [
   'Juno - NASA Science (.gov)', '60 Years and Counting - Mysteries of the Universe - NASA (.gov)',
 ]
 
+// A SHORT CAPTURED EXCERPT, THE SHAPE A DIRECTLY FETCHED ARTICLE GIVES
+// (`heldHeader`/`rowBody`, links.tsx): never the headline said again, and
+// close to the length that actually dropped the fixture's hover density
+// from 20 to 19 (review ent-f94e543d798e's own diagnostic used a 123-char
+// excerpt on the first row).
+const EXCERPTS = [
+  'The mission returned new observations of the atmosphere, revealing a pattern scientists will investigate in the next flyby.',
+  'Researchers say the find reshapes how the system formed, and a follow-up observation window opens next month.',
+  'The agency confirmed the instrument is operating normally after the anomaly, and the schedule is unaffected.',
+  'A joint team will publish the full dataset once the calibration review now underway is complete.',
+]
+
 let n = 0
 const results: any[] = []
 // 4 items "Today", 71 items "Yesterday" -- the real split, all one host.
@@ -34,9 +61,14 @@ for (const [day, count] of [[0, 4], [1, 71]] as const) {
   for (let i = 0; i < count; i++) {
     n += 1
     const title = TITLES[n % TITLES.length]
+    const link = `https://news.google.com/rss/articles/CBMi${n}`
+    // EVERY 4TH ROW CARRIES AN EXCERPT (representative, not universal: most
+    // of the real batch is headline-only aggregator entries; some rows are
+    // a directly fetched article with its own captured excerpt).
+    const text = n % 4 === 1 ? `${title}\n\n${link}\n\n${EXCERPTS[(n >> 2) % EXCERPTS.length]}` : `${title}\n\n${link}`
     results.push({ kind: 'file', id: `file-${n}`, version: `ent-version${String(n).padStart(6, '0')}`, conversation: source,
       at: now - day * DAY - i * 11,
-      via: 'held-source', value: { text: `${title}\n\nhttps://news.google.com/rss/articles/CBMi${n}` } })
+      via: 'held-source', value: { text } })
   }
 }
 
