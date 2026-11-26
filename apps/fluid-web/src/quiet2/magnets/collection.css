@@ -16,7 +16,7 @@
 /* `mgd-eyebrow` over `mgd-h2`, with the counterpart link on the same row at
    the far edge. The link sits on the heading's baseline, not the block's
    centre, which is where both mockups put it. */
-.q2 .q2-magnet-place-head { align-items: flex-end; margin: 0 0 14px; }
+.q2 .q2-magnet-place-head { align-items: flex-end; margin: 0 0 3px; }
 .q2 .q2-magnet-place-head .mgd-h2 { margin-bottom: 0; }
 .q2 .q2-magnet-place-link { flex: none; white-space: nowrap; padding-bottom: 4px; }
 
@@ -44,8 +44,8 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: 15px 0;
-  padding: 7px 0;
+  margin: 2px 0;
+  padding: 1px 0;
   flex-wrap: wrap;
   gap: 8px;
   background: var(--magnet-brown);
@@ -72,11 +72,12 @@
 .q2 .q2-magnet-collected .q2-magnet-evidence-row:focus-visible b { text-decoration: underline; }
 .q2 .q2-magnet-collected .q2-magnet-evidence-row[aria-expanded='true'] { background: none; }
 .q2 .q2-magnet-collected .q2-magnet-row-text { display: block; min-width: 0; }
-.q2 .q2-magnet-collected .q2-magnet-row-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.q2 .q2-magnet-collected .q2-magnet-row-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.15; }
 .q2 .q2-magnet-collected .q2-magnet-row-line b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .q2 .q2-magnet-collected .q2-magnet-row-line small { flex: none; white-space: nowrap; }
-.q2 .q2-magnet-collected .q2-magnet-row-more { display: none; margin: 3px 0 0; }
-.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-row-link { display: inline-block; margin-top: 3px; }
+.q2 .q2-magnet-collected .q2-magnet-row-more { display: none; margin: 1px 0 0; }
+.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-preview { margin: 1px 0; line-height: 1.25; }
+.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-row-link { display: inline-block; margin-top: 1px; line-height: 1.25; }
 .q2 .q2-magnet-collected-items .mgd-item:hover .q2-magnet-row-more,
 .q2 .q2-magnet-collected-items .mgd-item:focus-within .q2-magnet-row-more { display: block; }
 
@@ -87,7 +88,7 @@
    block is open (correction, review ent-e23af56bb855: the first measured
    build landed at 18-19, verified against the scroll container's own actual
    clipped bounds, not a DOM count). */
-.q2 .q2-magnet-collected-items .mgd-item { padding: 3px 2px; }
+.q2 .q2-magnet-collected-items .mgd-item { padding: 0 2px; }
 .q2 .q2-magnet-collected-items .mgd-item b { font-size: 14px; }
 
 /* GROUPED BY DAY, AND BY SOURCE WITHIN EACH DAY, EACH A COUNTED HEADER (plan
@@ -99,7 +100,7 @@
 .q2 .q2-magnet-day-group + .q2-magnet-day-group { margin-top: 8px; }
 .q2 .q2-magnet-source-group { margin: 0 0 0 4px; }
 .q2 .q2-magnet-group-head {
-  display: block; margin: 0; padding: 3px 2px 2px;
+  display: block; margin: 0; padding: 2px 2px 1px;
   font: var(--type-meta); text-transform: uppercase; letter-spacing: .04em;
   color: color-mix(in srgb, currentColor 65%, transparent);
 }
