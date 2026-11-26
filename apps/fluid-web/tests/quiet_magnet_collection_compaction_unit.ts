@@ -143,7 +143,7 @@ test('the list is grouped by day, and by source within each day, each a counted 
     '>Collected post<span class="mgd-subtle"> 1</span>', 'A synthetic retained post',
     '>nasa.gov<span class="mgd-subtle"> 1</span>', 'Juno launch recap',
     '>space.com<span class="mgd-subtle"> 1</span>', 'ISS resupply mission',
-    '>Collected file<span class="mgd-subtle"> 1</span>', 'Launch photo',
+    '>Collected image<span class="mgd-subtle"> 1</span>', 'Launch photo',
     '>Held file<span class="mgd-subtle"> 2</span>',
     '>Yesterday<span class="mgd-subtle"> 1</span>',
     '>nasa.gov<span class="mgd-subtle"> 1</span>', 'Perseverance update',

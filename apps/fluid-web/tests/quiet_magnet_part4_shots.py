@@ -36,10 +36,29 @@ with (root / 'part4-shots-vite.log').open('w', encoding='utf-8') as log:
             expect(card).to_be_visible()
             view = page.locator('.q2-magnet-view')
 
+            # THE ACTUAL VISIBLE BOUND, not a DOM count (correction, review
+            # ent-e23af56bb855: a DOM row count says nothing about how many of
+            # them a reader can see without scrolling -- a scroll container
+            # can hold 80 rows in its DOM while showing 6). This reads the
+            # scroll container's own clipped rect and each row's, in the page
+            # exactly as rendered, and counts only a row whose whole box sits
+            # inside it.
+            def complete_rows_visible() -> int:
+                return page.evaluate("""
+() => {
+  const v = document.querySelector('.q2-magnet-view').getBoundingClientRect();
+  return [...document.querySelectorAll('.q2-magnet-evidence-row')].filter((r) => {
+    const b = r.getBoundingClientRect();
+    return b.top >= v.top && b.bottom <= v.bottom;
+  }).length;
+}
+""")
+
             # 1: the default Everything view -- compact, grouped by day and source.
             rows = view.locator('.q2-magnet-evidence-row')
             count = rows.count()
-            print(f'rows rendered in the Everything view: {count}', flush=True)
+            at_rest = complete_rows_visible()
+            print(f'rows rendered in the Everything view: {count}; complete and visible at rest: {at_rest}', flush=True)
             page.screenshot(path=str(shots / '04-browse-everything.png'))
 
             # 2: the fourth pill, Images.
@@ -53,10 +72,13 @@ with (root / 'part4-shots-vite.log').open('w', encoding='utf-8') as log:
             first_row = view.locator('.mgd-item').first
             first_row.hover()
             page.wait_for_timeout(100)
+            on_hover = complete_rows_visible()
+            print(f'complete and visible on hover: {on_hover}', flush=True)
             page.screenshot(path=str(shots / '04-browse-hover.png'))
 
             assert not errors, f'page errors: {errors}'
-            assert count >= 20, f'expected at least 20 rows visible in the DOM, got {count}'
+            assert at_rest >= 20, f'expected at least 20 complete rows visible in the viewport at rest, got {at_rest}'
+            assert on_hover >= 20, f'expected at least 20 complete rows visible in the viewport on hover, got {on_hover}'
             print('PART4 SHOTS: ok', flush=True)
             browser.close()
     finally:

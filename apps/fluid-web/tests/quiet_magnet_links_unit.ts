@@ -187,8 +187,16 @@ test('the byline says the site a row came from, and still carries no recorded id
 test('titles, previews and bylines of everything else are exactly as they were', () => {
   assert.equal(resultTitle(readme()), 'README.md')
   assert.equal(resultPreview(readme()), '# Disposable audit folder Notes kept here.')
-  assert.equal(resultTitle(post()), 'Post #1')
-  assert.equal(resultPreview(post()), 'Synthetic retained acceptance post.')
+})
+
+/* A collected post leads with its own subject, read from the same captured
+   words the preview already read (correction, review ent-e23af56bb855: "Post
+   #15" names where it sits, never what it is about). A post whose whole
+   captured text IS that one-sentence subject has nothing left to add under
+   it, so the preview is empty rather than quoting the title back. */
+test('a collected post leads with its subject, not its record number', () => {
+  assert.equal(resultTitle(post()), 'Synthetic retained acceptance post.')
+  assert.equal(resultPreview(post()), '', 'nothing is quoted again under a subject that was the whole post')
 })
 
 /* --- a Summary excerpt ----------------------------------------------------- */

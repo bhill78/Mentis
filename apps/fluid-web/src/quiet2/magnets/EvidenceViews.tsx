@@ -74,7 +74,12 @@ function rowDay(at?: number | null): string {
 function rowSourceGroup(r: RouteResult): string {
   if (isHeldSource(r)) return linkHost(rowLink(r)) || 'Held file'
   if (r.kind === 'post') return 'Collected post'
-  return r.post ? 'From the collected post' : 'Collected file'
+  if (r.post) return 'From the collected post'
+  // A photo is grouped by what it is (plan Part 4 correction, review
+  // ent-e23af56bb855): "Collected file" names the generic bucket every other
+  // retained file not attached to a post falls into, and an image is not that
+  // -- it is content-shaped, the same way a post or a held web page already is.
+  return r.kind === 'image' ? 'Collected image' : 'Collected file'
 }
 
 interface SourceGroup { source: string; rows: RouteResult[] }
@@ -156,7 +161,8 @@ export function rowByline(r: RouteResult, named?: Map<string, string>): string {
   const stated = r.author && !RECORDED_ID.test(r.author) ? r.author : undefined
   const who = ((r.author ? named?.get(r.author) : undefined) ?? stated)?.replace(/^@/, '')
   if (r.kind === 'post') return [who || 'Collected post', when].filter(Boolean).join(' · ')
-  return [r.post ? 'From the collected post' : 'Collected file', when].filter(Boolean).join(' · ')
+  const what = r.post ? 'From the collected post' : r.kind === 'image' ? 'Collected image' : 'Collected file'
+  return [what, when].filter(Boolean).join(' · ')
 }
 
 /** THE ROW LEADS WITH THE HEADLINE, NOT THE KEY (owner ent-0b4f3f69b836).
@@ -180,9 +186,24 @@ function pathTitle(path: string): string | null {
   return RAW_STORAGE_KEY.test(stem) ? null : path
 }
 
+/** A POST'S OWN SUBJECT, where its captured words give one (owner request,
+ *  review ent-e23af56bb855): its record number ("Post #15") names where it
+ *  sits, never what it is about. The subject is the post's own first
+ *  sentence, read from the same captured text the preview already reads --
+ *  nothing fetched, nothing summarised. A post with nothing captured gives no
+ *  subject, and keeps the honest number instead of a fabricated one
+ *  (`quiet_magnet_puck_unit.ts`). */
+function postSubject(r: RouteResult): string | null {
+  const text = capturedText(r).replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  const sentence = text.split(/(?<=[.!?])\s/)[0] || text
+  return sentence.slice(0, 90)
+}
+
 export function resultTitle(r: RouteResult): string {
   const v = object(r.value)
-  return rowHeadline(r) || words(v.title) || words(v.name) || pathTitle(words(v.path)) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
+  return rowHeadline(r) || words(v.title) || words(v.name) || pathTitle(words(v.path))
+    || (r.kind === 'post' ? (postSubject(r) ?? `Post${r.number ? ` #${r.number}` : ''}`) : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
 }
 /** The row's own words. For a web row that is the material under the recorded
  *  header, because the headline is now the title and the address is now a link:
@@ -193,7 +214,13 @@ export function resultTitle(r: RouteResult): string {
 export function resultPreview(r: RouteResult): string {
   const v = object(r.value), p = object(v.preview)
   const body = rowBody(r)
-  return (body ?? (capturedText(r) || words(v.text) || words(v.preview) || words(p.text))).replace(/\s+/g, ' ').trim().slice(0, 180)
+  const text = (body ?? (capturedText(r) || words(v.text) || words(v.preview) || words(p.text))).replace(/\s+/g, ' ').trim()
+  // A post whose whole captured text IS its subject line has nothing left to
+  // say under it; the title already said it once (the same reasoning as
+  // `restates` for a web row's headline, scoped to an exact match so a longer
+  // post's preview is never hidden just for sharing its opening sentence).
+  if (r.kind === 'post' && text && text === resultTitle(r)) return ''
+  return text.slice(0, 180)
 }
 export const isCollectedFile = (r: RouteResult) => ['file', 'attachment', 'image'].includes(r.kind)
 

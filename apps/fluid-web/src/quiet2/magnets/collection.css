@@ -82,19 +82,24 @@
 
 /* THE ROW ITSELF, COMPACTED. `mgd-item`'s own rule and vertical rhythm is
    kept -- one line per row is still a ruled row, not a borderless list --
-   only its height is: 20 rows of the astronomy Magnet's 72 must fit in one
-   viewport where 4-6 did. */
-.q2 .q2-magnet-collected-items .mgd-item { padding: 5px 2px; }
+   only its height is: at least 20 complete rows of the astronomy Magnet's 72
+   must fit in one viewport where 4-6 did, at rest and while a row's hover
+   block is open (correction, review ent-e23af56bb855: the first measured
+   build landed at 18-19, verified against the scroll container's own actual
+   clipped bounds, not a DOM count). */
+.q2 .q2-magnet-collected-items .mgd-item { padding: 3px 2px; }
 .q2 .q2-magnet-collected-items .mgd-item b { font-size: 14px; }
 
 /* GROUPED BY DAY, AND BY SOURCE WITHIN EACH DAY, EACH A COUNTED HEADER (plan
    Part 4). A header is read once for everything under it, so it carries no
-   row's own rule; only the rows do. */
+   row's own rule; only the rows do. Kept to the same density correction: a
+   header earns its keep once per group, never once per row, so it is the
+   cheapest place to find the remaining room. */
 .q2 .q2-magnet-day-group-rows, .q2 .q2-magnet-source-group-rows { list-style: none; margin: 0; padding: 0; }
-.q2 .q2-magnet-day-group + .q2-magnet-day-group { margin-top: 12px; }
+.q2 .q2-magnet-day-group + .q2-magnet-day-group { margin-top: 8px; }
 .q2 .q2-magnet-source-group { margin: 0 0 0 4px; }
 .q2 .q2-magnet-group-head {
-  display: block; margin: 0; padding: 5px 2px 3px;
+  display: block; margin: 0; padding: 3px 2px 2px;
   font: var(--type-meta); text-transform: uppercase; letter-spacing: .04em;
   color: color-mix(in srgb, currentColor 65%, transparent);
 }

@@ -166,8 +166,10 @@ test('All, Posts and Files show every retained item of their kind, with real cou
   // sentence under it (round 3, 04-browse.png: "Collected items 24"). What is
   // pinned is unchanged: a real count of what the list actually holds.
   assert.equal(counted(all), '2'); assert.equal(counted(posts), '1'); assert.equal(counted(files), '1')
-  assert.ok(posts.includes('Post #12') && !posts.includes('nested/calibration.txt'), 'Posts shows only post evidence')
-  assert.ok(files.includes('nested/calibration.txt') && !files.includes('Post #12'), 'Files shows only file evidence')
+  // The post leads with its own subject, read from its captured words
+  // (correction, review ent-e23af56bb855), not its record number.
+  assert.ok(posts.includes('Calibration delta of 37') && !posts.includes('nested/calibration.txt'), 'Posts shows only post evidence')
+  assert.ok(files.includes('nested/calibration.txt') && !files.includes('Calibration delta of 37'), 'Files shows only file evidence')
   // Clean rows (owner request ent-1e82a8786c37): no raw ids, no recorded
   // digests and no type glyph -- a title, its excerpt, and who or when.
   assert.ok(!all.includes('¶') && !all.includes('▤'), 'a row carries no type glyph')
