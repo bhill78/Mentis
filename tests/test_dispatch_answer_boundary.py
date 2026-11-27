@@ -9,6 +9,14 @@ began, so a surface drawing the answer had to recognise its wording.
 `said_span` and `appended` say it exactly. The agent's own narration before its
 answer is NOT delimited here: only a deliberate answer draws that line, and a
 run that used one never reaches this fallback.
+
+WHERE IT IS READ. Recording the boundary is half of it: the surface that draws
+an answer reads the FROZEN one, so `perspectives_work.finalize` carries both
+fields into the answer package it freezes and onto its `answered` event
+(independent review F1, `ent-c0eebf657ffb`). That half is checked in
+`tests/test_magnet_perspectives.py::test_finalize_carries_the_reply_boundary_into_the_frozen_answer`,
+and the client's use of the offsets in
+`apps/fluid-web/tests/quiet_magnet_presentation_unit.ts`.
 """
 import pytest
 

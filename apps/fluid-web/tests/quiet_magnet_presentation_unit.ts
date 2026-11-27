@@ -39,7 +39,7 @@ import Summary, {
   CITED_PLACE_UNSHOWN, CITED_ROW, CITED_ROWS, DATED_WHY,
   WRITTEN_FROM,
   answerLines, answerRecordCount, answerSources, briefingGroups, citedPart, citedRows,
-  collectionOverview, datedMaterial, datedTable, isWrittenBriefing,
+  collectionOverview, datedMaterial, datedTable, frozenAnswerWords, isWrittenBriefing,
   materialLead, namedSubjects, offeredQuestions, readFrozenAnswer, rowPublication, summaryFacts,
   unfused, withoutNarration, worthTabulating,
 } from '../src/quiet2/magnets/Summary'
@@ -1101,6 +1101,108 @@ test('the frozen words of a run’s answer are read without its preamble', async
   try {
     assert.equal(await readFrozenAnswer(event), ANSWER_OPENS,
       'the package still verifies whole; what is READ is the answer')
+  } finally { globalThis.fetch = was }
+})
+
+/* --- MENTIS'S OWN CHARACTERS, BY THE OFFSETS THE RECORD HOLDS --------------
+   The reply boundary measures which characters of a run's reply Mentis
+   appended (`mentis/web/dispatch.py`), and `perspectives_work.finalize`
+   freezes those offsets with the parts they measure (independent review F1,
+   `ent-c0eebf657ffb`). Until it did, the only thing saying where Mentis's
+   claim trailer began was its WORDING, recognised here. These check that the
+   offsets are what is used where they exist, that the wording is still used
+   where they do not -- every answer frozen before this -- and that an offset
+   which does not address the frozen characters is ignored rather than
+   clamped. ---------------------------------------------------------------- */
+
+const TRAILER = 'Claim by @Caretaker: met — Answered it. (the agent’s claim; what Mentis recorded is shown with the work)'
+/** The trailer written as Mentis writes it, with the apostrophe the recogniser
+ *  expects, so a test of the wording path is a test of the real wording. */
+const TRAILER_RECOGNISED = "Claim by @Caretaker: met — Answered it. (the agent's claim; what Mentis recorded is shown with the work)"
+
+/** A frozen package of one text part, with the boundary for a reply whose last
+ *  `appended` characters are Mentis's. */
+const frozenReply = (said: string, trailer = TRAILER) => ({
+  parts: [{ type: 'text', text: `${said}\n\n${trailer}` }],
+  said_span: { part: 0, start: 0, end: said.length },
+  appended: [{ part: 0, start: said.length, end: `${said}\n\n${trailer}`.length,
+               what: 'outcome-claim' }],
+})
+
+test('the characters Mentis appended are cut by the offsets the record holds', () => {
+  const got = frozenAnswerWords(frozenReply(ANSWER_OPENS))
+  assert.equal(got.words, ANSWER_OPENS, 'the run’s own words, and nothing of Mentis’s')
+  assert.equal(got.bounded, true, 'and the cut was MEASURED, not recognised')
+  /* Either field alone says it: the run's span, or what was appended. */
+  const whole = frozenReply(ANSWER_OPENS).parts[0].text
+  assert.equal(frozenAnswerWords({ parts: [{ type: 'text', text: whole }],
+    said_span: { part: 0, start: 0, end: ANSWER_OPENS.length } }).words, ANSWER_OPENS)
+  assert.equal(frozenAnswerWords({ parts: [{ type: 'text', text: whole }],
+    appended: [{ part: 0, start: ANSWER_OPENS.length, end: whole.length }] }).words, ANSWER_OPENS)
+})
+
+test('AN ANSWER FROZEN BEFORE THE BOUNDARY EXISTED READS EXACTLY AS IT DID', () => {
+  const whole = `${ANSWER_OPENS}\n\n${TRAILER_RECOGNISED}`
+  const got = frozenAnswerWords({ parts: [{ type: 'text', text: whole }] })
+  assert.equal(got.words, whole, 'nothing is cut: the record claims no boundary')
+  assert.equal(got.bounded, false)
+  assert.equal(withoutNarration(got.words), ANSWER_OPENS,
+    'and the wording recogniser still takes the trailer off, as it always did')
+})
+
+test('WHERE THE OFFSETS SAY IT, THE WORDING IS NOT CONSULTED AT ALL', () => {
+  /* An answer whose own last paragraph quotes the trailer's parenthetical --
+     writing about a claim is not making one. Recognised by wording it would
+     lose its own words; measured, it keeps them. */
+  const quoting = `${ANSWER_OPENS}\n\nOne captured row closes with the words (the agent's claim; what Mentis recorded is shown with the work)`
+  assert.equal(withoutNarration(quoting, { appended: true }), quoting,
+    'the agent’s own characters stay, trailer-shaped or not')
+  assert.notEqual(withoutNarration(quoting), quoting,
+    'and the wording path is what could not tell the difference')
+})
+
+test('A BOUNDARY THAT DOES NOT ADDRESS THE FROZEN CHARACTERS IS IGNORED', () => {
+  const whole = `${ANSWER_OPENS}\n\n${TRAILER_RECOGNISED}`
+  for (const [boundary, why] of [
+    [{ said_span: { part: 0, start: 0, end: whole.length + 1 } }, 'past the end'],
+    [{ said_span: { part: 2, start: 0, end: 4 } }, 'a part that is not there'],
+    [{ said_span: { part: 0, start: 9, end: 2 } }, 'inside out'],
+    [{ said_span: { part: 0, start: 0, end: 4.5 } }, 'not whole characters'],
+    [{ appended: [{ part: 0, start: -1, end: 4 }] }, 'before the start'],
+    [{ appended: { part: 0, start: 0, end: 4 } }, 'appended is not a list'],
+  ] as [Record<string, unknown>, string][]) {
+    const got = frozenAnswerWords({ parts: [{ type: 'text', text: whole }], ...boundary })
+    assert.equal(got.words, whole, why)
+    assert.equal(got.bounded, false, `${why}: and the wording fallback still applies`)
+  }
+})
+
+test('an answer that is NOTHING but Mentis’s trailer is shown as what it is', () => {
+  /* Cutting to nothing would hand the owner an empty card and hide the
+     defect, which is the rule the narration strip already follows. */
+  const got = frozenAnswerWords({ parts: [{ type: 'text', text: TRAILER }],
+    said_span: { part: 0, start: 0, end: 0 },
+    appended: [{ part: 0, start: 0, end: TRAILER.length }] })
+  assert.equal(got.words, TRAILER)
+  assert.equal(got.bounded, false, 'and nothing claims the words were measured')
+})
+
+test('a run’s frozen answer is read with Mentis’s trailer cut by offset', async () => {
+  const pkg = frozenReply(`${PREAMBLE}\n\n${ANSWER_OPENS}\n\n${CLOSING_BOOKKEEPING}`)
+  const body = new TextEncoder().encode(JSON.stringify(pkg))
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))]
+    .map((n) => n.toString(16).padStart(2, '0')).join('')
+  const event = { post: 'ent-answer222', perspective: 'ent-topic111', kind: 'answered',
+    at: WHEN, data: { answer_post: 'ent-reply222', execution: 'exec-2',
+      answer: { ref: 'adm-frozen222222', digest, size: body.byteLength } },
+    snapshot: { ref: 'adm-frozen222222' } } as unknown as InquiryEvent
+  const was = globalThis.fetch
+  globalThis.fetch = (async () => ({ ok: true, arrayBuffer: async () => body.buffer })) as unknown as typeof fetch
+  try {
+    const read = await readFrozenAnswer(event)
+    assert.equal(read, ANSWER_OPENS,
+      'Mentis’s characters go by offset; the agent’s own narration by the reading rules')
+    assert.ok(!read.includes('Claim by'), 'nothing of the appended claim is drawn')
   } finally { globalThis.fetch = was }
 })
 

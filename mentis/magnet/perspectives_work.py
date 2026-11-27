@@ -1011,6 +1011,55 @@ def reconcile(st, mid, topic, body, by, written_by):
     return {"receipt": snap, **data}
 
 
+def _span_fits(span, parts):
+    """Whether one recorded span addresses actual characters of `parts`.
+
+    Checked rather than trusted: these offsets go into an immutable package
+    that is verified by size and digest and then SLICED by whoever reads it, so
+    an offset that does not address the characters being frozen would make a
+    reader cut the answer in the wrong place with the record's own authority
+    behind it. An offset that does not fit is dropped, never adjusted."""
+    if not isinstance(span, dict):
+        return False
+    part, start, end = span.get("part"), span.get("start"), span.get("end")
+    if any(isinstance(v, bool) or not isinstance(v, int) for v in (part, start, end)):
+        return False
+    if not 0 <= part < len(parts):
+        return False
+    held = parts[part]
+    if not isinstance(held, dict) or held.get("type") != "text":
+        return False
+    text = held.get("text")
+    return isinstance(text, str) and 0 <= start <= end <= len(text)
+
+
+def _boundary(said, parts):
+    """WHICH CHARACTERS OF THE FROZEN REPLY THE RUN ITSELF WROTE.
+
+    The reply boundary (`mentis.web.dispatch`) measures this where it writes a
+    run's fallback reply and records it on that reply's `turn-said` act:
+    `said_span` is the run's own words, and `appended` the spans Mentis added
+    to them -- its one-line rendering of the run's outcome claim, which is
+    execution bookkeeping and not an answer to the question. Freezing the
+    reply's parts without it left a reader no way to tell Mentis's characters
+    from the run's except by recognising the trailer's WORDING, which is the
+    guess this says exactly (independent review F1, `ent-c0eebf657ffb`).
+
+    Carried only where it addresses the characters actually being frozen, and
+    only where it was recorded: a reply frozen before this existed carries
+    neither field, and nothing is inferred for it.
+
+    What it does NOT delimit: where the agent's own text stops narrating its
+    work and starts answering, at either end. Those are the agent's own
+    characters, inside `said_span`, and only the agent can draw that line --
+    see the boundary's own note in `dispatch`."""
+    detail = (said or {}).get("detail") or {}
+    span, appended = detail.get("said_span"), detail.get("appended")
+    kept = [a for a in appended if _span_fits(a, parts)] if isinstance(appended, list) else []
+    return {**({"said_span": span} if _span_fits(span, parts) else {}),
+            **({"appended": kept} if kept else {})}
+
+
 def finalize(st, mid, topic, body, by, written_by):
     P.require_grounded()
     row = intent(st, mid, topic, body.get("intent"))
@@ -1035,6 +1084,10 @@ def finalize(st, mid, topic, body, by, written_by):
                  and a["act"] in ("turn-said", "result-returned", "result-recovered") for a in acts)
     ends = st.corpus.operational(caused_by=start["id"], act=("result-returned", "result-recovered"))
     proven = proven or any((a.get("detail") or {}).get("reply_turn") == answer for a in ends)
+    # The same act, read for the one other thing it knows: which characters of
+    # this reply the run wrote (`_boundary`).
+    said_act = next((a for a in acts if a["act"] == "turn-said"
+                     and order[a["id"]] > order[start["id"]]), None)
     if not proven:
         P.refuse("answer-not-produced", "the record does not associate this answer with this committed run")
     check = reconcile(st, mid, topic, {"intent": row["post"], "execution": start["execution"],
@@ -1055,12 +1108,18 @@ def finalize(st, mid, topic, body, by, written_by):
     # accounting. They become counted dependencies when this answer is reused.
     dependencies.extend(E.descriptor(st, ref) for ref in E.attachments(turns[0]["body"]["parts"]))
     dependencies = list({d["ref"]: d for d in dependencies}.values())
+    # FROZEN WITH THE PARTS IT MEASURES, so whoever verifies the package by
+    # size and digest and then reads it has the answer's own characters named
+    # by offset rather than recognised by Mentis's wording. On the event too:
+    # the event is what the Perspective's history returns, so a reader that
+    # has not fetched the package still knows the boundary exists.
+    boundary = _boundary(said_act, turns[0]["body"]["parts"])
     snap = P.hold(st, mid, _package(st, mid, "answer", perspective=topic, intent=row["post"],
         request=request, request_post=st.cv._act(request)["turn"], bound_request=bound["request"], answer=answer,
         execution=start["execution"], run=start["id"], manifest=desc,
         parts=turns[0]["body"]["parts"], originals=manifest["originals"], support=manifest["support"],
-        receipt=check["receipt"], dependencies=dependencies), by, name="answer")
+        receipt=check["receipt"], dependencies=dependencies, **boundary), by, name="answer")
     out = P.event(st, mid, topic, "answered", {"intent": row["post"], "request": request,
         "answer": snap, "answer_post": answer, "manifest": desc, "execution": start["execution"],
-        "run": start["id"]}, by, snapshot=snap, written_by=written_by)
+        "run": start["id"], **boundary}, by, snapshot=snap, written_by=written_by)
     return {"answer": snap, "receipt": check, "event": out}

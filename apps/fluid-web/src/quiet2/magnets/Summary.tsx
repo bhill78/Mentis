@@ -920,11 +920,91 @@ export function heldAnswer(e?: InquiryEvent | null): { ref: string; digest: stri
  *  order they were frozen. Nothing is characterised, shortened or joined with
  *  anything else -- a briefing is read as the document it was written as. */
 export function frozenWords(pkg: unknown): string {
-  const parts = object(pkg).parts
+  return joinedWords(object(pkg).parts)
+}
+
+/** The text of a reply's parts, in the order they were frozen. */
+function joinedWords(parts: unknown): string {
   return (Array.isArray(parts) ? parts : [])
     .filter((p) => object(p).type === 'text' && typeof object(p).text === 'string')
     .map((p) => String(object(p).text).replace(/\s+$/, ''))
     .filter((t) => !!t.trim()).join('\n\n')
+}
+
+/* ---------------------------------------------------------------------------
+   WHICH CHARACTERS OF THE FROZEN REPLY MENTIS ADDED, AS THE RECORD SAYS.
+
+   Where a run makes an outcome claim, Mentis renders it onto the reply text
+   itself ("Claim by @X: met — … (the agent's claim; …)"). It is execution
+   bookkeeping, not the answer, and until the reply boundary existed nothing
+   said where it began -- so this file recognised it by its WORDING
+   (`CLAIM_TRAILER`), which is a guess about how Mentis phrases itself.
+
+   It is now MEASURED, by the boundary that writes the reply
+   (`mentis/web/dispatch.py`), recorded on the reply's `turn-said` act and
+   carried into the frozen answer package by `perspectives_work.finalize`:
+   `said_span` is the run's own words, `appended` the spans Mentis added. Read
+   here, both of them, so the cut is by offset and not by phrase.
+
+   NOT TRUSTED BLINDLY. The package verifies by size and digest, which says
+   the bytes are the frozen ones and nothing about whether an offset addresses
+   them; a span that does not fit the parts in hand is ignored, never clamped.
+   And where the record carries no boundary -- every answer frozen before this
+   -- the wording recogniser is still used, so an older answer reads exactly
+   as it did. ------------------------------------------------------------- */
+
+/** One recorded span of a frozen reply: a part, and characters of its text. */
+interface Span { part: number; start: number; end: number }
+
+/** `v` as a span of `parts`, or `null` where it does not address their
+ *  characters. */
+function spanOf(v: unknown, parts: unknown[]): Span | null {
+  const s = object(v)
+  const [part, start, end] = [s.part, s.start, s.end]
+  if (![part, start, end].every((n) => Number.isInteger(n))) return null
+  if (part < 0 || part >= parts.length) return null
+  const held = object(parts[part])
+  if (held.type !== 'text' || typeof held.text !== 'string') return null
+  return start >= 0 && start <= end && end <= held.text.length
+    ? { part, start, end } : null
+}
+
+/** THE RUN'S OWN WORDS OF A FROZEN ANSWER, and whether the record measured
+ *  them.
+ *
+ *  `bounded` is the whole point: it says the cut below was made by recorded
+ *  offsets, so nothing downstream has to recognise Mentis's wording. It is
+ *  `false` for an answer frozen before the boundary was recorded, and false
+ *  where cutting by the boundary would leave no words at all -- an answer that
+ *  is nothing but Mentis's trailer is shown as what it is, the same way an
+ *  answer that is nothing but narration is, rather than as an empty card. */
+export function frozenAnswerWords(pkg: unknown): { words: string; bounded: boolean } {
+  const held = object(pkg)
+  const parts = Array.isArray(held.parts) ? (held.parts as unknown[]) : []
+  const whole = joinedWords(parts)
+  const said = spanOf(held.said_span, parts)
+  const appended = (Array.isArray(held.appended) ? held.appended : [])
+    .map((a) => spanOf(a, parts)).filter((a): a is Span => !!a)
+  if (!said && !appended.length) return { words: whole, bounded: false }
+  /* Both constraints, on the characters they each name: the part `said_span`
+     names is narrowed to it, and every span Mentis appended is taken out of
+     its own part. For a fallback reply the two say the same thing from either
+     end; applying both never reads a character neither side claims. */
+  const kept = parts.map((p, i) => {
+    const o = object(p)
+    if (o.type !== 'text' || typeof o.text !== 'string') return p
+    let text: string = o.text
+    let from = 0
+    if (said && said.part === i) { from = said.start; text = text.slice(said.start, said.end) }
+    for (const cut of appended.filter((a) => a.part === i).sort((a, b) => b.start - a.start)) {
+      const [s, e] = [cut.start - from, cut.end - from]
+      if (e <= 0 || s >= text.length) continue
+      text = text.slice(0, Math.max(s, 0)) + text.slice(Math.min(e, text.length))
+    }
+    return { ...o, text }
+  })
+  const words = joinedWords(kept)
+  return words.trim() ? { words, bounded: true } : { words: whole, bounded: false }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1189,10 +1269,17 @@ function withoutClosingBookkeeping(src: string): string {
  *  The fused sentences are separated first (`unfused`): on TEST's own answer
  *  the narrated sentence and the answer's first sentence are ONE run of
  *  characters with no space between them, so until the space is there the end
- *  of the narration cannot be found at all. */
-export function withoutNarration(words: unknown): string {
+ *  of the narration cannot be found at all.
+ *
+ *  `measured.appended` says Mentis's own appended characters were already cut
+ *  by the offsets the record holds (`frozenAnswerWords`). Then the wording
+ *  recogniser is not consulted at all: a trailer the agent happened to quote
+ *  in its own answer is the agent's words and stays, and a rendering Mentis
+ *  rephrases later still goes. Without it the wording is the only thing there
+ *  is, and is used exactly as before. */
+export function withoutNarration(words: unknown, measured?: { appended?: boolean }): string {
   const whole = unfused(words)
-  const cut = whole.replace(CLAIM_TRAILER, '')
+  const cut = measured?.appended ? whole : whole.replace(CLAIM_TRAILER, '')
   const src = cut.trim() ? cut : whole
   if (!src.trim()) return src
   const opened = withoutLeadingNarration(src)
@@ -1216,7 +1303,12 @@ export function withoutNarration(words: unknown): string {
  *  narration is left out of what is drawn (`withoutNarration`), on both paths,
  *  because this is the one door both surfaces read an agent-written answer
  *  through. The frozen bytes are still verified whole before anything of them
- *  is read, and the recorded package is unchanged. */
+ *  is read, and the recorded package is unchanged.
+ *
+ *  AND MENTIS'S OWN APPENDED CHARACTERS GO BY THE OFFSETS THE RECORD HOLDS
+ *  where the package carries them (`frozenAnswerWords`), rather than by
+ *  recognising how Mentis phrases its claim rendering. An answer frozen before
+ *  the boundary was recorded carries none, and reads exactly as it did. */
 export async function readFrozenAnswer(e: InquiryEvent): Promise<string> {
   const recorded = answerText(e)
   if (recorded) return withoutNarration(recorded)
@@ -1228,9 +1320,9 @@ export async function readFrozenAnswer(e: InquiryEvent): Promise<string> {
   const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', raw))].map((n) => n.toString(16).padStart(2, '0')).join('')
   if (raw.byteLength !== held.size || digest !== held.digest)
     throw new Error('The frozen answer did not verify against the record. Nothing of it is shown.')
-  const words = frozenWords(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)))
-  if (!words) throw new Error('The frozen answer holds no words to read.')
-  return withoutNarration(words)
+  const read = frozenAnswerWords(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)))
+  if (!read.words) throw new Error('The frozen answer holds no words to read.')
+  return withoutNarration(read.words, { appended: read.bounded })
 }
 
 /** THE BRIEFING AS THIS VIEW MAY ACTUALLY SHOW IT: its words, and the

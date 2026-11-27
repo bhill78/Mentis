@@ -124,11 +124,16 @@ def live(w, req, agent, *, instance=None, delivered=None):
     return execution, run
 
 
-def answer(w, req, agent, execution, run, words="A provisional answer."):
+def answer(w, req, agent, execution, run, words="A provisional answer.", said=None):
+    """A reply by the producing run, with the `turn-said` act that proves it.
+
+    `said` is what the reply boundary records on that act about which
+    characters of the reply the run itself wrote (`said_span`, `appended`);
+    `None` is a reply recorded before the boundary existed."""
     exp = w.cv._act(req)
     post = w.cv.say(exp["conversation"], agent, [text(words)], replies_to=exp["turn"])
     w.cv.record_act(actor=agent, act="turn-said", conversation=exp["conversation"], turn=post,
-                    execution=execution, caused_by=req)
+                    execution=execution, caused_by=req, detail=said)
     w.cv.record_act(actor=agent, act="result-returned", conversation=exp["conversation"],
                     turn=exp["turn"], execution=execution, caused_by=run, detail={"reply_turn": post})
     return post
@@ -439,6 +444,100 @@ def test_finalize_freezes_exact_answer_and_rechecks_before_display_and_reuse(inq
     graph.add(nextp["manifest"]["ref"])
     assert len(graph.objects[nextp["manifest"]["ref"]]["originals"]) == 1
     assert not w.corpus.operational(act="material-recorded", about=a)
+
+
+# ---------------------------------------------------------------------------
+# WHICH CHARACTERS OF THE FROZEN ANSWER THE RUN WROTE (independent review F1,
+# `ent-c0eebf657ffb`).
+#
+# The reply boundary measures it where the reply is written and records it on
+# that reply's `turn-said` act (`tests/test_dispatch_answer_boundary.py`).
+# `finalize` froze the reply's parts WITHOUT it, so the surface drawing the
+# answer still had to recognise Mentis's claim trailer by its wording. These
+# check that the boundary reaches the frozen package and the `answered` event
+# the history returns, that slicing by it gives the run's own words, and that
+# nothing is invented where the record holds none.
+
+SAID = "The collection's strongest theme is how observations become useful."
+TRAILER = "Claim by @Agent: met — Answered it. (the agent's claim; what Mentis recorded is shown with the work)"
+REPLY = f"{SAID}\n\n{TRAILER}"
+BOUNDARY = {"said_span": {"part": 0, "start": 0, "end": len(SAID)},
+            "appended": [{"part": 0, "start": len(SAID), "end": len(REPLY),
+                          "what": "outcome-claim"}]}
+
+
+def _frozen(w, desc):
+    return E.native(w.state, MAGNET, desc["ref"], held.read(w.root, desc["digest"]), "answer")
+
+
+def test_finalize_carries_the_reply_boundary_into_the_frozen_answer(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    instance, run = live(w, req, agent)
+    a = answer(w, req, agent, instance, run, words=REPLY, said=BOUNDARY)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=instance, answer=a)
+    obj = _frozen(w, frozen["answer"])
+
+    # The parts are still frozen verbatim: nothing is edited out of the record.
+    assert obj["parts"] == w.corpus.read([a])[0]["body"]["parts"]
+    # And the boundary is frozen WITH them, so a reader that verifies the
+    # package by size and digest has the offsets too.
+    assert obj["said_span"] == BOUNDARY["said_span"]
+    assert obj["appended"] == BOUNDARY["appended"]
+    # Read as a reader reads it: the run's own words, and Mentis's apart.
+    whole = obj["parts"][0]["text"]
+    span, added = obj["said_span"], obj["appended"][0]
+    assert whole[span["start"]:span["end"]] == SAID
+    assert whole[added["start"]:added["end"]].strip() == TRAILER
+    assert "Claim by" not in whole[span["start"]:span["end"]]
+
+    # The `answered` event the Perspective's history returns says it too, so a
+    # reader that has not fetched the package knows the boundary is there.
+    assert frozen["event"]["data"]["said_span"] == BOUNDARY["said_span"]
+    said = next(e for e in reversed(P.history(w.state, MAGNET, p["perspective"],
+                                              limit=100)["events"])
+                if e["event"] == "answered")
+    assert said["data"]["said_span"] == BOUNDARY["said_span"]
+    assert said["data"]["appended"] == BOUNDARY["appended"]
+
+
+def test_an_answer_recorded_without_the_boundary_claims_none(inquiry):
+    # Every answer frozen before the boundary existed. Nothing is inferred
+    # from the words, so a reader still has only what the record says.
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    instance, run = live(w, req, agent)
+    a = answer(w, req, agent, instance, run, words=REPLY)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=instance, answer=a)
+    obj = _frozen(w, frozen["answer"])
+    assert obj["parts"][0]["text"] == REPLY
+    assert "said_span" not in obj and "appended" not in obj
+    assert "said_span" not in frozen["event"]["data"]
+    assert "appended" not in frozen["event"]["data"]
+
+
+@pytest.mark.parametrize("said,why", [
+    ({"said_span": {"part": 0, "start": 0, "end": len(REPLY) + 1}}, "past the end"),
+    ({"said_span": {"part": 1, "start": 0, "end": 1}}, "a part that is not there"),
+    ({"said_span": {"part": 0, "start": 5, "end": 2}}, "inside out"),
+    ({"said_span": {"part": 0, "start": "0", "end": 3}}, "not characters at all"),
+    ({"appended": [{"part": 0, "start": 0, "end": len(REPLY) + 9}]}, "an appended span past the end"),
+    ({"appended": {"part": 0, "start": 0, "end": 3}}, "appended is not a list"),
+])
+def test_a_boundary_that_does_not_fit_the_frozen_parts_is_dropped(inquiry, said, why):
+    # The package verifies by size and digest, which says the bytes are the
+    # frozen ones and nothing about whether an offset addresses them. An
+    # offset that does not fit is dropped, never adjusted to fit.
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    instance, run = live(w, req, agent)
+    a = answer(w, req, agent, instance, run, words=REPLY, said=said)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=instance, answer=a)
+    obj = _frozen(w, frozen["answer"])
+    assert "said_span" not in obj and "appended" not in obj, why
 
 
 def test_wrong_brain_and_late_answer_refuse(inquiry, monkeypatch):
