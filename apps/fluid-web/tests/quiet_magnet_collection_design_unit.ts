@@ -63,6 +63,12 @@ function resource() {
 const may = (key: string) => key === 'home'
 const browse = (r: ReturnType<typeof resource>, canWrite = may) =>
   renderToStaticMarkup(createElement(EvidenceViews, { resource: r, lens: 'All', onPost: () => {}, onFile: () => {}, canWrite }))
+/** THE SOURCES RAIL IS NOT A SEPARATE VIEW ANY MORE (owner ent-24beca915507):
+ *  the Collection place is one split surface and the rail is always part of it,
+ *  so what used to be reached by writing `sources: true` is simply the same
+ *  render. The flag still exists and the shell's own entry still writes it --
+ *  it means "take me to the rail" now -- and writing it must not change what
+ *  the surface holds. */
 const sourcesView = (r: ReturnType<typeof resource>, canWrite = may) => {
   goTab(r, 'All'); writePlace(r, 'All', { sources: true })
   return renderToStaticMarkup(createElement(EvidenceViews, { resource: r, lens: 'All', onPost: () => {}, onFile: () => {}, canWrite }))
@@ -99,17 +105,30 @@ const saysNothingRemoved = (html: string, where: string) => {
 
 /* -- Collected items (04-browse.png) ---------------------------------------- */
 
-test('Collected items is the approved surface, in the approved order and nothing else', async () => {
+test('Collection is ONE split surface: the place heading, then sources and filters, then the collected results', async () => {
   store()
   const r = resource()
   await r.read()
   const html = browse(r)
+  // The document order IS the stacking order (owner ent-24beca915507: "let
+  // them stack responsively at narrow widths"): the heading, then what is
+  // being looked at, then what was found. `collection.css` places the two
+  // columns side by side at a width that holds both; it never reorders the
+  // document to do it.
   order(html, [
+    'q2-magnet-collection-split',
     'mgd-eyebrow', 'Collection',
     'mgd-h2', 'Collected items', '<span class="mgd-subtle"> 1</span>',
-    'Sources · 2 →',
+    'q2-magnet-collection-rail',
     'Search collected items',
     'mgd-pill', 'Everything', 'Posts', 'Files', 'Images',
+    '>Sources</h3>',
+    'mgd-source', 'Remove',
+    'mgd-button mgd-secondary', '＋ Add source',
+    'What to collect', 'Posts, files, images and attachments', 'Change',
+    'Collect manually', 'Collect now',
+    'Limits and dates ▾',
+    'q2-magnet-collection-main',
     'q2-magnet-evidence-row',
     'Collected ',
   ])
@@ -122,11 +141,24 @@ test('Collected items is the approved surface, in the approved order and nothing
   // `MAGNET_TABS`), closing the seam this file used to report
   // (`opr-937e911eadcd`). One pill per filter, and no second filter row.
   assert.equal((html.match(/mgd-pill/g) ?? []).length, 4, 'one pill per filter that exists, and no second filter row')
-  // Said once: the counterpart link is on the heading row, not floating above
-  // it as well.
-  assert.equal((html.match(/Sources ·/g) ?? []).length, 1)
+  // NOTHING IS SAID TWICE ACROSS THE TWO COLUMNS. The links the two surfaces
+  // used to carry to each other pointed at the column beside them and are
+  // gone; collecting is offered once, on the rail's own row, which is where
+  // the cadence is said.
+  assert.equal((html.match(/Sources ·/g) ?? []).length, 0, 'no link to the column that is already on screen')
+  assert.equal((html.match(/Collected items →/g) ?? []).length, 0, 'and none back the other way')
   assert.equal((html.match(/Collect now/g) ?? []).length, 1, 'collecting is offered once on this surface')
-  saysNothingRemoved(html, 'Collected items')
+  assert.equal((html.match(/id="view-title"/g) ?? []).length, 1, 'one heading, over both columns')
+  assert.equal((html.match(/Search collected items/g) ?? []).length, 2, 'one search box: its label and its placeholder')
+  saysNothingRemoved(html, 'Collection')
+})
+
+test('the place’s own Sources flag takes the reader to the rail, and changes nothing on the surface', async () => {
+  store()
+  const r = resource()
+  await r.read()
+  assert.equal(sourcesView(r), browse(r),
+    'both columns are on screen either way: the flag is a destination, not a second view')
 })
 
 test('an unread collection states no count beside its heading, and fabricates none', () => {
@@ -148,13 +180,11 @@ test('Collect now on the browse line is refused where the supplied capability re
 
 /* -- Sources (03-sources.png) ------------------------------------------------ */
 
-test('Sources is the approved surface, in the approved order and nothing else', () => {
+test('the Sources rail keeps the approved body, in the approved order and nothing else', () => {
   store()
   const html = sourcesView(resource())
   order(html, [
-    'mgd-eyebrow', 'Collection',
-    'mgd-h2', '>Sources</h2>',
-    'Collected items →',
+    '>Sources</h3>',
     'Choose where to look. Collect when you’re ready.',
     'mgd-source', 'Remove',
     'mgd-button mgd-secondary', '＋ Add source',
@@ -166,7 +196,28 @@ test('Sources is the approved surface, in the approved order and nothing else', 
   ])
   assert.equal((html.match(/mgd-source/g) ?? []).length, 3, 'one ruled row per source, and one for Add source')
   assert.equal((html.match(/>Remove</g) ?? []).length, 2, 'each configured source carries its own Remove')
+  // The rail contributes no second heading of the place's: the split surface
+  // says where the reader is once.
+  assert.ok(!html.includes('>Sources</h2>'), 'the rail is a section of the Collection place, not a view of its own')
   saysNothingRemoved(html, 'Sources')
+})
+
+test('a source row never titles itself from a raw storage key', () => {
+  store()
+  const held = config()
+  // How a held web page or feed entry is stored: the path IS the key it was
+  // written under. The owner read source rows headed
+  // "www-nasa-gov/0033172620276ee1" (ent-24beca915507: ids and raw collection
+  // mechanics stay secondary, never the name of a thing).
+  held.sources = [{ kind: 'file', collection: 'col-held', path: 'www-nasa-gov/0033172620276ee1' },
+    { kind: 'file', collection: 'col-held', path: 'nested/notes.txt' }]
+  const r = createMagnetResource({ id: 'qm-keys', brainKey, saved: { id: 'mag-design', name: 'Deployment learning', config: held },
+    get: async () => ({ status: 200, body: { magnet: 'mag-design', config: held, activation: null, page: null } }) })
+  const html = renderToStaticMarkup(createElement(EvidenceViews, { resource: r, lens: 'All', onPost: () => {}, onFile: () => {}, canWrite: may }))
+  assert.ok(!html.includes('<b>www-nasa-gov/0033172620276ee1</b>'), 'the storage key is not the row’s name')
+  assert.ok(html.includes('One held item of this collection'), 'the row says what it is instead')
+  // A real filename is still exactly what it was.
+  assert.ok(html.includes('<b>nested/notes.txt</b>'), 'a path a reader recognises is kept as it is')
 })
 
 test('the configuration moved behind Change rather than being deleted', () => {

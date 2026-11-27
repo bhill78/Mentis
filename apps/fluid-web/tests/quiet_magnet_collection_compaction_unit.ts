@@ -5,10 +5,12 @@
  *  -- 72 rows was an unreadable column, and TEST showed 4-6 rows in one
  *  viewport. This file pins what Part 4 does about it:
  *
- *    - a row is one line by default -- title, then what it is and when -- with
- *      its captured excerpt and its own address moved into a block
+ *    - a row is content-shaped -- title and what-it-is-and-when on one line,
+ *      the captured snippet clamped under it, and its own address in a block
  *      (`q2-magnet-row-more`) that sits outside the row's button and is
- *      revealed by hovering or focusing the row, never shown by default;
+ *      revealed by hovering or focusing the row (the snippet stood in that
+ *      block too until the owner's later word, ent-24beca915507, asked for
+ *      collected content read naturally rather than disclosed);
  *    - the list is grouped by day and by source within each day, each a
  *      counted header;
  *    - the fourth filter the mockup always showed -- Images -- exists and
@@ -18,10 +20,12 @@
  *      of hex, digest-named rather than reader-named) does not title itself
  *      from that key; a real filename, kept exactly as it was, still does.
  *
- *  Visual density -- 20+ rows in one real viewport -- is not something a node
- *  unit test renders; that is checked with a screenshot against the TEST
- *  candidate, alongside this file's checks of the markup and the grouping that
- *  make the density possible. */
+ *  Visual density is not something a node unit test renders; that is checked
+ *  with a screenshot, alongside this file's checks of the markup and the
+ *  grouping that make the density possible. The target it was written against
+ *  was 20+ rows in one viewport; with the snippet read on the row it is around
+ *  15, which is the trade the owner's later word asks for ("Compact must not
+ *  mean cramming everything together"). */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createElement } from 'react'
@@ -109,7 +113,18 @@ const order = (html: string, parts: string[]) => {
 
 /* -- one row, one line by default -------------------------------------------- */
 
-test('a row is one line by default: the preview and the row’s own address sit outside the button, not inside it', async () => {
+/* THE ROW'S SHAPE, AS THE OWNER'S LATER WORD SETS IT (ent-24beca915507):
+   "Present collected content naturally (titles, snippets, readable metadata)
+   with technical/internal details (ids, raw collection mechanics) secondary
+   and progressively disclosed". The one-line row this file first pinned put
+   the captured snippet behind a hover, which is the collected content itself
+   behind a disclosure; the snippet is now read on the row, clamped to two
+   lines by `collection.css`, and the row's own address is what stays behind
+   the hover/focus block. The structural point this test was written for is
+   unchanged and still pinned: the openable row is a button, and nothing that
+   must be separately pressable (a link) is nested inside it. */
+
+test('a row reads as content: title and byline on one line, the snippet under it, the address outside the button', async () => {
   store()
   const r = resource()
   await r.read()
@@ -118,17 +133,25 @@ test('a row is one line by default: the preview and the row’s own address sit 
   assert.ok(rowStart >= 0, 'the NASA row is rendered')
   const buttonClose = html.indexOf('</button>', rowStart)
   const buttonMarkup = html.slice(rowStart, buttonClose)
-  // The button is the title and the byline, on one line, and nothing else.
   assert.ok(buttonMarkup.includes('q2-magnet-row-line'), 'the title and the byline share one line')
   assert.ok(buttonMarkup.includes('Juno launch recap'), 'the headline leads the row')
   assert.ok(buttonMarkup.includes('nasa.gov'), 'the byline names the site, on the same line')
-  assert.ok(!buttonMarkup.includes('q2-magnet-preview'), 'the captured excerpt is not inside the one-line button')
-  assert.ok(!buttonMarkup.includes('q2-magnet-row-link'), 'the row’s own address is not inside the one-line button')
-  // They are still rendered -- as a sibling block the row reveals, not inside it.
+  // A feed entry that recorded only a headline and a link has nothing left to
+  // say under them, and says nothing: no empty snippet block.
+  assert.ok(!buttonMarkup.includes('q2-magnet-row-snippet'), 'a row with no words of its own shows no empty snippet')
+  assert.ok(!buttonMarkup.includes('q2-magnet-row-link'), 'the row’s own address is not inside the openable button')
+  // A row that DID capture words reads them ON the row, after its title line
+  // -- not behind a disclosure.
+  const words = html.indexOf('id="item-file-raw-today"')
+  const wordsRow = html.slice(words, html.indexOf('</button>', words))
+  const snippetAt = wordsRow.indexOf('q2-magnet-row-snippet')
+  assert.ok(snippetAt > wordsRow.indexOf('q2-magnet-row-line'), 'the captured snippet is read on the row, under its title line')
+  assert.ok(wordsRow.includes('binary content, no recorded header'), 'and it is the captured words themselves')
+  // The address is still rendered -- as a sibling block the row reveals.
   const afterButton = html.slice(buttonClose)
   const moreAt = afterButton.indexOf('q2-magnet-row-more')
   assert.ok(moreAt >= 0 && moreAt < (afterButton.indexOf('</li>') >= 0 ? afterButton.indexOf('</li>') : afterButton.length),
-    'the preview and the address are in the same row, outside its button')
+    'the address is in the same row, outside its button')
 })
 
 /* -- grouped by day, and by source within each day, each counted ------------ */

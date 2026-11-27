@@ -20,6 +20,89 @@
 .q2 .q2-magnet-place-head .mgd-h2 { margin-bottom: 0; }
 .q2 .q2-magnet-place-link { flex: none; white-space: nowrap; padding-bottom: 4px; }
 
+/* ---- the split Collection surface (owner ent-24beca915507) -------------- *
+
+   "Sources and filters on one side, readable collected results on the other.
+   Compact must not mean cramming everything together -- give the two columns
+   real breathing room... and let them stack responsively at narrow widths."
+
+   The one discrete step -- whether the two stand side by side or stack -- is a
+   CONTAINER QUERY ON THIS SECTION'S OWN INLINE SIZE, which is the panel's: a
+   Magnet is resized by its own edges and may be wide on a narrow screen or
+   narrow on a wide one, so a viewport media query would answer the wrong
+   question. That is the pattern `perspectives.css` already uses for the same
+   decision, reused here rather than invented again.
+
+   Everything continuous -- the gap, the breathing room -- is spent out of
+   `--magnet-room` (0 at a 320 px panel, 1 at a 900 px one), which the frame
+   publishes, so the surface loosens as the panel is dragged instead of
+   snapping at a breakpoint. The gap is deliberately larger than the rhythm
+   inside either column: two columns a reader can tell apart at a glance is
+   what keeps "compact" from becoming "crammed". */
+
+/* The SECTION measures; the GRID INSIDE IT answers. A container query cannot
+   style the element that declares the containment -- only its descendants --
+   so these are two elements and not one. (Measured: with both on the section,
+   the two `grid-column` rules landed and `grid-template-columns` did not, which
+   put the reading column in an implicit auto column 62 px wide.) */
+.q2 .q2-magnet-collection-split {
+  container-type: inline-size;
+  container-name: collection;
+  min-width: 0;
+}
+.q2 .q2-magnet-collection-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  /* STACKED, THE GAP IS VERTICAL: the two are read one after the other down
+     one column, with room between them, not a rule. */
+  row-gap: 26px;
+  min-width: 0;
+}
+.q2 .q2-magnet-collection-main, .q2 .q2-magnet-collection-rail { min-width: 0; }
+/* Stacked: what is being looked at (the filters and the sources) is first in
+   the document, and stays first on screen. */
+.q2 .q2-magnet-collection-rail { grid-row: 1; }
+.q2 .q2-magnet-collection-main { grid-row: 2; }
+.q2 .q2-magnet-sources-rail > .mgd-h3 { margin: 0; }
+.q2 .q2-magnet-sources-rail > .mgd-h3:focus-visible { outline: 2px solid #e6bc50; outline-offset: 3px; }
+/* The rail's own sentence sits under its heading, not against it. */
+.q2 .q2-magnet-sources-rail { margin-top: 18px; }
+
+@container collection (min-width: 700px) {
+  .q2 .q2-magnet-collection-cols {
+    /* The reading column is the wider one: the results are what is read, the
+       rail is what is set. The proportions are the approved two-column
+       primitive's (`design.css` `mgd-twocol`, 1.4fr/.8fr), expressed as
+       `minmax(0, …)` so neither column can be pushed past its share by a long
+       unbroken title or address. */
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr);
+    column-gap: calc(40px + 24px * var(--magnet-room, 0));
+    row-gap: 0;
+  }
+  /* Side by side, the results take the first column and the rail the second,
+     whatever order the document reads in. */
+  .q2 .q2-magnet-collection-main { grid-column: 1; grid-row: 1; }
+  .q2 .q2-magnet-collection-rail { grid-column: 2; grid-row: 1; }
+  /* A rule the gap carries, rather than a panel or a box: the two columns are
+     one surface, and Quiet separates with space and a hairline, never with a
+     container. The padding keeps the hairline off the rail's own text by half
+     the gap, so the space reads as space on both sides of it. */
+  .q2 .q2-magnet-collection-rail {
+    padding-left: calc(20px + 12px * var(--magnet-room, 0));
+    border-left: 1px solid var(--magnet-rule);
+    /* THE RAIL STAYS WITH THE READING (the intent the sticky filter bar
+       carried before the split, kept where the filters now live): a reader
+       scrolling 72 collected rows keeps the filters, the sources and Collect
+       now in reach without scrolling back and losing their place. It is the
+       grid item itself that sticks, not a bar inside it, so nothing overlaps
+       anything and nothing gains a scroller of its own -- a rail taller than
+       the room simply scrolls with the surface, as it did. */
+    position: sticky;
+    top: 0;
+  }
+}
+
 /* ---- collected items (04-browse.png) ----------------------------------- */
 
 /* The search box is `mgd-search`; the label around it only has to stop being a
@@ -29,29 +112,23 @@
 .q2 .q2-magnet-collected .q2-magnet-search .q2-magnet-icon,
 .q2 .q2-magnet-results .q2-magnet-search .q2-magnet-icon { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
 
-/* The type filters, between the search and the first item.
+/* The type filters, under the search box in the rail.
 
-   They stay reachable once the list is scrolled. The approved design puts them
-   in the body rather than in the frame's chrome (plan seam 1), and a control in
-   the scrolling body that has to be scrolled back to is a control that costs
-   the reader their place: reaching it scrolls the view, and the view's
-   remembered position is wherever it was left. Each filter keeps its own
-   reading position (`places.ts`), so staying reachable is what preserves that.
-   At rest this is exactly what `04-browse.png` shows; only a scrolled list --
-   a state no mockup gives -- differs. The frame publishes the panel's own
-   surface colour, so nothing here invents one.
+   They stay reachable once the list is scrolled -- which is now what the RAIL
+   does (above), not a bar inside the scrolling list. The approved design puts
+   them in the body rather than in the frame's chrome (plan seam 1), and a
+   control in the scrolling body that has to be scrolled back to is a control
+   that costs the reader their place: reaching it scrolls the view, and the
+   view's remembered position is wherever it was left. Each filter keeps its
+   own reading position (`places.ts`), so staying reachable is what preserves
+   that.
 
-   Above an open row preview (correction, review ent-8e817d3b3dff N2: a
-   focused row retained under the pills while scrolling put its preview's
-   z-index 2 above the pills' former z-index 1, painting over the lower part
-   of the sticky bar). The pills stay reachable above any open preview,
-   never the other way round. */
+   Room above and below them, not a stripe: the search box they follow and the
+   Sources heading under them are both readable blocks, and the filters are a
+   third. The frame publishes the panel's own surface colour, so nothing here
+   invents one. */
 .q2 .q2-magnet-type-pills {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  margin: 2px 0;
-  padding: 1px 0;
+  margin: 14px 0 0;
   flex-wrap: wrap;
   gap: 8px;
   background: var(--magnet-brown);
@@ -59,16 +136,18 @@
 
 .q2 .q2-magnet-partial { margin: 0 0 10px; }
 
-/* ONE ROW, ONE LINE BY DEFAULT (plan Part 4: compact, grouped, content-shaped).
+/* ONE ROW: TITLE, METADATA, SNIPPET (owner ent-24beca915507: "Present
+   collected content naturally -- titles, snippets, readable metadata -- with
+   technical/internal details secondary and progressively disclosed").
    The title and the byline (what it is, when) sit on one line, truncated
-   rather than wrapped, so a reader scans title-and-date down the column
-   instead of reading a 115-140 px block per row. The captured excerpt and the
-   row's own address -- `.q2-magnet-row-more` -- are not part of that line:
-   they are revealed on hover or keyboard focus of the row (the "explicit
-   expand" a reader without a pointer still reaches by opening the row, which
-   shows the whole inspection beneath it). The row is a button because
-   inspecting it opens in place, so it is stripped back to text and the
-   list's own rule is the only edge. */
+   rather than wrapped, so a reader scans title-and-date down the column; the
+   captured snippet follows under it, clamped to two lines, so what was
+   collected can be READ without hunting for it. What stays behind the
+   hover/focus disclosure is only the row's own address
+   (`.q2-magnet-row-more`) -- the "explicit expand" a reader without a pointer
+   still reaches by opening the row, which shows the whole inspection beneath
+   it. The row is a button because inspecting it opens in place, so it is
+   stripped back to text and the list's own rule is the only edge. */
 .q2 .q2-magnet-collected-items { margin: 0; }
 .q2 .q2-magnet-collected-items li + li { margin-top: 0; }
 .q2 .q2-magnet-collected .q2-magnet-evidence-row { display: block; padding: 0; border-radius: 0; background: none; }
@@ -78,9 +157,47 @@
 .q2 .q2-magnet-collected .q2-magnet-evidence-row:focus-visible b { text-decoration: underline; }
 .q2 .q2-magnet-collected .q2-magnet-evidence-row[aria-expanded='true'] { background: none; }
 .q2 .q2-magnet-collected .q2-magnet-row-text { display: block; min-width: 0; }
-.q2 .q2-magnet-collected .q2-magnet-row-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.15; }
-.q2 .q2-magnet-collected .q2-magnet-row-line b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.q2 .q2-magnet-collected .q2-magnet-row-line small { flex: none; white-space: nowrap; }
+.q2 .q2-magnet-collected .q2-magnet-row-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; line-height: 1.25; }
+/* THE TITLE GETS THE ROOM, AND WRAPS RATHER THAN BEING CUT (owner
+   ent-24beca915507: titles presented naturally). In one full-width column a
+   headline fitted on one line; in the split surface's reading column it does
+   not, and "How We Find and Characterize - NAS…" is a row a reader cannot
+   use. It wraps to two lines and is clamped there, so a row is still bounded.
+   The byline yields to it: it is short, it truncates before the title does,
+   and the day and the site it names are already the group headers above. */
+.q2 .q2-magnet-collected .q2-magnet-row-line b {
+  flex: 1 1 auto; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.q2 .q2-magnet-collected .q2-magnet-row-line small {
+  /* Its share is capped, not shrunk: shrinking it alongside the title cut the
+     host short of its own last letter ("news.google.con"). */
+  flex: 0 0 auto; min-width: 0; max-width: 42%;
+  /* It wraps inside its own share rather than ending in an ellipsis: a byline
+     cut to "news.google.com · …" has lost the only part the group header above
+     it does not already say. It wraps BETWEEN its words and never inside one
+     -- the surface sets `overflow-wrap: anywhere` for long recorded strings,
+     which turned a host into "news.google.co / m". */
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  white-space: normal; text-align: right;
+  overflow-wrap: normal; word-break: normal;
+}
+/* THE SNIPPET: two lines of the collected words, at the reading line-height
+   `mgd-item p` already gives a collected record's prose, in that same colour.
+   Clamped rather than truncated on one line, because two lines of a sentence
+   is the smallest amount of it that says anything; the row's height is
+   therefore bounded whatever was captured, and the column stays scannable. */
+.q2 .q2-magnet-collected .q2-magnet-row-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #c4b6b0;
+  white-space: normal;
+}
 /* THE PREVIEW NEVER MOVES A ROW (correction, review ent-f94e543d798e: an
    excerpt-bearing row's revealed block used to grow the row's own flow
    height, which pushed every row under it down and dropped the complete,
@@ -130,23 +247,28 @@
    it has, and toggles this class rather than inventing a second placement
    rule. */
 .q2 .q2-magnet-collected .q2-magnet-row-more.opens-up { top: auto; bottom: 100%; }
-.q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-preview { margin: 0 0 3px; line-height: 1.35; }
 .q2 .q2-magnet-collected .q2-magnet-row-more .q2-magnet-row-link { display: inline-block; margin-top: 1px; line-height: 1.25; }
+/* A row that recorded no address of its own discloses nothing, and an empty
+   floating box is not a disclosure. */
+.q2 .q2-magnet-collected .q2-magnet-row-more:empty { display: none; }
 .q2 .q2-magnet-collected-items .mgd-item:hover .q2-magnet-row-more,
 .q2 .q2-magnet-collected-items .mgd-item:focus-within .q2-magnet-row-more { display: block; }
 
-/* THE ROW ITSELF, COMPACTED. `mgd-item`'s own rule and vertical rhythm is
-   kept -- one line per row is still a ruled row, not a borderless list --
-   only its height is: at least 20 complete rows of the astronomy Magnet's 72
-   must fit in one viewport where 4-6 did (correction, review
-   ent-e23af56bb855: the first measured build landed at 18-19, verified
-   against the scroll container's own actual clipped bounds, not a DOM
-   count). This count no longer depends on whether a row's hover/focus
-   block is open or how long its excerpt is (correction, review
-   ent-f94e543d798e): `.q2-magnet-row-more` floats above the rows under it
-   rather than pushing them down, so opening it never changes how many
-   complete rows fit. */
-.q2 .q2-magnet-collected-items .mgd-item { padding: 0 2px; }
+/* THE ROW ITSELF. `mgd-item`'s own rule and vertical rhythm is kept -- a row
+   is still a ruled row, not a borderless list -- at a height between the
+   115-140 px block Part 4 found and the single line it replaced it with: the
+   title line, two clamped lines of the collected words, and room around them.
+   The owner's later word is what sets this (ent-24beca915507): "Compact must
+   not mean cramming everything together", and a snippet nobody can see
+   without hovering is not content presented naturally. The astronomy Magnet's
+   72 rows therefore show around 15 complete rows in one viewport rather than
+   the 20 the one-line row reached -- a deliberate trade of count for
+   readability, not a regression in spacing.
+   The count still does not depend on a row's hover/focus block (correction,
+   review ent-f94e543d798e): `.q2-magnet-row-more` floats above the rows under
+   it rather than pushing them down, and the snippet is clamped, so no row
+   ever changes height. */
+.q2 .q2-magnet-collected-items .mgd-item { padding: 7px 2px; }
 .q2 .q2-magnet-collected-items .mgd-item b { font-size: 14px; }
 
 /* GROUPED BY DAY, AND BY SOURCE WITHIN EACH DAY, EACH A COUNTED HEADER (plan

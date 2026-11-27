@@ -52,6 +52,9 @@ export default function SourceMain({ state, data, me, canWrite, onState, onBack,
   onChanged: () => void
 }) {
   const { view, reading } = state
+  /* `data` is null until the one read of `/api/sources` Quiet2 keeps has
+     answered. Add a source is told that, because `[]` descriptors before the
+     answer and `[]` after it mean opposite things to a reader. */
   const descriptors = data?.descriptors ?? []
   const source = view.page === 'source' ? data?.collections.find((c) => c.collection === view.col) ?? null : null
   const box = useRef<HTMLDivElement>(null)
@@ -101,7 +104,7 @@ export default function SourceMain({ state, data, me, canWrite, onState, onBack,
         </div>
       )}
       {view.page === 'add' && (canWrite
-        ? <AddSourcePage descriptors={descriptors} picker={data?.picker} me={me} connector={view.connector}
+        ? <AddSourcePage descriptors={descriptors} read={data !== null} picker={data?.picker} me={me} connector={view.connector}
             onConnector={(connector) => onState({ view: { page: 'add', connector }, reading: null })}
             onOpenSource={openSource} onChanged={onChanged} onCancel={onCancel} />
         : <div className="rv rv-full"><p className="q2m-faint" role="alert">This page is read-only: a source cannot be added here.</p></div>)}

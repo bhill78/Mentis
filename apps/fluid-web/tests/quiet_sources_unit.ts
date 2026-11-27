@@ -21,6 +21,9 @@ import { MISSING_FOLDER, folderMissing } from '../src/surfaces/sources/pick/Pick
 import { chipAsk } from '../src/quiet2/sources/moving'
 import { adding, previewHeld } from '../src/quiet2/sources/holding'
 import { DISCARD, leaving } from '../src/quiet2/leaving'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import AddSourcePage from '../src/quiet2/sources/AddSourcePage'
 
 const src = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -299,5 +302,32 @@ eq([patternWords(['*']), patternWords([]), patternWords(['*.md', '*.txt']), patt
 
 /* -- D-12: a failed run does not disconnect a source ----------------------------------- */
 ok(!/'Held · not refreshed'/.test(readFileSync(src + 'quiet2/sources/SourcePage.tsx', 'utf8')), 'the status says how it is connected, whatever the last run did')
+
+/* -- ADD A SOURCE SAYS WHICH OF THREE THINGS IS TRUE (owner ent-24beca915507) ----------
+   `descriptors` is `[]` both before `/api/sources` answers and when it answers with
+   nothing, and the page used to read the two as one and say "No kind matches." --
+   a verdict about the kinds, stated before anything had been asked. Opened straight
+   from its own address, which is how a bookmark, a reload or a link arrives, that is
+   what a reader met for as long as the read took (measured here: nine seconds on a
+   cold server over a copy of TEST's Brain), and it is why a prior round reported the
+   wizard as offering no kinds at all (ent-3e0abfa18d84). */
+{
+  const panel = (descriptors: Descriptor[], read: boolean) => renderToStaticMarkup(createElement(AddSourcePage, {
+    descriptors, read, me: null, connector: null,
+    onConnector: () => {}, onOpenSource: () => {}, onChanged: () => {}, onCancel: () => {},
+  }))
+  const kinds: Descriptor[] = [
+    { id: 'filesystem', label: 'Folder on this machine', summary: 'Files under a folder you choose', available: true, binding: 'local-folder', presets: [], scope_fields: [] } as unknown as Descriptor,
+  ]
+  const reading = panel([], false)
+  ok(reading.includes('Reading the kinds of source this Brain can take'), 'before the source system answers, the page says it is reading')
+  ok(!reading.includes('No kind matches'), 'and states no verdict about kinds it has not been told about')
+  const none = panel([], true)
+  ok(none.includes('No kind of source can be taken on this machine'), 'answered with nothing, it says that, which is a different thing')
+  ok(!none.includes('No kind matches'), 'and still does not blame a search nobody made')
+  const some = panel(kinds, true)
+  ok(some.includes('Folder on this machine'), 'answered with kinds, the kinds are offered')
+  ok(!some.includes('No kind matches') && !some.includes('Reading the kinds'), 'and nothing is said about having none')
+}
 
 console.log(`quiet_sources_unit: ${checks} checks passed`)

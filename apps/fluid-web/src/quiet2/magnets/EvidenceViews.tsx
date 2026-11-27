@@ -1,6 +1,15 @@
 /** The collection views -- the unified collection and its type filters
  *  (Everything, Posts, Files) -- and the record viewing they route into.
  *
+ *  TWO COLUMNS, NOT TWO VIEWS (owner request ent-24beca915507). The Collection
+ *  place is one split surface: the sources and the filters on one side, the
+ *  readable collected results on the other, each with room to breathe, and the
+ *  two stacked at a width that cannot hold both. `collection.css` arranges it
+ *  off this section's own inline size -- the panel's, never the window's.
+ *  Sources used to be a view that REPLACED the items, with a link each way;
+ *  both are on screen now, so the links are gone and the place's `sources`
+ *  flag means "take me to the rail".
+ *
  *  The reader meets these as one secondary place with filters, not as a tab per
  *  source type (owner request ent-3191baeb33d2 §1); `lens` is the filter, and
  *  `places.ts` keeps the navigation model. A future source type is another
@@ -15,7 +24,7 @@
  *
  *  Nothing here reads a live source: the rows are `resource.snapshot().results`,
  *  the batch `state.ts` read and `collectionRows` verified. */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
@@ -25,7 +34,7 @@ import { SUPPORTING_WHY } from './perspectives'
 import { SourceLink, linkHost, rowBody, rowHeadline, rowLink } from './links'
 import CollectionConfiguration from './CollectionConfiguration'
 import { SearchToolbar } from './SearchView'
-import { magnetName, supportsManualCollection } from './configuration'
+import { magnetName } from './configuration'
 import { placeUpDown } from '../../pop'
 import './design.css'
 import './summary.css'
@@ -335,13 +344,13 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
     const more = e.currentTarget.querySelector<HTMLElement>('.q2-magnet-row-more')
     if (more) placeUpDown(more)
   }
-  /** One row, compact by default (plan Part 4, approved mockup round 3,
-   *  04-browse.png): a title a reader recognises, what it is and when, on one
-   *  line -- never a raw id, a recorded digest or a type glyph. The captured
-   *  excerpt and the row's own address, which together used to stand this
-   *  block at 115-140 px, are not shown by default; they are reached by
-   *  hovering or focusing the row, so 72 rows is a column a reader can scan
-   *  rather than a column that needs scrolling to show six of them. */
+  /** ONE ROW, CONTENT-SHAPED (owner request ent-24beca915507: titles, snippets
+   *  and readable metadata presented naturally, the technical remainder
+   *  secondary). A title a reader recognises and what it is and when on one
+   *  line, then the captured snippet under it, clamped to two lines -- never a
+   *  raw id, a recorded digest or a type glyph. The row's own address is what
+   *  stays behind the hover/focus disclosure; the collected words are not a
+   *  disclosure, and reading them is the whole point of the column. */
   const row = (r: RouteResult) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`} className="mgd-item"
     onMouseEnter={placeRowMore} onFocus={placeRowMore}>
     <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
@@ -351,18 +360,26 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
           <b>{resultTitle(r)}</b>
           <small className="mgd-subtle">{rowByline(r, named)}</small>
         </span>
+        {/* THE SNIPPET, READ WITHOUT ASKING (owner request ent-24beca915507:
+            "Present collected content naturally -- titles, snippets, readable
+            metadata"). It stood in the hover/focus block with the row's
+            address, which is a thing a reader has to find before they can read
+            what they collected; the collected words themselves are not a
+            disclosure. It is clamped to two lines by `collection.css`, so the
+            row is still a row and the column is still scannable -- what is
+            progressively disclosed is the technical remainder, not the
+            content. */}
+        {resultPreview(r) && <span className="q2-magnet-row-snippet">{resultPreview(r)}</span>}
       </span>
     </button>
-    {/* THE CAPTURED EXCERPT AND THE ROW'S OWN ADDRESS, ON REQUEST. Hidden by
-        default so the row stays one line; `collection.css` reveals this block
-        on hover or keyboard focus of the row, which is the "explicit expand"
-        a touch or click still gets by opening the inspection itself. Beside
-        the row's button, not inside it: a link nested in a button is neither
-        valid nor pressable, and the owner was reading about launches with no
-        way through to the launch report -- this is that way, built from the
-        address Part W recorded, never from a key. */}
+    {/* THE ROW'S OWN ADDRESS, ON REQUEST. Beside the row's button, not inside
+        it: a link nested in a button is neither valid nor pressable, and the
+        owner was reading about launches with no way through to the launch
+        report -- this is that way, built from the address Part W recorded,
+        never from a key. `collection.css` reveals this block on hover or
+        keyboard focus of the row, which is the "explicit expand" a touch or
+        click still gets by opening the inspection itself. */}
     <div className="q2-magnet-row-more">
-      {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
       {!!rowLink(r) && <SourceLink url={rowLink(r)!} />}
     </div>
     {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
@@ -405,59 +422,78 @@ export default function EvidenceViews({ resource, lens, onPost, canWrite }: Evid
   // `showSourcesInline`) writes the same flag, so the two are one entry, not
   // a second implementation of source management.
   const config = resource.saved.config
-  const showSources = lens === 'All' && !!config && here.sources
   const mayWriteArrangement = canWrite ?? NO_WRITE
-  if (showSources) return <CollectionConfiguration magnet={resource.saved.id} config={config!} brainKey={resource.brainKey}
-    inCollection resource={resource} canWrite={mayWriteArrangement}
-    onBrowse={() => writePlace(resource, placeKeyOf(s), { sources: false })}
-    onSaved={(next) => {
-      resource.saved.config = next; resource.saved.name = magnetName(next, resource.saved.name); resource.saved.reason = undefined
-      resource.update({ title: resource.saved.name }); void resource.read()
-    }} />
-  // COLLECTED ITEMS, to the approved design (04-browse.png): the place's own
-  // heading block with the counterpart link on its row, the search and the
-  // type filters under it, the rows, and one closing line. The frame no longer
-  // draws the filter row or a search box (plan seam 1): the controls are the
-  // same ones, drawn where the design puts them. Nothing is said twice.
-  const collectable = !!config && supportsManualCollection(config)
-  const mayCollect = mayWriteArrangement('home') && collectable && !s.collecting
   const collectedOn = collectedDay(s.activation?.at)
-  return <section className="q2-magnet-collected">
-    <div className="mgd-row mgd-spread q2-magnet-place-head">
-      <div className="mgd-grow">
-        <div className="mgd-eyebrow">Collection</div>
-        <h2 id="view-title" className="mgd-h2" tabIndex={-1}>Collected items{read && <span className="mgd-subtle"> {items.length}</span>}</h2>
+  /* THE SPLIT COLLECTION SURFACE (owner request ent-24beca915507): "sources
+     and filters on one side, readable collected results on the other", the two
+     columns given real breathing room and stacking at narrow widths.
+     `collection.css` does the arranging, off this section's own inline size --
+     which is the panel's, not the window's, because a Magnet is resized by its
+     own edges.
+     SOURCES IS NO LONGER A VIEW THAT REPLACES THE ITEMS. It used to be: `All`
+     drew either the collected items or `CollectionConfiguration`, and the two
+     linked to each other. Both are on screen now, so the links to each other
+     are gone (they pointed at the column beside them) and the place's own
+     `sources` flag -- which the shell's "Sources" entry and `showSourcesInline`
+     still write -- means "take me to the rail" rather than "swap the view". */
+  const railHead = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!here.sources) return
+    railHead.current?.scrollIntoView({ block: 'nearest' })
+    railHead.current?.querySelector<HTMLElement>('#q2-magnet-sources-head')?.focus({ preventScroll: true })
+    writePlace(resource, placeKeyOf(s), { sources: false })
+  }, [here.sources])
+  return <section className="q2-magnet-collected q2-magnet-collection-split">
+    {/* The place's own heading block, said once over both columns: where the
+        reader is, and how much this filter holds. */}
+    <div className="q2-magnet-place-head q2-magnet-collection-head">
+      <div className="mgd-eyebrow">Collection</div>
+      <h2 id="view-title" className="mgd-h2" tabIndex={-1}>Collected items{read && <span className="mgd-subtle"> {items.length}</span>}</h2>
+    </div>
+    {/* THE TWO COLUMNS. They are a child of the container, never the container
+        itself: a container query cannot style the element that declares the
+        containment, so the section measures and this grid answers. */}
+    <div className="q2-magnet-collection-cols">
+    {/* SOURCES AND FILTERS, ONE SIDE. First in the document, so stacking at a
+        narrow width puts what is being looked at over what was found; at a
+        width that holds both, `collection.css` places this column second. */}
+    <div className="q2-magnet-collection-rail" ref={railHead}>
+      <SearchToolbar resource={resource} placeholder="Search collected items" />
+      {/* THE FOUR PILLS `04-browse.png` SHOWS: All / Posts / Files / Images
+          (plan Part 4, closing the seam recorded as `opr-937e911eadcd`). The
+          lens state and the place keys behind it now carry the fourth filter
+          (`places.ts` `MAGNET_COLLECTION_TABS`, `contract.ts` `MAGNET_TABS`),
+          and the pill reads the filter's own `label` rather than its `tab`
+          key, so "All" renders as the design's "Everything". */}
+      <div className="mgd-row q2-magnet-type-pills" role="group" aria-label="Show in the collection">
+        {/* Which filter is showing is this view's own identity -- Host mounts the
+            one instance that matches the tab -- so the pill follows `lens` rather
+            than re-deriving it from the snapshot. The filters themselves, and
+            what pressing one does, are `places.ts`'s and unchanged. */}
+        {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className={`mgd-pill${lens === f.tab ? ' mgd-active' : ''}`}
+          aria-pressed={lens === f.tab} onClick={() => goTab(resource, f.tab)}>{f.label}</button>)}
       </div>
-      {!!config && <button type="button" className="mgd-link mgd-small q2-magnet-place-link"
-        onClick={() => { goTab(resource, 'All'); writePlace(resource, 'All', { sources: true }) }}>Sources · {config.sources.length} →</button>}
+      {!!config && <CollectionConfiguration magnet={resource.saved.id} config={config} brainKey={resource.brainKey}
+        inCollection inRail resource={resource} canWrite={mayWriteArrangement}
+        onSaved={(next) => {
+          resource.saved.config = next; resource.saved.name = magnetName(next, resource.saved.name); resource.saved.reason = undefined
+          resource.update({ title: resource.saved.name }); void resource.read()
+        }} />}
     </div>
-    <SearchToolbar resource={resource} placeholder="Search collected items" />
-    {/* THE FOUR PILLS `04-browse.png` SHOWS: All / Posts / Files / Images
-        (plan Part 4, closing the seam recorded as `opr-937e911eadcd`). The
-        lens state and the place keys behind it now carry the fourth filter
-        (`places.ts` `MAGNET_COLLECTION_TABS`, `contract.ts` `MAGNET_TABS`),
-        and the pill reads the filter's own `label` rather than its `tab`
-        key, so "All" renders as the design's "Everything". */}
-    <div className="mgd-row q2-magnet-type-pills" role="group" aria-label="Show in the collection">
-      {/* Which filter is showing is this view's own identity -- Host mounts the
-          one instance that matches the tab -- so the pill follows `lens` rather
-          than re-deriving it from the snapshot. The filters themselves, and
-          what pressing one does, are `places.ts`'s and unchanged. */}
-      {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className={`mgd-pill${lens === f.tab ? ' mgd-active' : ''}`}
-        aria-pressed={lens === f.tab} onClick={() => goTab(resource, f.tab)}>{f.label}</button>)}
+    {/* THE COLLECTED RESULTS, THE OTHER SIDE: the place's own heading with its
+        count, the rows, and one closing line saying when it was last
+        collected. Collecting itself is offered once, on the rail's own
+        "Collect manually"/"Collects on its own" row, which is where the
+        approved Sources surface puts it and where the cadence is said -- not
+        twice, once per column. */}
+    <div className="q2-magnet-collection-main">
+      {partial && read && !!s.activation && <p className="mgd-subtle q2-magnet-partial">This collection is partial.</p>}
+      {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
+      {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : lens === 'Images' ? 'images' : 'items')}
+      {!!config && <p className="mgd-subtle q2-magnet-collected-line">
+        {collectedOn ? `Collected ${collectedOn}` : 'Not collected yet'}
+      </p>}
     </div>
-    {partial && read && !!s.activation && <p className="mgd-subtle q2-magnet-partial">This collection is partial.</p>}
-    {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
-    {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : lens === 'Images' ? 'images' : 'items')}
-    {/* The one closing line the design gives this surface: when it was
-        collected, and the way to collect again. The same `resource.collect()`
-        the header used to offer (plan seam 3), under the same capability the
-        panel's own save is gated by -- never an offer of a write that would
-        then be refused. */}
-    {!!config && <p className="mgd-subtle q2-magnet-collected-line">
-      {collectedOn ? `Collected ${collectedOn}` : 'Not collected yet'} · <button type="button" className="mgd-link mgd-small"
-        disabled={!mayCollect} title={collectable ? undefined : 'Manual collection is not configured'}
-        onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
-    </p>}
+    </div>
   </section>
 }

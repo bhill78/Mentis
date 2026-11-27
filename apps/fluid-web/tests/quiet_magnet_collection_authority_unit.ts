@@ -100,20 +100,27 @@ test('a real refusal from the supplied capability still disables the save, not o
   ok(refused(html), 'the embedded save is refused exactly as Settings’ own copy would refuse it')
 })
 
-test('the shell’s "Sources" entry and Collection’s own toggle disclose through the one place flag', () => {
+/** THE SPLIT COLLECTION SURFACE (owner ent-24beca915507) changed what the flag
+ *  MEANS, not where authority goes. Sources is a column of the Collection place
+ *  now, always on screen beside the collected items, so the flag is a
+ *  destination ("take me to the rail") rather than a switch between two views.
+ *  What this file exists to pin is unchanged: ONE embedded panel, handed the
+ *  exact capability Host supplies, failing closed when none is. */
+test('the shell’s "Sources" entry lands on the Collection place and still writes the one place flag', () => {
   store()
   const r = magnetResource()
   eq(place(r.snapshot()).sources, false, 'closed by default')
   showSourcesInline(r)
-  eq(r.snapshot().tab, 'All', 'the shell entry lands on the Collection place the inline view lives in')
-  eq(place(r.snapshot()).sources, true, 'and discloses the same flag the inline toggle writes')
+  eq(r.snapshot().tab, 'All', 'the shell entry lands on the Collection place the rail lives in')
+  eq(place(r.snapshot()).sources, true, 'and writes the same flag the shell and the rail share')
   probe.calls.length = 0
   render(r)
-  eq(probe.calls.length, 1, 'the shell’s own entry actually opens the inline view, not a second overlay copy')
-  // The inline toggle closes the same way Settings’ overlay never did: by writing the flag, not by opening anything.
+  eq(probe.calls.length, 1, 'one embedded panel, never a second overlay copy')
+  // Flag or no flag, the split surface holds both columns: one panel, and the
+  // collected items beside it.
   writePlace(r, 'All', { sources: false })
   probe.calls.length = 0
   const html = render(r)
-  eq(probe.calls.length, 0, 'closed again, the collected items show instead of the panel')
-  ok(html.includes('view-title'), 'the ordinary collected-items view is what is shown once Sources is closed')
+  eq(probe.calls.length, 1, 'the rail is part of the surface, not something the flag turns on')
+  ok(html.includes('view-title'), 'and the collected items are on it too, under the place’s one heading')
 })

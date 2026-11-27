@@ -44,8 +44,22 @@ const STEPS = ['Kind', 'Where and what', 'Preview', 'Take']
  *  a starting value, so it takes everything until the fields say otherwise. */
 const CUSTOM_PRESET: Preset = { id: 'custom', label: 'Custom', include: ['*'], exclude: [] }
 
-export default function AddSourcePage({ descriptors, picker, me, connector, onConnector, onOpenSource, onChanged, onCancel }: {
+export default function AddSourcePage({ descriptors, read = true, picker, me, connector, onConnector, onOpenSource, onChanged, onCancel }: {
   descriptors: Descriptor[]
+  /** WHETHER THE SOURCE SYSTEM HAS ANSWERED YET.
+   *
+   *  `descriptors` is `[]` both before `/api/sources` lands and when it has
+   *  landed with nothing, and this page used to read the two as one thing and
+   *  say "No kind matches." -- a verdict about the kinds, stated before
+   *  anything had been asked. Opened straight from its own address
+   *  (`?sources=add`, which is how a bookmark, a reload or a link arrives) the
+   *  read starts with the page, so that sentence is what the reader meets for
+   *  as long as the read takes: on a cold server here, nine seconds of "there
+   *  are no kinds of source", and it is why a prior round reported the wizard
+   *  as offering none at all (ent-3e0abfa18d84). Whoever owns the read says
+   *  whether it has answered; this page says only what is true of the answer
+   *  it has. */
+  read?: boolean
   picker?: Picker
   me: Id | null
   connector: string | null
@@ -95,7 +109,16 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
             <b>{k.label}</b>{k.summary && <span>{k.summary}</span>}
           </button>
         ))}
-        {!shown.length && <p className="q2-src-faint">No kind matches.</p>}
+        {/* THREE DIFFERENT THINGS, SAID AS THE THREE THINGS THEY ARE: the
+            source system has not answered yet; it answered and this machine
+            can take no kind at all; or it answered, there are kinds, and the
+            search above narrowed them away. Only the last of those is "No
+            kind matches." */}
+        {!shown.length && (!read
+          ? <p className="q2-src-faint" role="status">Reading the kinds of source this Brain can take…</p>
+          : available.length
+            ? <p className="q2-src-faint">No kind matches.</p>
+            : <p className="q2-src-faint">No kind of source can be taken on this machine.</p>)}
       </div>
       {later.length > 0 && (
         <details className="q2-src-later">

@@ -168,8 +168,15 @@ test('All, Posts and Files show every retained item of their kind, with real cou
   assert.equal(counted(all), '2'); assert.equal(counted(posts), '1'); assert.equal(counted(files), '1')
   // The post leads with its own subject, read from its captured words
   // (correction, review ent-e23af56bb855), not its record number.
-  assert.ok(posts.includes('Calibration delta of 37') && !posts.includes('nested/calibration.txt'), 'Posts shows only post evidence')
-  assert.ok(files.includes('nested/calibration.txt') && !files.includes('Calibration delta of 37'), 'Files shows only file evidence')
+  //
+  // WHAT A FILTER NARROWS IS THE LIST, NOT THE SURFACE (owner
+  // ent-24beca915507): the split Collection surface carries its Sources rail
+  // beside the items under every filter, and that rail names the CONFIGURED
+  // sources -- one of which here is the held file `nested/calibration.txt`. So
+  // these two are read against the row list, which is what the filter acts on.
+  const listed = (s: string) => listOnly(s)
+  assert.ok(listed(posts).includes('Calibration delta of 37') && !listed(posts).includes('nested/calibration.txt'), 'Posts lists only post evidence')
+  assert.ok(listed(files).includes('nested/calibration.txt') && !listed(files).includes('Calibration delta of 37'), 'Files lists only file evidence')
   // Clean rows (owner request ent-1e82a8786c37): no raw ids, no recorded
   // digests and no type glyph -- a title, its excerpt, and who or when.
   assert.ok(!all.includes('¶') && !all.includes('▤'), 'a row carries no type glyph')

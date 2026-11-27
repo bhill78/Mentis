@@ -19,6 +19,9 @@
  *  -- and takes the rest as it is.
  *
  *  What differs between placements is therefore declared, not duplicated:
+ *    `inRail`        a section heading only: the split Collection surface says
+ *                    where the reader is and counts what is collected once,
+ *                    and the collected items are the column beside this one.
  *    `inCollection`  the approved heading row and its counterpart link; no name.
  *    otherwise       the name (identity) facet, and the saved location.
  *    `resource`      "Collect manually" with Collect now; Settings has no
@@ -123,6 +126,15 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
    *  copy without asking an overlay to return, because there is no overlay to
    *  return from. */
   inCollection?: boolean
+  /** IN COLLECTION'S OWN RAIL, BESIDE THE COLLECTED ITEMS (owner request
+   *  ent-24beca915507: "sources and filters on one side, readable collected
+   *  results on the other"). The split surface already carries the place's
+   *  heading block and its count, so this placement contributes a section
+   *  heading and nothing that would be said twice: no eyebrow, no second
+   *  `view-title`, and no counterpart link to a column that is already on
+   *  screen. Everything below the heading is the same body, from the same
+   *  staged copy, committed the same way. */
+  inRail?: boolean
   /** The Magnet this configures, supplied only by the Collection place: the
    *  approved Sources surface offers "Collect now" on its own "Collect
    *  manually" row (plan seam 3), and that is `resource.collect()` exactly as
@@ -245,12 +257,23 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
    *  file", which told the owner to finish something that was already done,
    *  and a web search declared at creation is exactly that shape. */
   const collectionName = (id: string | undefined) => collections.find((c) => c.id === id)?.name ?? 'Held collection'
+  /** A PATH THAT IS A STORAGE KEY IS NOT A TITLE (owner ent-24beca915507: ids
+   *  and raw collection mechanics stay secondary). A configured file's own
+   *  path -- `README.md`, `notes/calibration.txt` -- is what a reader
+   *  recognises and is kept. What is not is a held web page or feed entry,
+   *  whose path IS the key it was written under: `www-nasa-gov/0033172620276ee1`
+   *  was standing as the TITLE of a source row, which is the storage layer
+   *  read out as the name of a thing. The same rule the collected rows use
+   *  (`EvidenceViews.RAW_STORAGE_KEY`), stated here rather than imported,
+   *  because that module imports this one. */
+  const storageKey = (path: string) => /^[a-f0-9]{10,}$/i.test((path.split('/').pop() ?? path).replace(/\.[a-z0-9]{1,8}$/i, ''))
   const sourceTitle = (s: MagnetSource) => s.kind === 'conversation' ? conversations.find((c) => c.id === s.conversation)?.name || 'Saved Conversation'
-    : s.kind === 'file' ? s.path || collectionName(s.collection) : `${s.kind} (unavailable)`
+    : s.kind === 'file' ? (s.path === undefined || storageKey(s.path) ? collectionName(s.collection) : s.path) : `${s.kind} (unavailable)`
   const sourceSubtitle = (s: MagnetSource) => s.kind === 'conversation' ? 'Conversation · posts and attachments'
     : s.kind === 'file' ? (s.path === undefined ? 'Everything in this collection'
       : s.path.endsWith('/') ? `Everything under this path · ${collectionName(s.collection)}`
-        : `Held file · ${collectionName(s.collection)}`)
+        : storageKey(s.path) ? 'One held item of this collection'
+          : `Held file · ${collectionName(s.collection)}`)
       : 'Unavailable in this build'
   const add = (s: MagnetSource) => {
     if (locked) return
@@ -365,8 +388,13 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       <div className="mgd-row">
         <button type="button" className={`mgd-pill${adding === 'conversation' ? ' mgd-active' : ''}`} aria-pressed={adding === 'conversation'}
           disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'conversation' ? '' : 'conversation') }}>Conversations</button>
+        {/* "Held files", not "Files": in the split Collection surface this pill
+            and the `Files` TYPE FILTER are in the same column, and two controls
+            reading `Files` a hand's width apart mean two different things. It
+            is also the truer name -- what this attaches is a held collection,
+            a path under one, or one held file. */}
         <button type="button" className={`mgd-pill${adding === 'file' ? ' mgd-active' : ''}`} aria-pressed={adding === 'file'}
-          disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'file' ? '' : 'file') }}>Files</button>
+          disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'file' ? '' : 'file') }}>Held files</button>
       </div>
       {adding === 'conversation' && conversationPicker}
       {adding === 'file' && filePicker}
@@ -488,14 +516,38 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
    *  discard has actually been attempted. */
   const messageSection = message && (edited || renaming || saving || announce) && <p className="mgd-subtle" role="status">{message}</p>
 
+  /* THE BODY BOTH COLLECTION PLACEMENTS DRAW, in the approved order (round 3,
+     03-sources.png) and nothing else on it: one sentence, the configured
+     sources with their own Remove, `＋ Add source`, then what to collect and
+     collecting manually, each one line with one control at the far edge, and
+     `Limits and dates ▾` as the single way to the rest. */
+  const collectionBody = <>
+    <p className="mgd-p mgd-muted">Choose where to look. Collect when you’re ready.</p>
+    {refusedRule}
+    {sourceSection}
+    <div className="mgd-divider" />
+    {whatSection}
+    {collectSection}
+    {commitSection}
+    {messageSection}
+    {limitsSection}
+  </>
+
+  if (p.inRail) {
+    /* THE SOURCES RAIL of the split Collection surface (owner request
+       ent-24beca915507). A section heading, then the same body: the split
+       surface's own heading block already says where the reader is and counts
+       what is collected, and the collected items are the other column rather
+       than somewhere to link to. */
+    return <section className="q2-magnet-config q2-magnet-sources q2-magnet-sources-rail" aria-label="Sources">
+      <h3 id="q2-magnet-sources-head" className="mgd-h3" tabIndex={-1}>Sources</h3>
+      {collectionBody}
+    </section>
+  }
   if (p.inCollection) {
-    /* COLLECTION -> SOURCES, THE APPROVED SURFACE (round 3, 03-sources.png).
-     *
-     * The order is the mockup's and nothing else stands on it: the heading
-     * block with its counterpart link, one sentence, the configured sources
-     * with their own Remove, `＋ Add source`, then what to collect and
-     * collecting manually, each one line with one control at the far edge,
-     * and `Limits and dates ▾` as the single way to the rest. */
+    /* COLLECTION -> SOURCES, THE APPROVED SURFACE (round 3, 03-sources.png),
+     * as its own whole surface -- the heading block with its counterpart link
+     * over the same body. */
     return <section className="q2-magnet-config q2-magnet-sources" aria-label="Sources">
       <div className="mgd-row mgd-spread q2-magnet-place-head">
         <div className="mgd-grow">
@@ -504,15 +556,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
         </div>
         {p.onBrowse && <button type="button" className="mgd-link mgd-small q2-magnet-place-link" onClick={p.onBrowse}>Collected items →</button>}
       </div>
-      <p className="mgd-p mgd-muted">Choose where to look. Collect when you’re ready.</p>
-      {refusedRule}
-      {sourceSection}
-      <div className="mgd-divider" />
-      {whatSection}
-      {collectSection}
-      {commitSection}
-      {messageSection}
-      {limitsSection}
+      {collectionBody}
     </section>
   }
   /* SETTINGS' OWN COPY, reached from the header gear. The same body, in the
