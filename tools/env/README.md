@@ -215,7 +215,7 @@ TEST's data. A release that would migrate the Brain is refused without `--migrat
       py -3.12 -m venv C:\Work\Mentis-test-venv
       C:\Work\Mentis\.venv\Scripts\python -m pip freeze --exclude-editable > runtime.txt
       C:\Work\Mentis-test-venv\Scripts\python -m pip install -r runtime.txt pytest-xdist==3.8.0
- Add `-m installer` when `tools/installer` or a
+ Add `-m installer --dist load` when `tools/installer` or a
   migration changed.
 - **browser**: `python tools/env/test_smoke.py --out <evidence folder>` against TEST once it
   serves the release, plus whatever the change itself needs checked by hand.

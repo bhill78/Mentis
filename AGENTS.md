@@ -159,8 +159,9 @@ The destination is a fully Rust-owned backend, with the Brain unchanged and MARS
     - Load-sensitive under parallel runs; rerun alone before treating a failure as real:
       `test_result_destinations_scaling`.
   - Specialized tiers are opt-in:
-    - `-m installer`: the install/update/rollback lifecycle. Run it when `tools/installer` or a
-      Brain migration changes.
+    - `-m installer --dist load`: the install/update/rollback lifecycle, about 1 minute across
+      the workers. Run it when `tools/installer` or a Brain migration changes. The real build and
+      install also needs `MENTIS_INSTALLER_BUILD=1`.
     - `-m live`: needs a real MARS and logged-in runtimes.
     - `MENTIS_QUIET_BROWSER=1`: browser tests of constructed edge cases.
   - Product and integration behaviour is verified on TEST, against its real data:
