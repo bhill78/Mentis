@@ -106,7 +106,10 @@ def world(built, tmp_path):
     w.stop()
 
 
-def send(port, target, headers, body: bytes, method="POST", owner=True) -> dict:
+def send(port, target, headers, body: bytes, method="POST", owner=True, half_close=True) -> dict:
+    """One raw HTTP request. `half_close=False` keeps the write side open, as ordinary
+    clients do, and reads exactly the answer: a read the server may skip when its caller
+    has hung up (`mentis.web._peer_gone`) must not look hung up."""
     named = {name.strip().lower() for name, _ in headers}
     lines = [f"{method} {target} HTTP/1.1"]
     if "host" not in named:
@@ -119,10 +122,17 @@ def send(port, target, headers, body: bytes, method="POST", owner=True) -> dict:
     wire = ("\r\n".join(lines) + "\r\n\r\n").encode("utf-8") + body
     with socket.create_connection(("127.0.0.1", port), timeout=30) as sock:
         sock.sendall(wire)
-        sock.shutdown(socket.SHUT_WR)
+        if half_close:
+            sock.shutdown(socket.SHUT_WR)
         got = b""
         while chunk := sock.recv(1 << 16):
             got += chunk
+            if not half_close and b"\r\n\r\n" in got:
+                head, _, rest = got.partition(b"\r\n\r\n")
+                length = [int(line.split(b":", 1)[1]) for line in head.split(b"\r\n")
+                          if line.lower().startswith(b"content-length:")]
+                if length and len(rest) >= length[0]:
+                    break
     head, _, rest = got.partition(b"\r\n\r\n")
     status_line, *header_lines = head.decode("latin-1").split("\r\n")
     answered = [line.split(": ", 1) for line in header_lines]

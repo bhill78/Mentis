@@ -10,6 +10,7 @@ start a real agent.
 from __future__ import annotations
 
 import os
+import pathlib
 
 # EVERY SHARED READING ANSWER IS CHECKED for in-place change on reuse
 # (`mentis.conversation._MEMO_CHECK`): set before anything imports it.
@@ -103,6 +104,37 @@ def pytest_runtest_call(item):
         yield
     finally:
         faulthandler.cancel_dump_traceback_later()
+
+
+#: WHAT A BROAD RUN NEEDS BUILT. Without these, dozens of tests fail as if the product were
+#: broken ("the fill check is not built", node module resolution), after the whole run.
+_REPO = pathlib.Path(__file__).resolve().parents[1]
+_PREREQUISITES = {
+    "apps/fluid-web/dist/index.html": "the UI build",
+    "apps/fluid-web/dist/render-check.js": "the UI build's fill check",
+    "apps/fluid-web/node_modules/typescript": "the UI's node modules",
+}
+
+
+def pytest_sessionstart(session):
+    """FAIL FAST, IN SECONDS, WHEN A BROAD RUN'S PREREQUISITES ARE MISSING.
+
+    A broad run names a directory (`pytest`, `pytest tests`); a targeted run names files or
+    tests and is not stopped, since it may need none of them. Checked once, by the process
+    that started the run, never by an xdist worker. `MENTIS_TESTS_SKIP_PREREQUISITES=1` runs
+    anyway, knowing what will fail."""
+    if os.environ.get("PYTEST_XDIST_WORKER") or os.environ.get("MENTIS_TESTS_SKIP_PREREQUISITES") == "1":
+        return
+    config = session.config
+    args = [a.split("::")[0] for a in config.args] or [str(config.rootpath)]
+    if not all(pathlib.Path(config.invocation_params.dir, a).is_dir() for a in args):
+        return
+    missing = [f"{path} ({what})" for path, what in _PREREQUISITES.items()
+               if not (_REPO / path).exists()]
+    if missing:
+        pytest.exit("missing prerequisites for a broad test run:\n  " + "\n  ".join(missing)
+                    + "\nBuild them in apps/fluid-web: `npm ci` then `npm run build` "
+                    "(or copy dist/ from the release being verified).", returncode=4)
 
 
 def pytest_configure(config):

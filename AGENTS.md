@@ -147,9 +147,27 @@ The destination is a fully Rust-owned backend, with the Brain unchanged and MARS
 - Several agents may work at once, each in its own plain clone or branch. Integrate with
   ordinary `git merge`. Codex's sandbox makes `.git` read-only: its work is committed by
   whoever integrates it.
-- Tests are targeted: run the tests for what you changed, and the execution-boundary
-  tests when touching dispatch or `mentis.execution`. Live tests (`-m live`) need a real
-  MARS and logged-in runtimes. Mark IV's full suite is not this repository's process.
+- **Testing** (owner, 2026-11-27):
+  - While developing, run the tests for what you changed (`pytest tests/test_x.py -n 0`), plus
+    the execution-boundary tests when touching dispatch or `mentis.execution`.
+  - Before integrating, and as a release's tests gate, run the ordinary suite with plain `pytest`
+    from the test venv (`C:\Work\Mentis-test-venv`, the runtime's packages plus pytest-xdist; see
+    `tools/env/README.md`). It runs in parallel by default and takes about 4 minutes. It stops at
+    once if the UI build or the UI's node modules are missing.
+    - Never install test-only packages into `C:\Work\Mentis\.venv`: DAY-TO-DAY and TEST run
+      from it, and the release tool treats a change there as an unverified runtime.
+    - Load-sensitive under parallel runs; rerun alone before treating a failure as real:
+      `test_result_destinations_scaling`.
+  - Specialized tiers are opt-in:
+    - `-m installer --dist load`: the install/update/rollback lifecycle, about 1 minute across
+      the workers. Run it when `tools/installer` or a Brain migration changes. The real build and
+      install also needs `MENTIS_INSTALLER_BUILD=1`.
+    - `-m live`: needs a real MARS and logged-in runtimes.
+    - `MENTIS_QUIET_BROWSER=1`: browser tests of constructed edge cases.
+  - Product and integration behaviour is verified on TEST, against its real data:
+    `tools/env/test_smoke.py` after each TEST deploy, then hands-on. Do not create disposable
+    Brains, servers or environments to verify what TEST shows. An isolated environment is for
+    destructive operations, migrations and clean installs only.
 - Mark IV is the reference: when behaviour is unclear, read how Mark IV did it
   (`github.com/bhill78/Mentis-Mark-4`), and lift rather than reinvent.
 
@@ -176,9 +194,9 @@ pushed, which holds everything accepted so far:
 - Before any TEST deploy, compare what TEST serves with the candidate
   (`git rev-list --count <candidate>..<serving commit>` must be 0). If it is not, the candidate
   drops work: integrate first.
-- No feature leaves TEST because something else needs verifying. Verify in isolation on the
-  rehearsal environments (`tools/env/rehearsal_setup.py`, fixture Brains), not by replacing
-  TEST's release.
+- No feature leaves TEST because something else needs verifying. Verify on TEST as it is.
+  Rehearsal environments (`tools/env/rehearsal_setup.py`) are only for what TEST must not undergo:
+  destructive operations, migrations and clean installs.
 - Removing an integrated feature needs the owner's explicit authorization.
 - DAY-TO-DAY receives the approved integrated candidate through the whole eight-condition
   release above. Integrating into `test/integration` is not merging to `main`.

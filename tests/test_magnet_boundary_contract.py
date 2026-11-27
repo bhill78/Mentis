@@ -298,7 +298,7 @@ def _at_door(w, capability, op, args):
                [["Content-Type", "application/json"],
                 [CAPABILITY_HEADER, capability]],
                json.dumps({"corpus": w.state.path, "op": op,
-                           "args": args}).encode("utf-8"), owner=False)
+                           "args": args}).encode("utf-8"), owner=False, half_close=False)
     return got["status"], json.loads(got["body"] or b"{}")
 
 

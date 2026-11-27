@@ -479,12 +479,12 @@ def _brain_facts(brain: str) -> dict:
         st = migrations.status_of(str(brain))
     except migrations.BrainMissing:
         return {"exists": False, "version": None, "min_reader": None, "state": None,
-                "problems": ["no Brain there"], "legacy_open": False}
+                "problems": ["no Brain there"]}
     except Exception as exc:                                  # noqa: BLE001
         return {"exists": True, "version": None, "min_reader": None, "state": "unreadable",
-                "problems": [f"{type(exc).__name__}: {exc}"], "legacy_open": False}
+                "problems": [f"{type(exc).__name__}: {exc}"]}
     return {"exists": True, "version": st.version, "min_reader": st.min_reader, "state": st.state,
-            "problems": list(st.problems), "legacy_open": st.legacy_open}
+            "problems": list(st.problems)}
 
 
 def can_read(target: int, facts: dict) -> bool:
@@ -775,13 +775,9 @@ def plan(inst: Install, to: dict, *, full_backup: bool | None = None) -> dict:
     if not facts["exists"]:
         problems.append(f"no Brain at {brain}")
     elif v is None:
-        problems.append(f"the Brain at {brain} has no schema ledger yet ({facts['state']}): "
-                        "`mentis.migrate --plan` says how to adopt it")
+        problems.append(f"the Brain at {brain} has no schema version ({facts['state']})")
     elif facts["problems"]:
         problems.append(f"the Brain at {brain} needs attention: " + "; ".join(facts["problems"]))
-    elif facts["legacy_open"]:
-        problems.append("a release older than the schema ledger opened the Brain; run "
-                        "`mentis.brain reconcile` first")
     elif not can_read(target, after):
         problems.append(f"{to_name} cannot open this Brain (schema version {v}, needs a reader of "
                         f"at least {mr}; that release reads up to {target}). Nothing was changed")
@@ -1367,7 +1363,7 @@ def _stage_and_hand_over(inst: Install, a) -> tuple[int, dict | None]:
         if said.returncode:
             try:
                 problems = json.loads(said.stdout).get("message")
-            except ValueError:      # a build older than what it was just asked
+            except ValueError:      # it crashed, or said nothing that is an answer
                 problems = f"{name} did not answer (exit {said.returncode})"
             return _undo_staged(inst, name, made, EXIT_REFUSED, _doc(
                 inst, "refused", f"{problems}. Nothing was changed."))

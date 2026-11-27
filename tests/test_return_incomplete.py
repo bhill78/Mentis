@@ -27,6 +27,7 @@ from mentis.execution import RunResult
 from mentis.web import dispatch as D
 from tests._loop import _coordinator, a_conversation, grant_of_run, post, world  # noqa: F401
 from tests._loop import script_every_backend
+from tests import decision_descriptors
 from tests.test_delegate_coordinate import _present
 
 ROOT = "C:/Work/app"
@@ -55,7 +56,8 @@ def fake(world):
         if grant["expectation"] in plan["ask"]:
             _operate(_surface(world["state"]), "request_decision",
                      {"question": QUESTION, "options": OPTIONS,
-                      "because": "only the owner can choose"}, grant)
+                      "because": "only the owner can choose",
+                      "presentation": decision_descriptors.question()["presentation"]}, grant)
         now = time.time()
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
                          stop_reason="end_turn", text="done: here is what I did",

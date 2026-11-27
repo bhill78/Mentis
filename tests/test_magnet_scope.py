@@ -138,7 +138,7 @@ def door(w, token, op, **args):
     got = send(w.alone, "/api/worker",
                [["Content-Type", "application/json"], [CAPABILITY_HEADER, token]],
                json.dumps({"corpus": w.state.path, "op": op,
-                           "args": args}).encode("utf-8"), owner=False)
+                           "args": args}).encode("utf-8"), owner=False, half_close=False)
     return got["status"], json.loads(got["body"] or b"{}")
 
 

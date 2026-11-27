@@ -6,8 +6,27 @@ from tools.quiet_magnet_fixture import REPO, seed, snapshot
 from tools.quiet_magnet_functional_fixture import extend
 
 
-def test_functional_history_has_real_owner_reply_and_nonexecuting_work(tmp_path):
-    root = tmp_path / 'functional-fixture'
+@pytest.fixture
+def inside():
+    """The fixture tool writes only inside this checkout (`safe_root`), so the test's root
+    is a fresh folder there, removed afterwards."""
+    import shutil
+    import uuid
+    base = REPO / '.test-fixtures' / uuid.uuid4().hex
+    try:
+        yield base
+    finally:
+        import gc
+        gc.collect()                      # release the fixture Brains' SQLite handles (Windows)
+        shutil.rmtree(base, ignore_errors=True)
+        try:
+            base.parent.rmdir()           # only when no other worker's folder is left
+        except OSError:
+            pass
+
+
+def test_functional_history_has_real_owner_reply_and_nonexecuting_work(inside):
+    root = inside / 'functional-fixture'
     manifest = seed(root)
     before = snapshot(root)
     extra = extend(str(root))
@@ -31,8 +50,8 @@ def test_functional_history_has_real_owner_reply_and_nonexecuting_work(tmp_path)
     assert json.loads((root / 'manifest.json').read_text('utf-8'))['functional'] == extra
 
 
-def test_extension_refuses_repetition_and_escape(tmp_path):
-    root = tmp_path / 'functional-fixture'
+def test_extension_refuses_repetition_and_escape(inside):
+    root = inside / 'functional-fixture'
     seed(root)
     extend(str(root))
     before = snapshot(root)
