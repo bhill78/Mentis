@@ -67,7 +67,7 @@ export function PreviewBody({
         <CategoryChoices key={'c' + p.plan} p={p} onPreview={onDecisions && ((cs) => onDecisions(p.sensitive_decisions ?? {}, cs))} onEdit={onDecisionEdit} />
       ) : null}
       {p.repository?.detected && <RepositoryOffer r={p.repository} onOffer={onOffer} />}
-      {p.at && (
+      {p.at && 'commit' in p.at && (
         <p className="src-faint">
           Read at <code>{p.at.ref}</code> <span className="src-mono">{p.at.commit.slice(0, 12)}</span>
           {p.at.remote && (
@@ -76,6 +76,23 @@ export function PreviewBody({
               from <span className="src-mono">{p.at.remote}</span>
             </>
           )}
+        </p>
+      )}
+      {p.at && 'read' in p.at && (
+        <p className="src-faint">
+          Read {count(p.at.read.length)} {p.at.read.length === 1 ? 'address' : 'addresses'}
+          {p.at.read.some((r) => r.status === 'read') && (
+            <>
+              {' '}
+              ({count(p.at.read.filter((r) => r.status === 'read').length)} with results
+              {p.at.read.some((r) => r.status !== 'read') &&
+                `, ${count(p.at.read.filter((r) => r.status !== 'read').length)} not read`}
+              )
+            </>
+          )}
+          {typeof p.at.pages === 'number' && <> · {count(p.at.pages)} pages fetched</>}
+          {' '}· {count(p.at.spent.fetches)} of {count(p.at.spent.max_fetches)} fetches,{' '}
+          {bytes(p.at.spent.bytes)} of {bytes(p.at.spent.max_bytes)} spent
         </p>
       )}
       {p.binding_note && <p className="src-banner att">{p.binding_note}</p>}

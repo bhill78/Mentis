@@ -337,9 +337,18 @@ export interface Preview {
   scope: Scope
   revising?: { from: Scope; to: Scope }
   confirm: Record<string, unknown>
-  /** what the connector read at, when it reads at a point (a Git ref and
-   *  the commit it named) */
-  at?: { ref: string; commit: string; remote?: string }
+  /** what the connector read at: a Git-backed connector reads at a point
+   *  (a ref and the commit it named); a feed or web connector instead
+   *  reports every address it read and what its fetch budget spent */
+  at?:
+    | { ref: string; commit: string; remote?: string }
+    | {
+        read: { kind?: string; shown?: string; url?: string; status: string
+          entries?: number; offered?: number; title?: string; bytes?: number
+          why?: string }[]
+        spent: { fetches: number; max_fetches: number; bytes: number; max_bytes: number }
+        pages?: number
+      }
 }
 
 export interface SweepResult {
