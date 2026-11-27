@@ -62,43 +62,34 @@ def test_the_summary_leads_with_named_subjects_not_with_a_count():
     ]))
     lines = W._state_of(rows, [], {"at": 1795600000.0}, page([]))
     assert not lines[0]["text"].startswith("This Magnet has gathered"), lines[0]["text"]
-    assert "Artemis Programme" in lines[0]["text"] or "Roman Space Telescope" in lines[0]["text"], \
+    assert "Artemis Programme" in " ".join(l["text"] for l in lines) or "Roman Space Telescope" in " ".join(l["text"] for l in lines), \
         lines[0]["text"]
 
 
-def test_the_summary_closes_with_exactly_one_line_that_states_a_record_count():
+def test_summary_lists_developments_without_collection_statistics_or_raw_links():
     rows = W._rows_of(page([
-        held(feed_text("Artemis Programme returns to the Moon", "Artemis Programme details"), obj=1),
-        held(feed_text("Roman Space Telescope reaches orbit", "Roman Space Telescope details"), obj=2),
+        held(feed_text("Artemis Programme returns to the Moon", "A new launch window."), obj=1),
+        held(feed_text("Roman Space Telescope reaches orbit", "The telescope is operational."), obj=2),
     ]))
     lines = W._state_of(rows, [], {"at": 1795600000.0}, page([]))
-    counters = [i for i, line in enumerate(lines) if line["text"].startswith("This Magnet has gathered")]
-    assert counters == [len(lines) - 1], (counters, len(lines), [l["text"] for l in lines])
+    text, rendered, citations = W._compose(lines, rows)
+    assert text.startswith("## Developments\n\n- ")
+    assert "\n- " in text
+    assert "[1]" in text and "[2]" in text
+    assert "https://" not in text and "adm-" not in text
+    assert "This Magnet" not in text and "From the" not in text
+    assert citations[0]["url"] == FEED_LINK
 
 
-def test_the_summary_reads_the_feeds_own_published_date_not_the_collection_time():
-    # The collection time is far in the future of the material's own recorded
-    # publication date -- the bug the owner's plan names (feeds.py:575).
-    row = held(feed_text("Juno reaches Jupiter", "Juno mission details",
-                         published="2011-08-05T07:00:00+00:00"),
-               at=1795600000.0, obj=1)  # `at` -> collected 2026, not 2011
-    rows = W._rows_of(page([row]))
-    lines = W._state_of(rows, [], {"at": 1795600000.0}, page([]))
-    written = next(line["text"] for line in lines if line["text"].startswith("The material it holds"))
-    assert "2011-08-05" in written, written
-    assert "2026" not in written, written
-
-
-def test_a_row_with_no_published_line_contributes_no_fabricated_written_date():
-    # A webpage row carries no `Published:` line; nothing is inferred from its
-    # collection time, which is a different thing.
-    row = {"kind": "file", "id": "adm-000000000001", "version": "adm-000000000001",
-           "via": "held-source", "conversation": None, "author": None, "at": 1795600000.0,
-           "value": {"collection": "col-x", "path": "p",
-                     "text": "Europa Clipper\n\nhttps://example.org/europa\nIt flew past Mars."}}
-    rows = W._rows_of(page([row]))
-    lines = W._state_of(rows, [], {"at": 1795600000.0}, page([]))
-    assert not any(line["text"].startswith("The material it holds") for line in lines)
+def test_repeated_support_reuses_one_number_and_keeps_reading_order():
+    rows = W._rows_of(page([held("First captured statement", obj=2), held("Second statement", obj=1)]))
+    first, second = [r["row"]["id"] for r in rows]
+    text, lines, notes = W._compose([
+        {"text": "First finding.", "cites": [first, second]},
+        {"text": "Related finding.", "cites": [first]},
+    ], rows)
+    assert text == "First finding. [1] [2]\n\nRelated finding. [1]"
+    assert [n["item"] for n in notes] == [first, second]
 
 
 # -- subject extraction: named entities, not a publisher's byline ------------
@@ -157,7 +148,7 @@ def test_the_provenance_footers_echoed_search_query_does_not_count_as_a_match():
                                link="https://example.org/unrelated"), obj=1)
     rows = W._rows_of(page([unrelated]))
     lines = W._about("What are missions slated for the next 5 years?", rows)
-    assert lines[0]["text"].startswith("None of the"), lines[0]["text"]
+    assert "does not establish an answer" in lines[0]["text"]
     assert lines[0]["cites"] == []
 
 
@@ -166,5 +157,5 @@ def test_a_question_with_no_matches_still_refuses_in_the_old_words():
         held(feed_text("Artemis Programme returns to the Moon", "Artemis details"), obj=1),
     ]))
     said = W._about("What about zygomorphic frobnication of widgets?", rows)[0]["text"]
-    assert "None of the" in said and "records this Magnet has collected mention" in said
-    assert "Nothing outside this collection was read" in said
+    assert "does not establish an answer" in said
+    assert "Nothing outside" not in said

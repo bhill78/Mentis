@@ -1186,7 +1186,10 @@ def test_the_evolving_summary_is_an_answer_grounded_in_the_collection_and_nothin
     out = cmd(w, "answer", topic)
     # IT IS AN ANSWER: words that say what this Magnet has gathered, written
     # from the rows, with the records it was written from cited.
-    assert "This Magnet has gathered" in out["text"]
+    assert out["text"].startswith("## Developments\n\n- ")
+    assert "[1]" in out["text"]
+    assert out["citations"][0]["n"] == 1
+    assert out["citations"][0]["item"] in out["lines"][1]["cites"]
     assert out["support"] == "supported"
     assert out["basis"]["batch"] == w.batch["ref"]
     assert out["basis"]["rows"] >= 1
@@ -1209,6 +1212,8 @@ def test_the_evolving_summary_is_an_answer_grounded_in_the_collection_and_nothin
                        E.bounded_read(w.state, E.descriptor(w.state, out["answer"]["ref"]),
                                       E.MAX_BYTES), "answer")
     assert package["provenance"] == out["provenance"]
+    assert package["citations"] == out["citations"]
+    assert package["text"] == out["text"]
     assert package["synthesis"] is True
     assert package["disclosure"] == P.DISCLOSURE
     manifest = E.native(w.state, MAGNET, package["manifest"]["ref"],
@@ -1234,6 +1239,7 @@ def test_the_evolving_summary_is_an_answer_grounded_in_the_collection_and_nothin
 def test_the_answer_survives_a_reload_and_a_second_collection_supersedes_without_overwriting(inquiry):
     w = inquiry
     topic = standing(w)["perspective"]
+    saved_question = P.state(w.state, MAGNET, topic, detail=True)["current_question"]["text"].encode("utf-8")
     first = cmd(w, "answer", topic)
     # SURVIVES A RELOAD: the durable history is where it lives, and the read
     # that serves the client returns it with its provenance and its basis.
@@ -1256,6 +1262,7 @@ def test_the_answer_survives_a_reload_and_a_second_collection_supersedes_without
     second = recollect(w, "part-f-second", add=NEW_ROW)
     again = cmd(w, "answer", topic)
     kept = answers()
+    assert P.state(w.state, MAGNET, topic, detail=True)["current_question"]["text"].encode("utf-8") == saved_question
     assert len(kept) == 2
     assert kept[0]["data"]["text"] == first["text"], "the earlier answer is unchanged"
     assert kept[1]["data"]["text"] == again["text"] != first["text"]
@@ -1264,7 +1271,7 @@ def test_the_answer_survives_a_reload_and_a_second_collection_supersedes_without
     assert again["basis"]["since"] == first["basis"]["batch"]
     assert again["basis"]["new_count"] >= 1
     assert NEW_ROW["id"] in again["basis"]["new"]
-    assert "arrived in this collection" in again["text"]
+    assert again["text"].startswith("## Developments")
     assert "calibration drift" in again["text"], "and says what arrived, in its own words"
 
 
@@ -1297,13 +1304,13 @@ def test_an_answer_the_collection_cannot_give_says_so_rather_than_answering(inqu
     w = inquiry
     topic = create(w, words="Anything")["perspective"]
     out = cmd(w, "answer", topic, text="What about zygomorphic frobnication of widgets?")
-    assert "None of the" in out["text"] and "records this Magnet has collected mention" in out["text"]
-    assert "Nothing outside this collection was read" in out["text"]
+    assert "does not establish an answer" in out["text"]
+    assert out["citations"] == []
     assert out["support"] == "unsupported", "no row supports it, and it is not labelled as if one did"
     assert out["provenance"]["explored_outside"] is False
     # And a question with nothing to search on is refused in words, not answered.
     empty = cmd(w, "answer", topic, text="the and that this with")
-    assert "names nothing this Magnet's collected records can be searched on" in empty["text"]
+    assert "does not establish an answer" in empty["text"]
 
 
 def test_answering_needs_a_collection_a_live_perspective_and_the_open_gate(inquiry, monkeypatch):
@@ -1358,6 +1365,6 @@ def test_the_answer_route_is_reachable_at_the_one_perspective_door(inquiry):
     body = json.loads(got["body"])
     assert body["provenance"] == {"grounded_in": "collection", "outside_authorized": [],
                                   "outside_reads": [], "explored_outside": False}
-    assert "This Magnet has gathered" in body["text"]
+    assert "## Developments" in body["text"]
     # And the 405 help names it, so no client has to guess.
     assert "/answer" in json.loads(owner_http(w, f"/{topic}/not-a-verb", {})["body"])["error"]

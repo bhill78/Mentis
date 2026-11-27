@@ -131,73 +131,56 @@ def test_no_address_is_read_from_a_line_that_is_not_purely_an_https_address():
 
 # -- what a statement says -----------------------------------------------------
 
-def test_the_evolving_summary_names_a_collected_article_and_points_at_it():
+def test_the_evolving_summary_names_an_article_with_openable_numbered_provenance():
     rows = W._rows_of(page([held(FEED_TEXT)]))
-    lines = W._state_of(rows, [], {"at": 1795600000.0}, page([held(FEED_TEXT)]))
-    said = [line["text"] for line in lines]
-    one = next(t for t in said if t.startswith("From the web search:"))
-    assert "“Juno - NASA Science (.gov)”" in one, "it names the article, not a held-file key"
-    assert FEED_LINK in one, "and carries the address the reader follows"
-    assert "a733ec1ec5e51a4b" not in " ".join(said), "the object key reaches no statement"
-    assert "Published:" not in " ".join(said), "nor does the feed's recorded trailer"
-    assert not one.endswith("."), "no full stop a reader cannot tell from the address"
-    # Every statement still names the rows it was written from.
-    assert all(isinstance(line["cites"], list) for line in lines)
-    assert any(line["cites"] == ["adm-eae23465f170"] for line in lines)
+    text, lines, notes = W._compose(W._state_of(rows, [], {}, page([])), rows)
+    assert "Juno - NASA Science (.gov)" in text
+    assert "[1]" in text and "https://" not in text
+    assert notes == [{"n": 1, "item": "adm-eae23465f170",
+                      "title": "Juno - NASA Science (.gov)", "url": FEED_LINK}]
+    assert "Published:" not in text
+    assert lines[-1]["cites"] == ["adm-eae23465f170"]
 
 
-def test_a_new_row_is_announced_with_its_headline_and_its_address():
-    rows = W._rows_of(page([held(FEED_TEXT)]))
-    lines = W._state_of(rows, ["adm-eae23465f170"], {"at": 1795600000.0},
-                        page([held(FEED_TEXT)]))
-    fresh = next(line for line in lines if line["text"].startswith("New, from the"))
-    assert "“Juno - NASA Science (.gov)”" in fresh["text"]
-    assert FEED_LINK in fresh["text"]
-    assert fresh["cites"] == ["adm-eae23465f170"]
+def test_a_new_row_is_prioritized_without_announcing_collection_mechanics():
+    first = held(FEED_TEXT)
+    new = post("A newly arrived record about calibration drift.")
+    rows = W._rows_of(page([first, new]))
+    lines = W._state_of(rows, [new["id"]], {}, page([]))
+    assert "calibration drift" in lines[1]["text"]
+    assert lines[1]["cites"] == [new["id"]]
+    assert "New, from the" not in lines[1]["text"]
 
 
 def test_a_feed_that_repeats_its_own_title_as_its_summary_does_not_say_it_twice():
-    # The owner's Magnet is full of these: the entry's summary IS its headline.
     rows = W._rows_of(page([held(FEED_TEXT)]))
-    fresh = next(line["text"] for line in
-                 W._state_of(rows, ["adm-eae23465f170"], {"at": 1.0}, page([held(FEED_TEXT)]))
-                 if line["text"].startswith("New, from the"))
-    assert fresh.count("Juno") == 1, fresh
-    # A row whose material is its own says it, quoted.
-    other = W._rows_of(page([held(PAGE_TEXT)]))
-    says = next(line["text"] for line in
-                W._state_of(other, ["adm-eae23465f170"], {"at": 1.0}, page([held(PAGE_TEXT)]))
-                if line["text"].startswith("New, from the"))
-    assert "“The spacecraft passed 550 miles" in says, says
-
-
-def test_a_row_that_retained_no_words_of_its_own_is_named_and_not_quoted():
-    bare = held("\n".join(["Only a headline", "", "https://example.org/a", "", "--",
-                           "Published: 2026-01-01"]))
-    rows = W._rows_of(page([bare]))
-    said = [line["text"] for line in W._state_of(rows, [bare["id"]], {"at": 1.0}, page([bare]))]
-    joined = " ".join(said)
-    assert "“Only a headline”" in joined
-    assert "https://example.org/a" in joined
-    assert "“”" not in joined, "nothing is shown as an empty quotation"
-
-
-def test_a_source_whose_rows_retained_nothing_at_all_still_says_so():
-    empty = held("")
-    rows = W._rows_of(page([empty]))
-    one = next(line["text"] for line in W._state_of(rows, [], {"at": 1.0}, page([empty]))
-               if line["text"].startswith("From the web search:"))
-    assert one.endswith("none of which retained any words.")
-
-
-def test_an_answered_question_names_the_article_it_read_and_points_at_it():
+    text, _, _ = W._compose(W._state_of(rows, [], {}, page([])), rows)
+    assert text.count("Juno") == 1
     rows = W._rows_of(page([held(PAGE_TEXT)]))
-    said = [line["text"] for line in W._about("What happened at Mars?", rows)]
-    quoted = next(t for t in said if t.startswith("From the web search"))
-    assert "on “mars”" in quoted, quoted
-    assert "“Europa Clipper completes its Mars gravity assist”" in quoted
-    assert "https://science.nasa.gov/mission/europa-clipper/" in quoted
-    assert "“The spacecraft passed 550 miles" in quoted
+    text, _, _ = W._compose(W._state_of(rows, [], {}, page([])), rows)
+    assert "The spacecraft passed 550 miles" in text
+
+
+def test_a_row_that_retained_only_a_headline_is_named_without_an_empty_quote():
+    bare = held("Only a headline\n\nhttps://example.org/a\n\n--\nPublished: 2026-01-01")
+    rows = W._rows_of(page([bare]))
+    text, _, notes = W._compose(W._state_of(rows, [], {}, page([])), rows)
+    assert "Only a headline" in text and "https://" not in text
+    assert notes[0]["url"] == "https://example.org/a"
+
+
+def test_a_row_without_text_does_not_claim_substantive_content():
+    rows = W._rows_of(page([held("")]))
+    assert "No readable text was retained" in W._state_of(rows, [], {}, page([]))[1]["text"]
+
+
+def test_an_answered_question_names_the_article_and_maps_its_exact_recorded_link():
+    rows = W._rows_of(page([held(PAGE_TEXT)]))
+    text, _, notes = W._compose(W._about("What happened at Mars?", rows), rows)
+    assert "Europa Clipper completes its Mars gravity assist" in text
+    assert "The spacecraft passed 550 miles" in text
+    assert "[1]" in text and "https://" not in text
+    assert notes[0]["url"] == "https://science.nasa.gov/mission/europa-clipper/"
 
 
 def test_an_answer_over_rows_that_are_not_web_shaped_reads_exactly_as_it_did():
@@ -216,8 +199,8 @@ def test_an_answer_over_rows_that_are_not_web_shaped_reads_exactly_as_it_did():
 def test_a_question_the_collection_cannot_answer_still_refuses_to_answer_it():
     rows = W._rows_of(page([held(FEED_TEXT)]))
     said = W._about("What about zygomorphic frobnication of widgets?", rows)[0]["text"]
-    assert "None of the" in said and "records this Magnet has collected mention" in said
-    assert "Nothing outside this collection was read" in said
+    assert "does not establish an answer" in said
+    assert "Nothing outside" not in said
     assert said and not said.startswith("From the")
 
 

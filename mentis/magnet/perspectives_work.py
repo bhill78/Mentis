@@ -316,94 +316,34 @@ def _unbylined(text, publisher):
     return text
 
 
-def _state_of(rows, new_ids, activation, page):
-    """THE EVOLVING SUMMARY: what this Magnet has gathered, said once.
-
-    Every line is a statement about the rows this answer read, and every line
-    names the rows it was written from, so the citation is the statement's own
-    and not a list stapled underneath it. It leads with what the collected
-    material actually names, and closes with the one line that counts it --
-    counting is bookkeeping, not the thing the material says.
-    """
-    lines = []
-    kinds = {}
-    for got in rows:
-        kinds.setdefault(got["words"], []).append(got)
-
-    def _at(got):
-        at = got["row"].get("at")
-        return at if isinstance(at, (int, float)) and not isinstance(at, bool) else 0
-
-    # -- lead with what the material names, drawn from its own captured words --
-    said_of = {got["row"]["id"]: _row_said(got["row"]) for got in rows}
-
-    def _subject_text(got):
-        headline, _, material = said_of[got["row"]["id"]]
-        return _unbylined(headline or material, _publisher(got["row"]))
-
-    texts_of = {got["row"]["id"]: _subject_text(got) for got in rows}
-    subjects = _subjects([texts_of[got["row"]["id"]] for got in rows], most=4)
-    if subjects:
-        named_in = [got["row"]["id"] for got in rows
-                   if any(_squeezed(s) in _squeezed(texts_of[got["row"]["id"]] or "") for s in subjects)]
-        lines.append({"text": f"This Magnet's collected material speaks mainly about "
-                              f"{_named(subjects)}.",
-                      "cites": (named_in or [got["row"]["id"] for got in rows])[:ROWS_NAMED_MOST]})
+def _article(got):
+    """A captured development in publication prose; its address is provenance."""
+    headline, _, material = _row_said(got["row"])
+    headline = _unbylined(headline, _publisher(got["row"]))
+    words = _excerpt(material)
+    if headline and words and not _restates(headline, words):
+        said = f"**{headline}.** {words}"
     else:
-        lines.append({"text": "This Magnet's collected material is mostly headlines, with no "
-                              "named subject standing out of it yet.",
-                      "cites": [got["row"]["id"] for got in rows[:ROWS_NAMED_MOST]]})
+        said = headline or words or "No readable text was retained for this item."
+    return {"text": "- " + said, "cites": [got["row"]["id"]]}
 
-    # -- a concrete development: what is new, or failing that, the newest --
-    fresh = [got for got in rows if new_ids and got["row"]["id"] in set(new_ids)]
-    highlighted, label = (fresh, "New, from the") if fresh \
-        else (sorted(rows, key=_at, reverse=True)[:1], "Most recently, from the")
-    for got in highlighted[:ROWS_NAMED_MOST]:
-        headline, link, material = said_of[got["row"]["id"]]
-        words = _excerpt(material)
-        if words or headline or link:
-            published = _published(got["row"])
-            where = _points_at(f"{label} {got['words']}"
-                               + (f" ({published})" if published else ""), headline, link)
-            lines.append({"text": f"{where}: “{words}”" if words and not _restates(headline, words)
-                                  else _closed(where, link),
-                          "cites": [got["row"]["id"]]})
 
-    for words, got_rows in list(kinds.items())[:SOURCES_NAMED_MOST]:
-        # The most recent row THAT RETAINED WORDS, so a source is quoted
-        # wherever it can be; a source whose newest row kept no text is still
-        # counted, and says that rather than appearing to hold nothing.
-        spoken = sorted((g for g in got_rows if _row_text(g["row"]).strip()), key=_at)
-        headline, link, material = said_of[spoken[-1]["row"]["id"]] if spoken else (None, None, "")
-        quoted = headline or _excerpt(material, 160)
-        said = f"From the {words}:"
-        # The newest row this source retained words for, named by its headline
-        # where it has one and pointed at by its own address, so the one record
-        # this line names is a record the reader can open.
-        lines.append({"text": _closed(f"{said} most recently “{quoted}”"
-                                      + (f" · {link}" if link else ""), link) if quoted
-                              else f"{said} none of which retained any words.",
-                      "cites": [(spoken[-1] if spoken else sorted(got_rows, key=_at)[-1])["row"]["id"]]})
-    days = sorted(d for d in (_published(got["row"]) for got in rows) if d)
-    if days:
-        lines.append({"text": f"The material it holds was written on {days[0]}." if days[0] == days[-1]
-                      else f"The material it holds was written between {days[0]} and {days[-1]}.",
-                      "cites": [rows[0]["row"]["id"]]})
+def _state_of(rows, new_ids, activation, page):
+    """A bounded digest of captured developments, without collection narration."""
+    if not rows:
+        return [{"text": "No collected material is available yet.", "cites": []}]
+    fresh = set(new_ids)
+    # Prefer newly arrived material, then the most recently captured items.
+    def order(got):
+        at = got["row"].get("at")
+        return (got["row"]["id"] in fresh,
+                at if isinstance(at, (int, float)) and not isinstance(at, bool) else 0)
+    top = sorted(rows, key=order, reverse=True)[:ROWS_NAMED_MOST]
+    lines = [{"text": "## Developments", "cites": []}]
+    lines.extend(_article(got) for got in top)
     if page.get("state") and page["state"] != "ok":
-        lines.append({"text": f"Not every source reported its whole selected scope, so this is what "
-                              f"was collected and not everything that exists (recorded state "
-                              f"{page['state']}).", "cites": []})
-
-    # -- the one counts line, last --
-    collected = _when(activation.get("at"))
-    total = (f"This Magnet has gathered {len(rows)} "
-             f"{'record' if len(rows) == 1 else 'records'} from {len(kinds)} "
-             f"{'source' if len(kinds) == 1 else 'sources'}"
-             + (f", collected {collected}." if collected else "."))
-    if new_ids:
-        total += (f" {len(new_ids)} of them arrived in this collection and were not in "
-                  f"the one before it.")
-    lines.append({"text": total, "cites": [got["row"]["id"] for got in rows[:ROWS_NAMED_MOST]]})
+        lines.append({"text": "Coverage is incomplete; these reports may not represent the full picture.",
+                      "cites": []})
     return lines
 
 
@@ -422,8 +362,7 @@ def _about(question, rows):
     """
     terms = _terms(question)
     if not terms:
-        return [{"text": "That question names nothing this Magnet's collected records can be "
-                         "searched on, so nothing was read to answer it.", "cites": []}]
+        return [{"text": "The available material does not establish an answer to this question.", "cites": []}]
     scored = []
     for got in rows:
         headline, _, material = _row_said(got["row"])
@@ -439,35 +378,45 @@ def _about(question, rows):
             scored.append((len(hits), 1 if _subject_candidates(unbylined) else 0, got, hits))
     scored.sort(key=lambda s: (-s[0], -s[1], str(s[2]["row"]["id"])))
     if not scored:
-        return [{"text": f"None of the {len(rows)} records this Magnet has collected mention "
-                         f"{_named(terms)}. Nothing outside this collection was read, so this is "
-                         f"what the collection can answer and not an answer from elsewhere.",
+        return [{"text": "The available material does not establish an answer to this question.",
                  "cites": []}]
     top = scored[:ROWS_NAMED_MOST]
-    subject_texts = []
-    for _, _, got, _ in top:
-        headline, _, material = _row_said(got["row"])
-        subject_texts.append(_unbylined(headline, _publisher(got["row"])) or headline or material)
-    subjects = _subjects(subject_texts, most=3)
-    lede = (f"This Magnet's collected material speaks to {_named(subjects)}. Here is what it says."
-            if subjects else
-            "This Magnet's collected material holds statements that bear on that; here is what "
-            "it says.")
-    lines = [{"text": lede, "cites": [got["row"]["id"] for _, _, got, _ in top]}]
-    for _, _, got, hits in top:
-        day = _when(got["row"].get("at"))
-        headline, link, material = _row_said(got["row"])
-        words = _excerpt(material)
-        where = _points_at(f"From the {got['words']}" + (f" ({day})" if day else "")
-                           + f", on {_named(hits)}", headline, link)
-        lines.append({"text": f"{where}: “{words}”" if words and not _restates(headline, words)
-                              else _closed(where, link),
-                      "cites": [got["row"]["id"]]})
-    if len(scored) > ROWS_NAMED_MOST:
-        lines.append({"text": f"{len(scored) - ROWS_NAMED_MOST} further collected records bear on "
-                              f"the same subject and are not quoted here.",
-                      "cites": [got["row"]["id"] for _, _, got, _ in scored[ROWS_NAMED_MOST:]][:ROWS_NAMED_MOST]})
+    lines = [{"text": "## Findings", "cites": []}]
+    lines.extend(_article(got) for _, _, got, _ in top)
+
     return lines
+
+
+def _compose(lines, rows):
+    """Number evidence in reading order, keeping row identity outside the prose.
+
+    The map is held with both the event and immutable answer. It points into
+    the same batch the manifest verifies, and never invents a live source.
+    """
+    by_id = {got["row"]["id"]: got for got in rows}
+    citations, numbers, rendered = [], {}, []
+    for line in lines:
+        markers = []
+        for item in dict.fromkeys(line["cites"]):
+            if item not in by_id:
+                continue
+            if item not in numbers:
+                numbers[item] = len(numbers) + 1
+                headline, url, material = _row_said(by_id[item]["row"])
+                citations.append({"n": numbers[item], "item": item,
+                                  "title": headline or _excerpt(material, 100) or "Collected item",
+                                  "url": url})
+            markers.append(f"[{numbers[item]}]")
+        rendered.append({**line, "text": line["text"] + (" " + " ".join(markers) if markers else "")})
+    # Adjacent bullets form a Markdown list; other blocks have paragraph breaks.
+    blocks = []
+    for line in rendered:
+        text = line["text"]
+        if blocks and text.startswith("- ") and blocks[-1].startswith("- "):
+            blocks[-1] += "\n" + text
+        else:
+            blocks.append(text)
+    return "\n\n".join(blocks), rendered, citations
 
 
 def _selections(batch_ref, rows, lines):
@@ -594,7 +543,7 @@ def answer(st, mid, topic, body, by, written_by):
     # labelled unsupported, never independent corroboration).
     chosen = _selections(batch_ref, rows, lines)
     originals = E.deduplicate(E.originals({batch_ref: verified}, chosen)) if chosen else []
-    words = "\n".join(line["text"] for line in lines)
+    words, lines, citations = _compose(lines, rows)
     manifest = _package(st, mid, "manifest", perspective=topic, synthesis=True, method=METHOD,
         question=question_desc, batches=[closure.nodes[batch_ref]], priors=[], reuse_receipts=[],
         declared_context=[], records=None, definition=None,
@@ -616,12 +565,12 @@ def answer(st, mid, topic, body, by, written_by):
              "rows": len(rows), "new_count": new_count, "new": new_ids[:P.PAGE_MAX],
              "since": before.get("batch")}
     package = _package(st, mid, "answer", perspective=topic, synthesis=True, method=METHOD,
-        question=question_desc, question_text=question_text, text=words, lines=lines,
+        question=question_desc, question_text=question_text, text=words, lines=lines, citations=citations,
         manifest=held_manifest, originals=originals, support=manifest["support"],
         provenance=provenance, basis=basis, written_by=WRITTEN_BY_MENTIS,
         disclosure=P.DISCLOSURE, dependencies=[held_manifest])
     snap = P.hold(st, mid, package, by, name="answer")
-    data = {"text": words, "lines": lines, "answer": snap, "manifest": held_manifest,
+    data = {"text": words, "lines": lines, "citations": citations, "answer": snap, "manifest": held_manifest,
             "question": question_desc, "provenance": provenance, "basis": basis,
             "support": manifest["support"], "method": METHOD, "written_by": WRITTEN_BY_MENTIS}
     row = P.event(st, mid, topic, "answered", data, by, snapshot=snap, written_by=written_by)
