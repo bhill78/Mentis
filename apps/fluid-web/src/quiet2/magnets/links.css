@@ -102,11 +102,14 @@
   color: #a89991;
 }
 .q2-magnet-card .q2-magnet-source-list li { margin: 0 0 4px; }
-.q2-magnet-card .q2-magnet-source-list .mgd-link {
+/* Four classes, because `design.css` restates `.mgd-link`'s weight at
+   `.q2 .q2-magnet-card` to get past the frame's control reset, and a tie would
+   be settled by whichever file the bundler loaded last. */
+.q2-magnet-card .q2-magnet-sources .q2-magnet-source-list .mgd-link {
   font-weight: 500;
   color: #ccbdb5;
   font-size: inherit;
 }
-.q2-magnet-card .q2-magnet-source-list .mgd-link:hover { color: #edc35d; text-decoration: underline; text-underline-offset: 2px; }
+.q2-magnet-card .q2-magnet-sources .q2-magnet-source-list .mgd-link:hover { color: #edc35d; text-decoration: underline; text-underline-offset: 2px; }
 .q2-magnet-card .q2-magnet-source-list .mgd-subtle { font-size: inherit; color: #8d807a; }
 .q2-magnet-card .q2-magnet-source-list li::marker { color: #9a8c85; }

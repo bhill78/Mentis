@@ -142,8 +142,13 @@
  *      read as a console. The presses stay, in the same places, as the small
  *      lettered actions a publication offers under an article.
  *
- * Specificity: `.q2 .q2-magnet-card .q2-magnet-summary …` so these win over
- * `design.css` whichever order the bundler loads the two files in.
+ * Specificity: `.q2-magnet-card .q2-magnet-summary …`, one class more than
+ * `design.css`'s own `.q2-magnet-card .mgd-…`, so these win whichever order
+ * the bundler loads the two files in. Where `design.css` restates a value at
+ * `.q2 .q2-magnet-card` to get past the frame's control reset, the rule here
+ * carries a fourth class rather than leaning on source order. Nothing here
+ * requires a `.q2` ancestor: the card styles itself wherever it is mounted,
+ * which is what a harness that renders the card alone gets.
  * ========================================================================== */
 
 /* -- 1. the reading column ------------------------------------------------- */
@@ -151,31 +156,31 @@
 /* The answer's own prose, at a measure meant for reading rather than scanning.
    `Prose` is Quiet's renderer and `.q2-prose` is already its serif; this only
    gives it the room a panel's 15px default had been denying it. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-prose { line-height: 1.62; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-prose p { margin: 0 0 .95em; }
+.q2-magnet-card .q2-magnet-summary .q2-prose { line-height: 1.62; }
+.q2-magnet-card .q2-magnet-summary .q2-prose p { margin: 0 0 .95em; }
 /* Headings the ANSWER wrote stay headlines -- they are the only ones left. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-prose .pr-h { margin: 1.15em 0 .3em; }
+.q2-magnet-card .q2-magnet-summary .q2-prose .pr-h { margin: 1.15em 0 .3em; }
 
 /* A paragraph of the surface's own prose reads in the same serif, so the lead,
    the quotations and the answer are one voice and the apparatus is another. */
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-p,
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-quote {
-  font-family: var(--q2-serif);
+.q2-magnet-card .q2-magnet-summary .mgd-p,
+.q2-magnet-card .q2-magnet-summary .q2-magnet-quote {
+  font-family: var(--q2-serif, Charter, "Bitstream Charter", Georgia, serif);
   font-size: 1.0625rem;
   line-height: 1.6;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead { margin-bottom: 16px; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead { margin-bottom: 16px; }
 
 /* -- 2. space, not rules --------------------------------------------------- */
 
 /* The divider between sections is now the space it was drawing a line in. */
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-divider { border-top: 0; margin: 34px 0 0; }
+.q2-magnet-card .q2-magnet-summary .mgd-divider { border-top: 0; margin: 34px 0 0; }
 /* A collected record is an article in a column, not a row in a table. */
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-item { border-bottom: 0; padding: 0 0 22px; }
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-item:last-child { padding-bottom: 0; }
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-item b { font-size: 15px; line-height: 1.35; }
+.q2-magnet-card .q2-magnet-summary .mgd-item { border-bottom: 0; padding: 0 0 22px; }
+.q2-magnet-card .q2-magnet-summary .mgd-item:last-child { padding-bottom: 0; }
+.q2-magnet-card .q2-magnet-summary .mgd-item b { font-size: 15px; line-height: 1.35; }
 /* The gold bar beside an offered question goes; the question is the content. */
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-example {
+.q2-magnet-card .q2-magnet-summary .mgd-example {
   border-left: 0;
   padding-left: 0;
   margin: 0 0 14px;
@@ -184,14 +189,14 @@
 /* A table the material's own shape earned keeps its hairlines -- they separate
    data, which is the one thing a rule is genuinely for -- but loses the heavy
    header rule that made it look like a report. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-prose th { border-bottom-width: 1px; }
+.q2-magnet-card .q2-magnet-summary .q2-prose th { border-bottom-width: 1px; }
 
 /* -- 3. one label system --------------------------------------------------- */
 
 /* `What this Magnet holds`, with its counts, is not the page's headline: the
    answer's own first heading is. It stays -- it is this view's focus target and
    says what the counts are -- as the standfirst it actually is. */
-.q2 .q2-magnet-card .q2-magnet-summary #summary-title {
+.q2-magnet-card .q2-magnet-summary #summary-title {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -199,8 +204,8 @@
   margin: 0 0 18px;
   color: #a89991;
 }
-.q2 .q2-magnet-card .q2-magnet-summary #summary-title .mgd-subtle { font-size: inherit; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-place-head { align-items: baseline; }
+.q2-magnet-card .q2-magnet-summary #summary-title .mgd-subtle { font-size: inherit; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-place-head { align-items: baseline; }
 
 /* Every section label on this surface -- `In the records' own words`, `What it
    holds, by date`, `Questions to explore`, `Sources` -- is one quiet line.
@@ -212,8 +217,8 @@
    label shouting. Sentence case, small and letter-spaced, is quieter and says
    the same thing. (It also leaves the words in the page as the words in the
    source, which is what the screenshot checks read.) */
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-h3,
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-eyebrow {
+.q2-magnet-card .q2-magnet-summary .mgd-h3,
+.q2-magnet-card .q2-magnet-summary .mgd-eyebrow {
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: .05em;
@@ -222,8 +227,8 @@
   margin: 0 0 14px;
 }
 /* Those sections need air above them far more than they need a heading. */
-.q2 .q2-magnet-card .q2-magnet-summary section + section,
-.q2 .q2-magnet-card .q2-magnet-summary .mgd-divider + section { margin-top: 34px; }
+.q2-magnet-card .q2-magnet-summary section + section,
+.q2-magnet-card .q2-magnet-summary .mgd-divider + section { margin-top: 34px; }
 
 /* -- 4. actions as typography ---------------------------------------------- */
 
@@ -232,7 +237,7 @@
    written from. The presses are unchanged and in the same place; what changes
    is that they are now the lettered actions a publication prints under an
    article, on one line, in the card's own ink. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action {
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: flex-start;
@@ -241,7 +246,7 @@
 }
 /* The secondary presses -- answering again, asking for a briefing -- are
    lettered actions, not furniture. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button.mgd-secondary {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button.mgd-secondary {
   background: none;
   border: 0;
   border-radius: 0;
@@ -251,7 +256,7 @@
   white-space: normal;
   color: #edc35d;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button.mgd-secondary:hover:not(:disabled) {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button.mgd-secondary:hover:not(:disabled) {
   background: none;
   color: #f6d47d;
   text-decoration: underline;
@@ -261,7 +266,7 @@
    nothing: the primary of the row (`Choose sources`, and on an empty Magnet
    the only thing there is to do). It is an outline in the card's own ink, not
    a filled slab of a second colour. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button:not(.mgd-secondary) {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button:not(.mgd-secondary) {
   background: none;
   border: 1px solid #7b685c;
   border-radius: 999px;
@@ -270,17 +275,17 @@
   font-weight: 600;
   color: #eee8e5;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button:not(.mgd-secondary):hover:not(:disabled) {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button:not(.mgd-secondary):hover:not(:disabled) {
   background: none;
   border-color: #e0b65f;
   color: #f6e9dd;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button:focus-visible {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action .mgd-button:focus-visible {
   outline: 2px solid #e6bc50; outline-offset: 3px;
 }
 /* The note beside them is what is true now, so it reads first and takes the
    line it needs rather than being squeezed between two presses. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action > .mgd-subtle:first-child {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action > .mgd-subtle:first-child {
   flex: 1 0 100%;
   margin-bottom: 2px;
   font-size: 12px;
@@ -292,12 +297,12 @@
 /* `GROUNDED IN THIS COLLECTION` was a filled green chip. What it says matters;
    that it was a badge did not. It is now the same small-caps label as every
    other label here, with the sentence it introduces on the line under it. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-grounding {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-grounding {
   display: block;
   margin: 20px 0 0;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-grounding > .mgd-today,
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-grounding > .mgd-future {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-grounding > .mgd-today,
+.q2-magnet-card .q2-magnet-summary .q2-magnet-grounding > .mgd-future {
   display: block;
   background: none;
   border-radius: 0;
@@ -310,38 +315,38 @@
 }
 /* Except where it says the answer went OUTSIDE the collection. That is a real
    difference in kind and keeps the one piece of colour left on the surface. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-outside > .mgd-future { color: #e0b65f; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-outside > .mgd-future { color: #e0b65f; }
 
 /* -- a record in the column ------------------------------------------------ */
 
 /* Title, then the record's own words, then one quiet line saying where it came
    from and offering the address. The address used to be a second gold press on
    its own line under every row; it is now part of that line. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-quote { margin: 7px 0 4px; color: #c4b6b0; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-quote-row > small { margin-top: 6px; color: #9b8c84; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-row-link {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-quote { margin: 7px 0 4px; color: #c4b6b0; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-quote-row > small { margin-top: 6px; color: #9b8c84; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-row-link {
   margin: 0 0 0 10px;
   font-size: 12px;
   font-weight: 500;
   color: #a89991;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-row-link:hover { color: #edc35d; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-row-link:hover { color: #edc35d; }
 
 /* An offered question reads as a question, in the reading serif, with the
    mark that takes it up kept off the page until the row is under the pointer
    or the keyboard. Nothing is hidden: the whole row has always been the press
    and still is, and its accessible name is the question. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-question-words {
-  font-family: var(--q2-serif);
+.q2-magnet-card .q2-magnet-summary .q2-magnet-question-words {
+  font-family: var(--q2-serif, Charter, "Bitstream Charter", Georgia, serif);
   font-size: 1.0625rem;
   line-height: 1.55;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-question > .mgd-link {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-question > .mgd-link {
   opacity: 0;
   transition: opacity .12s;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-question:hover > .mgd-link,
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-question:focus-visible > .mgd-link { opacity: 1; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-question:hover > .mgd-link,
+.q2-magnet-card .q2-magnet-summary .q2-magnet-question:focus-visible > .mgd-link { opacity: 1; }
 
 /* -- what is disclosed, and how it offers itself ---------------------------- */
 
@@ -350,33 +355,33 @@
    quiet: three bold gold links stacked down the foot of the page. They are now
    one footer line of small lettering, and the apparatus they hold is set in
    the apparatus type, not in the reading type. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure { margin: 0; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure > summary > .mgd-link {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure { margin: 0; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure > summary > .mgd-link {
   font-size: 12px;
   font-weight: 600;
   color: #a89991;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure > summary:hover > .mgd-link { color: #edc35d; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure[open] > summary > .mgd-link { color: #edc35d; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure > div {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure > summary:hover > .mgd-link { color: #edc35d; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure[open] > summary > .mgd-link { color: #edc35d; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure > div {
   margin: 12px 0 26px;
   font-size: 13px;
 }
 /* Inside a disclosure nothing is a headline and nothing is a quotation of
    record: it is the mechanism, set as mechanism. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure .mgd-p,
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure .q2-magnet-quote {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure .mgd-p,
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure .q2-magnet-quote {
   font-family: inherit;
   font-size: 13px;
   line-height: 1.55;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure .mgd-item { padding-bottom: 14px; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure .mgd-item { padding-bottom: 14px; }
 /* The three of them sit together as the page's footer, divided by space. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure + .q2-magnet-disclosure { margin-top: 0; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure:not([open]) + .q2-magnet-disclosure:not([open]) { margin-top: 8px; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure + .q2-magnet-disclosure { margin-top: 0; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-disclosure:not([open]) + .q2-magnet-disclosure:not([open]) { margin-top: 8px; }
 
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-facts { margin: 0; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-facts p { margin: 0 0 7px; color: #a89991; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-facts { margin: 0; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-facts p { margin: 0 0 7px; color: #a89991; }
 
 /* -- what is said ABOUT the answer, under it -------------------------------- */
 
@@ -384,20 +389,20 @@
    is still printed in the open is what QUALIFIES the answer's own words -- that
    it was written from an earlier collection, or that which collection is
    unread -- and those are footnotes to the answer, set as footnotes. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > .mgd-subtle {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-answer > .mgd-subtle {
   display: block;
   margin: 14px 0 0;
   font-size: 12px;
   line-height: 1.5;
   color: #978983;
 }
-.q2 .q2-magnet-card .q2-magnet-summary > .mgd-subtle { font-size: 12px; line-height: 1.5; color: #978983; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer { margin: 0 0 4px; }
+.q2-magnet-card .q2-magnet-summary > .mgd-subtle { font-size: 12px; line-height: 1.5; color: #978983; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-answer { margin: 0 0 4px; }
 /* The disclosure sits right under the answer it is about, not down with the
    page's own footer disclosures. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-how { margin: 16px 0 0; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-how > div { margin-bottom: 0; }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-how .mgd-subtle {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-how { margin: 16px 0 0; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-how > div { margin-bottom: 0; }
+.q2-magnet-card .q2-magnet-summary .q2-magnet-how .mgd-subtle {
   display: block;
   margin: 0 0 10px;
   font-size: 12px;
@@ -415,17 +420,17 @@
 /* Both shapes of answer: a written briefing draws its `Cites` inside the
    `.q2-prose` block, a statement-per-line synthesis under each statement. Both
    are a `.mgd-subtle` paragraph one `<div>` inside the answer. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle {
   margin: 4px 0 18px;
   font-size: 12px;
   line-height: 1.55;
   color: #8d807a;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle .mgd-link {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle .mgd-link {
   font-weight: 500;
   font-size: inherit;
   color: #ccbdb5;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle .mgd-link:hover {
+.q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle .mgd-link:hover {
   color: #edc35d; text-decoration: underline; text-underline-offset: 2px;
 }

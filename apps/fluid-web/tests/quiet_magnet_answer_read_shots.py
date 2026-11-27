@@ -87,6 +87,13 @@ def main():
                 window.fetch = (i, o = {}) => { if ((o.method || 'GET') !== 'GET') window.__posts.push(String(i)); return f(i, o); };
                 return true }""")
             asked = page.inner_text(".q2p-asked")
+            # `Read this question again` is one of the presses that act on the
+            # answer rather than read it, so it now lives behind
+            # `About this answer ▾` (owner `ent-15a36a065eb8`: secondary
+            # actions through progressive disclosure). Open the disclosure
+            # first; the press, its guard and what it does are unchanged.
+            page.click(".q2p-about > summary")
+            page.wait_for_timeout(300)
             page.click("text=Read this question again")
             page.wait_for_timeout(1200)
             again = page.inner_text(".q2p-asked")
