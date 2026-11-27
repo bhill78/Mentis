@@ -134,6 +134,25 @@ def test_the_recorded_reply_shape_is_separated_at_both_boundaries():
     assert not text.startswith("\n") and not text.endswith("\n")
 
 
+# ---- an empty chunk must not consume a genuine boundary ---------------------
+
+def test_an_empty_chunk_does_not_swallow_the_next_messages_boundary():
+    # An empty chunk carries no prose, so it must not move `said_message`
+    # onto its own messageId: if it did, the real text right behind it would
+    # see no change in messageId and fuse with what came before.
+    assert _said([_chunk("First.", "m1"), _chunk("", "m2"),
+                  _chunk("Second.", "m2")]) == "First.\n\nSecond."
+
+
+def test_an_empty_chunk_after_a_tool_call_does_not_clear_the_flag():
+    # Likewise for the no-messageId path: an empty chunk between a tool call
+    # and the next real text must not clear `tool_since_text`, or the tool
+    # call's boundary is lost.
+    assert _said([_chunk("I'll read the records."), _tool(), _chunk(""),
+                  _chunk("The collection combines")]) \
+        == "I'll read the records.\n\nThe collection combines"
+
+
 def test_events_still_carry_each_chunk_as_sent():
     # The separator is in the accumulated text only. Each event still reports
     # exactly the characters that chunk carried, which readers of the live run

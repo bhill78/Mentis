@@ -892,12 +892,18 @@ class MarsExecution:
                 content = getattr(update, "content", None)
                 if getattr(content, "type", None) == "text":
                     text = getattr(content, "text", "")
-                    if block_break(state, update, text):
-                        state.result.text += "\n\n"
-                    state.result.text += text
-                    state.said_text = True
-                    state.said_message = getattr(update, "message_id", None)
-                    state.tool_since_text = False
+                    # AN EMPTY CHUNK CARRIES NO PROSE to join and says nothing
+                    # about where a block ends: if it moved `said_message` or
+                    # cleared `tool_since_text` anyway, it could consume a
+                    # genuine block boundary, and the real text right after it
+                    # would then fuse with what came before.
+                    if text:
+                        if block_break(state, update, text):
+                            state.result.text += "\n\n"
+                        state.result.text += text
+                        state.said_text = True
+                        state.said_message = getattr(update, "message_id", None)
+                        state.tool_since_text = False
                     data["text"] = text
             elif kind in ("tool_call", "tool_call_update"):
                 # A NEW CALL ENDS THE BLOCK OF PROSE BEFORE IT (`block_break`);
