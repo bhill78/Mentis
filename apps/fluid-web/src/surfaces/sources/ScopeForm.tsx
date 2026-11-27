@@ -24,11 +24,17 @@ export interface ScopeValue {
   options: ScopeOptions
 }
 
-/** The connector's option fields, at their declared defaults. */
+/** The connector's option fields, at their declared defaults. A `list`
+ *  field's default is itself a list (`feeds`, `urls`, `queries`): kept as
+ *  one, not folded into the empty string every other field falls back to. */
 export function optionDefaults(d: Descriptor): ScopeOptions {
   const out: ScopeOptions = {}
   for (const f of d.scope_fields)
-    if (f.option) out[f.name] = typeof f.default === 'number' || typeof f.default === 'string' ? f.default : ''
+    if (f.option) {
+      if (Array.isArray(f.default)) out[f.name] = f.default as unknown as string
+      else if (typeof f.default === 'number' || typeof f.default === 'string') out[f.name] = f.default
+      else out[f.name] = (f.type === 'list' ? [] : '') as unknown as string
+    }
   return out
 }
 
@@ -55,9 +61,39 @@ export function OptionField({ f, value, onChange }: { f: ScopeField; value: stri
           value={value ?? ''}
           onChange={(e) => onChange(e.target.value === '' ? '' : Math.trunc(Number(e.target.value)))}
         />
+      ) : f.type === 'date' ? (
+        <input type="date" value={(value as string | undefined) ?? ''} onChange={(e) => onChange(e.target.value)} />
       ) : (
         <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
       )}
+      {f.help && <span className="src-faint">{f.help}</span>}
+    </label>
+  )
+}
+
+/** A connector's own `list` option field (RSS/Atom's feeds, Web's pages,
+ *  Web search's queries): one address or query per line, held as raw text
+ *  while typed -- the same idiom as the Include/Exclude pattern textareas
+ *  below -- and carried up as the array those connectors declare. */
+export function ListOptionField({ f, text, value, onChangeText, onChange }: {
+  f: ScopeField
+  text: string | undefined
+  value: string[] | undefined
+  onChangeText: (t: string) => void
+  onChange: (v: string[]) => void
+}) {
+  return (
+    <label className="src-field">
+      <span className="src-label">{f.label}</span>
+      <textarea
+        rows={4}
+        value={text ?? (value ?? []).join('\n')}
+        onChange={(e) => {
+          onChangeText(e.target.value)
+          onChange(lines(e.target.value))
+        }}
+        placeholder={Array.isArray(f.default) ? f.default.join('\n') : ''}
+      />
       {f.help && <span className="src-faint">{f.help}</span>}
     </label>
   )
@@ -169,13 +205,25 @@ export default function ScopeForm({
         }}
       />
       {descriptor.scope_fields
-        .filter((f) => f.option && ['text', 'number'].includes(f.type))
+        .filter((f) => f.option && ['text', 'number', 'date'].includes(f.type))
         .map((f) => (
           <OptionField
             key={f.name}
             f={f}
             value={value.options[f.name] as string | number | undefined}
             onChange={(v) => onChange({ ...value, options: { ...value.options, [f.name]: v } })}
+          />
+        ))}
+      {descriptor.scope_fields
+        .filter((f) => f.option && f.type === 'list')
+        .map((f) => (
+          <ListOptionField
+            key={f.name}
+            f={f}
+            text={text[`opt:${f.name}`]}
+            value={value.options[f.name] as unknown as string[] | undefined}
+            onChangeText={(t) => setText({ ...text, [`opt:${f.name}`]: t })}
+            onChange={(v) => onChange({ ...value, options: { ...value.options, [f.name]: v as unknown as string } })}
           />
         ))}
       {(value.preset === 'custom' || value.preset === 'repository') &&

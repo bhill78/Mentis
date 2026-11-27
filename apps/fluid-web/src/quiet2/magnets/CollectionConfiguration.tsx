@@ -49,7 +49,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { MagnetConfig, MagnetSource } from '../../fluid/surface/magnet/types'
 import type { MagnetResource } from './contract'
 import { conversationChoices, type ConversationChoice } from './managementApi'
-import { collectionChange, collectionIssue, collectionRhythm, collectsOnlyByHand, configurationRead, dayOf, exactFileIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, sourceRowName, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
+import { collectionChange, collectionIssue, collectionRhythm, collectsOnlyByHand, configurationRead, dayOf, exactFileIssue, fileChoiceIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, sourceRowName, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
 import { discardStagedSettings, panelDrafts, requestSettingsReturn, stageSettings, subscribePanelDrafts, type StagedSettings } from './panelDrafts'
 import './design.css'
 import './configuration.css'
@@ -142,6 +142,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const [query, setQuery] = useState(''), [conversations, setConversations] = useState<ConversationChoice[]>([])
   const [next, setNext] = useState<string | null>(null), [collections, setCollections] = useState<Choice[]>([])
   const [collection, setCollection] = useState(''), [fileQuery, setFileQuery] = useState(''), [files, setFiles] = useState<HeldFile[]>([])
+  const [prefix, setPrefix] = useState('')
   const [fileNext, setFileNext] = useState<number | null>(null), [fileOffset, setFileOffset] = useState(0)
   const [arrangements, setArrangements] = useState<Choice[]>([{ id: 'home', name: 'Brain Home' }])
   const [arrangement, setArrangement] = useState(''), [sendable, setSendable] = useState(false)
@@ -310,7 +311,35 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
      file collection chooser and no file list, which is what "do not present
      every option at once" means here. */
   const conversationPicker = <div className="q2-magnet-kind-panel"><label>Find a Conversation<input type="search" value={query} disabled={locked} onChange={(e) => setQuery(e.target.value)} /></label><div className="q2-magnet-config-choices">{conversations.map((c) => <button type="button" key={c.id} disabled={locked || sources.some((s) => s.kind === 'conversation' && s.conversation === c.id)} onClick={() => add({ kind: 'conversation', conversation: c.id })}>Add {c.name}</button>)}</div>{next && <button type="button" className="mgd-link mgd-small" onClick={() => { const key = p.brainKey; void conversationChoices(query, next, new AbortController().signal).then((v) => { if (current.current.brainKey === key) { setConversations((old) => [...old, ...v.rows]); setNext(v.next) } }).catch((e) => setReading(e.message)) }}>More Conversations</button>}</div>
-  const filePicker = <div className="q2-magnet-kind-panel"><label>Where the files are<select value={collection} disabled={locked} onChange={(e) => { setCollection(e.target.value); setFileOffset(0) }}><option value="">Choose a file collection</option>{collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Find a file<input type="search" value={fileQuery} disabled={locked} onChange={(e) => { setFileQuery(e.target.value); setFileOffset(0) }} /></label><div className="q2-magnet-config-choices">{files.map((f) => { const issue = exactFileIssue(collection, f.path) || (f.text !== true ? 'Only plain text files are supported.' : null); return <div key={f.path}><button type="button" disabled={locked || !!issue || sources.some((s) => s.kind === 'file' && s.collection === collection && s.path === f.path)} title={issue ?? undefined} onClick={() => add({ kind: 'file', collection, path: f.path })}>{f.path}</button>{issue && <small>{issue}</small>}{typeof f.size === 'number' && f.size > 65536 && <small>Only the first 64 KiB will be captured, ending on a UTF-8 character boundary.</small>}</div> })}</div><div>{fileOffset > 0 && <button type="button" className="mgd-link mgd-small" onClick={() => setFileOffset(Math.max(0, fileOffset - 40))}>Previous files</button>}{fileNext !== null && <button type="button" className="mgd-link mgd-small" onClick={() => setFileOffset(fileNext)}>More files</button>}</div></div>
+  /** A SOURCE DOES NOT HAVE TO NAME ONE FILE (`fileChoiceIssue`, Part C): the
+   *  whole collection, or everything under a path prefix, are both file
+   *  sources the schema already carries and the server already validates --
+   *  this is the one-file picker's own doc comment, made into controls. Each
+   *  sits beside the exact-file list rather than replacing it, since all
+   *  three are valid ways to attach the same collection. */
+  const wholeAdded = (col: string) => sources.some((s) => s.kind === 'file' && s.collection === col && s.path === undefined)
+  const prefixIssue = collection ? fileChoiceIssue(collection, prefix.trim() ? (prefix.trim().endsWith('/') ? prefix.trim() : prefix.trim() + '/') : undefined) : null
+  const filePicker = <div className="q2-magnet-kind-panel">
+    <label>Where the files are<select value={collection} disabled={locked} onChange={(e) => { setCollection(e.target.value); setFileOffset(0); setPrefix('') }}><option value="">Choose a file collection</option>{collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+    {collection && <div className="q2-magnet-config-choices">
+      <div className="mgd-row">
+        <button type="button" disabled={locked || wholeAdded(collection)} onClick={() => add({ kind: 'file', collection, path: undefined })}>Attach the whole collection</button>
+      </div>
+      <div className="mgd-row">
+        <input type="text" value={prefix} disabled={locked} placeholder="A path prefix, e.g. notes/" aria-label="Path prefix"
+          onChange={(e) => { setAlert(''); setPrefix(e.target.value) }} />
+        <button type="button" disabled={locked || !prefix.trim()}
+          onClick={() => {
+            const p = prefix.trim().endsWith('/') ? prefix.trim() : prefix.trim() + '/'
+            const issue = fileChoiceIssue(collection, p)
+            if (issue) { setAlert(issue); return }
+            add({ kind: 'file', collection, path: p }); setPrefix('')
+          }}>Attach everything under this prefix</button>
+      </div>
+      {prefix.trim() && prefixIssue && <small>{prefixIssue}</small>}
+    </div>}
+    <label>Find a file<input type="search" value={fileQuery} disabled={locked} onChange={(e) => { setFileQuery(e.target.value); setFileOffset(0) }} /></label>
+    <div className="q2-magnet-config-choices">{files.map((f) => { const issue = exactFileIssue(collection, f.path) || (f.text !== true ? 'Only plain text files are supported.' : null); return <div key={f.path}><button type="button" disabled={locked || !!issue || sources.some((s) => s.kind === 'file' && s.collection === collection && s.path === f.path)} title={issue ?? undefined} onClick={() => add({ kind: 'file', collection, path: f.path })}>{f.path}</button>{issue && <small>{issue}</small>}{typeof f.size === 'number' && f.size > 65536 && <small>Only the first 64 KiB will be captured, ending on a UTF-8 character boundary.</small>}</div> })}</div><div>{fileOffset > 0 && <button type="button" className="mgd-link mgd-small" onClick={() => setFileOffset(Math.max(0, fileOffset - 40))}>Previous files</button>}{fileNext !== null && <button type="button" className="mgd-link mgd-small" onClick={() => setFileOffset(fileNext)}>More files</button>}</div></div>
 
   const refusedRule = alert && <p className="q2-magnet-alert" role="alert" tabIndex={-1} ref={alerted}>{alert}</p>
 
