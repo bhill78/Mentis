@@ -111,8 +111,16 @@ def _key(decl, path) -> str:
         return str(path or "").strip()
 
 
-def _sweeps(corpus, collection) -> list[dict]:
-    return [a for a in corpus.operational(act=SWEPT)
+def sweep_acts(corpus) -> list[dict]:
+    """EVERY collection's sweeps, in append order, in one read. The same
+    reason as `sources.scope_revisions`: `act` is not indexed, so a caller
+    that wants several collections reads this once and passes each its
+    share rather than walking the operational table per collection."""
+    return corpus.operational(act=SWEPT)
+
+
+def _sweeps(corpus, collection, *, acts=None) -> list[dict]:
+    return [a for a in (sweep_acts(corpus) if acts is None else acts)
             if a["detail"].get("collection") == collection]
 
 
@@ -155,7 +163,8 @@ def _collection(corpus, collection: str) -> dict:
 
 
 def overview(corpus, collection: str, *, decl: dict | None = None,
-             lat: dict[str, dict] | None = None) -> dict:
+             lat: dict[str, dict] | None = None,
+             revised=None, swept=None) -> dict:
     """One collection as recorded, for the owner's page: scope in force and
     its revisions, counts, links, held bytes and every sweep.
 
@@ -163,7 +172,17 @@ def overview(corpus, collection: str, *, decl: dict | None = None,
     declaration and its latest Admissions -- passed so the source's history
     is read once, not once per consumer (opr-1f9237698d13: the overview list
     read it three times per collection). Never cached across requests: each
-    call that is not handed them reads the record as it stands now."""
+    call that is not handed them reads the record as it stands now.
+
+    `revised` and `swept` are the same arrangement for the two acts this
+    reads, which no index finds: every scope revision and every sweep IN
+    THE WHOLE RECORD (`sources.scope_revisions`, `sweep_acts`), which a
+    listing reads once and hands to every collection. Unhanded, each is
+    read here exactly as before. This call made THREE such walks -- one for
+    the sweeps and two for the scope, because `effective_scope` read the
+    revisions `revisions` had just read -- so listing sixteen collections
+    walked the operational table forty-eight times and `/api/sources` took
+    6-8 s. The scope's two are now one, whatever the caller hands over."""
     d = decl if decl is not None else _collection(corpus, collection)
     if lat is None:
         lat = _latest(corpus, d)
@@ -180,8 +199,9 @@ def overview(corpus, collection: str, *, decl: dict | None = None,
         kind = (o.get("native") or {}).get("kind")
         if isinstance(kind, str):
             kinds[kind] = kinds.get(kind, 0) + 1
-    sweeps = _sweeps(corpus, d["collection"])
-    eff = effective_scope(corpus, d["collection"], d)
+    sweeps = _sweeps(corpus, d["collection"], acts=swept)
+    revs = revisions(corpus, d["collection"], acts=revised)
+    eff = effective_scope(corpus, d["collection"], d, revs=revs)
     last = sweeps[-1] if sweeps else None
     return {
         "collection": d["collection"], "name": d["name"],
@@ -192,7 +212,7 @@ def overview(corpus, collection: str, *, decl: dict | None = None,
                            **({"options": d["options"]} if d.get("options")
                               else {})},
         "scope": eff,
-        "revisions": revisions(corpus, d["collection"]),
+        "revisions": revs,
         "counts": {"present": len(present),
                    **({"kinds": dict(sorted(kinds.items()))} if kinds else {}),
                    "absent": len(lat) - len(present),

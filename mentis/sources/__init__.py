@@ -126,24 +126,43 @@ def declaration(corpus, collection: str) -> dict | None:
     return None
 
 
-def revisions(corpus, collection: str) -> list[dict]:
-    """Every recorded revision of one collection's scope, in append order."""
+def scope_revisions(corpus) -> list[dict]:
+    """EVERY collection's scope revisions, in append order, in one read.
+
+    `act = SCOPE_REVISED` is not an indexed column, so each call walks the
+    whole operational table -- about 80 ms on a working Brain whatever it
+    answers. A caller that wants several collections reads this once and
+    passes each its share (`revisions(..., acts=...)`), the way a caller
+    already passes `decl` and `lat` down (opr-1f9237698d13), instead of
+    paying that walk per collection."""
+    return corpus.operational(act=SCOPE_REVISED)
+
+
+def revisions(corpus, collection: str, *, acts=None) -> list[dict]:
+    """Every recorded revision of one collection's scope, in append order.
+
+    `acts` is what a caller already read IN THIS REQUEST (`scope_revisions`);
+    without it the record is read now, as before."""
     return [{**a["detail"], "act": a["id"], "at": a["at"]}
-            for a in corpus.operational(act=SCOPE_REVISED)
+            for a in (scope_revisions(corpus) if acts is None else acts)
             if a["detail"].get("collection") == collection]
 
 
-def effective_scope(corpus, collection: str, decl: dict | None = None) -> dict:
+def effective_scope(corpus, collection: str, decl: dict | None = None,
+                    *, revs=None) -> dict:
     """The scope in force: the latest revision, or the declaration.
 
     `act` is the act that put it in force -- the revision, or the
     declaration itself -- and is what a plan id names, so a plan made under
-    one scope is refused under another."""
+    one scope is refused under another.
+
+    `revs` is this collection's revisions where the caller already has
+    them."""
     decl = decl or declaration(corpus, collection)
     if decl is None:
         raise Refused(f"{collection!r} is not a collection declared in this "
                       "corpus")
-    revs = revisions(corpus, collection)
+    revs = revisions(corpus, collection) if revs is None else revs
     if revs:
         r = revs[-1]
         return {"include": list(r["scope"]["include"]),

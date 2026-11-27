@@ -57,17 +57,23 @@ def _by(st, body):
     return _attributed(body or {}, "by", corpus=st.corpus)
 
 
-def _row(st, d: dict) -> dict:
+def _row(st, d: dict, *, revised=None, swept_acts=None) -> dict:
     """A collection as the overview lists it: the record, plus this
     machine's binding state (never the path).
 
     `d` is the collection's declaration. Its history is read ONCE here and
     handed to every consumer -- the overview, the extraction progress --
     which used to read it again each (opr-1f9237698d13). Read per request,
-    never kept between them, so the row is as fresh as it was."""
+    never kept between them, so the row is as fresh as it was.
+
+    `revised` and `swept_acts` are the same thing for the two act families
+    the overview reads, which no index finds: a LIST hands every row the
+    one read it already made (`_rows_of`), rather than each row walking the
+    operational table three times over."""
     src = _src(st)
     lat = reading._latest(st.corpus, d)
-    view = reading.overview(st.corpus, d["collection"], decl=d, lat=lat)
+    view = reading.overview(st.corpus, d["collection"], decl=d, lat=lat,
+                            revised=revised, swept=swept_acts)
     try:
         bnd = src.binding_state(d["collection"])
     except Refused as exc:
@@ -80,6 +86,20 @@ def _row(st, d: dict) -> dict:
     return {**view, "binding": bnd, "state": state,
             "run": runs.get(st.corpus, d["collection"]),
             "extraction": engine.progress(st.corpus, lat.values())}
+
+
+def _rows_of(st, decls) -> list[dict]:
+    """Every declared collection as a row, with the record walked ONCE for
+    all of them. `act` is not an indexed column, so each `operational(act=…)`
+    costs about 80 ms whatever it answers: per collection that was three
+    walks, and sixteen collections made `/api/sources` take 6-8 s -- long
+    enough that the Magnet's own source picker stood empty while an owner
+    looked at it. Two reads here, shared, say exactly the same thing."""
+    from mentis.sources import scope_revisions
+    revised = scope_revisions(st.corpus)
+    swept_acts = reading.sweep_acts(st.corpus)
+    return [_row(st, d, revised=revised, swept_acts=swept_acts)
+            for d in decls]
 
 
 #: WHAT EACH BODY FIELD MAY BE, checked before anything uses one. A `draft`
@@ -197,8 +217,7 @@ def _routes(st, path, one, body, method, presented=None, *, peer=None):
 
     # ---- reads -------------------------------------------------------------
     if method == "GET" and not bits:
-        return {"collections": [_row(st, d) for d in
-                                reading.declarations(corpus)],
+        return {"collections": _rows_of(st, reading.declarations(corpus)),
                 "descriptors": src.descriptors(),
                 "picker": picker.available(st, peer),
                 "note": "acquired material held in this Brain: past "
