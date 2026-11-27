@@ -21,8 +21,12 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
-  heldHeader, linkHost, linkPieces, restates, rowBody, rowHeadline, rowLink, shortLink, statement,
+  Citations, Linked, SOURCES_HEADING, SourceNotes, citedInline, citedRefs,
+  heldHeader, linkHost, linkPieces, restates, rowBody, rowHeadline, rowLink, saidIn, shortLink,
+  statement,
 } from '../src/quiet2/magnets/links'
 import { resultPreview, resultTitle, rowByline } from '../src/quiet2/magnets/EvidenceViews'
 import { collectedExcerpts } from '../src/quiet2/magnets/Summary'
@@ -239,7 +243,7 @@ test('a statement is split into its words and its addresses, losing not one char
   const said = `From the web search: 71 records, most recently “Juno - NASA Science (.gov)” · ${FEED_LINK}`
   const pieces = linkPieces(said)
   assert.deepEqual(pieces.filter((p) => 'url' in p), [{ url: FEED_LINK }])
-  assert.equal(pieces.map((p) => 'url' in p ? p.url : p.text).join(''), said,
+  assert.equal(pieces.map(saidIn).join(''), said,
     'lossless: the recorded characters are rendered, never edited')
 })
 
@@ -256,7 +260,7 @@ test('AN ADDRESS THAT WAS CUT IS NOT MADE A LINK THAT DOES NOT RESOLVE', () => {
   const said = 'most recently “… - Space https://news.google.com/rss/articles/CBMi0AF…”.'
   assert.deepEqual(linkPieces(said).filter((p) => 'url' in p), [],
     'a shortened address stays the plain text it is')
-  assert.equal(linkPieces(said).map((p) => 'url' in p ? p.url : p.text).join(''), said)
+  assert.equal(linkPieces(said).map(saidIn).join(''), said)
 })
 
 test('only an https address in the text itself can ever become a link', () => {
@@ -292,4 +296,141 @@ test('splitting a statement loses nothing: the characters recorded are the chara
   const said = 'From the Conversation (2026-11-20), on “calibration” and “drift”: “A newly arrived record about calibration drift.”'
   const got = statement(said)
   assert.equal(`${got.lead}: “${got.quote}”`, said)
+})
+
+/* --- a citation as a number, not as forensic evidence -----------------------
+   Owner `ent-bce57ba67f38`: "Stop presenting ordinary information as forensic
+   evidence. Use natural prose with numbered inline citations [1], [2], etc.,
+   and accessible source details. Preserve provenance internally without
+   forcing users to read it."
+
+   The token below is the shape the owner read on TEST's own candidate --
+   `mentis.sources.extract.cite`'s direct form, written into the middle of the
+   answer's sentence by the run that wrote the answer. --------------------- */
+
+const CITED = 'adm-e3d8cae2cb43@a79673349571[0:7631]'
+const CITED_B = 'adm-aaa111111111@aaaaaaaaaaaa[0:412]'
+
+/** The words a reader actually sees: the markup without its tags, so an
+ *  attribute that KEEPS provenance is not mistaken for prose that shows it. */
+const visible = (markup: string) => markup.replace(/<[^>]*>/g, '')
+
+test('a direct citation is read as a citation, and the brackets around it with it', () => {
+  const said = `The collection combines [${CITED}] and the feed rows under it.`
+  const pieces = linkPieces(said)
+  assert.deepEqual(pieces.filter((p) => 'cite' in p).map((p) => ('cite' in p ? p.cite.ref : '')),
+    ['adm-e3d8cae2cb43'])
+  const cited = pieces.find((p) => 'cite' in p)
+  assert.ok(cited && 'cite' in cited)
+  assert.equal(cited.cite.said, `[${CITED}]`,
+    'the brackets the agent wrote around it are taken in, so its number is not drawn inside a second pair')
+  assert.equal(cited.cite.source12, 'a79673349571')
+  assert.deepEqual([cited.cite.start, cited.cite.end], [0, 7631])
+  assert.equal(pieces.map(saidIn).join(''), said,
+    'lossless: the recorded characters are all still accounted for')
+})
+
+test('a bare direct citation is read too, and loses no character', () => {
+  const said = `Two rows agree on the launch window ${CITED} and nothing outside them was read.`
+  const pieces = linkPieces(said)
+  assert.equal(pieces.filter((p) => 'cite' in p).length, 1)
+  assert.equal(pieces.map(saidIn).join(''), said)
+})
+
+test('AN EXTRACTED CITATION KEEPS EXACTLY WHAT IT HAD: the two shapes are disjoint', () => {
+  // `refid.ts` draws this one as its own chip through `Prose`. Nothing here may
+  // take it, or that chip is lost.
+  const extracted = 'adm-e3d8cae2cb43@a79673349571~text.plain@1+0123456789ab/fedcba987654[0:12]{char/1:7}'
+  assert.deepEqual(linkPieces(`See ${extracted} for it.`).filter((p) => 'cite' in p), [],
+    'the extracted form is not a direct citation')
+})
+
+test('a token that is not a citation is not made into one', () => {
+  for (const said of [
+    'adm-e3d8cae2cb43@a79673349571[7631:0]',   // a range that runs backwards
+    'adm-e3d8cae2cb43@a79673349571[0:0]',      // a range of nothing
+    'adm-e3d8cae2cb43@a796733[0:12]',          // not a twelve-digit digest
+    'adm-e3d8cae2cb43@a79673349571',           // no range at all
+    'ent-e3d8cae2cb43@a79673349571[0:12]',     // not a held reference
+  ]) {
+    assert.deepEqual(linkPieces(said).filter((p) => 'cite' in p), [], said)
+    assert.equal(linkPieces(said).map(saidIn).join(''), said, said)
+  }
+})
+
+test('each cited record is numbered once, in the order a reader meets it', () => {
+  const lines = [
+    `The collection combines [${CITED}] and the rows beside it.`,
+    `Its earliest record is the Juno entry [${CITED_B}].`,
+    `The same thermal test [${CITED_B}] is cited again, and [${CITED}] with it.`,
+  ]
+  assert.deepEqual(citedRefs(lines), ['adm-e3d8cae2cb43', 'adm-aaa111111111'],
+    'answer-wide, so a record cited in two statements carries one number in both')
+  assert.deepEqual(citedRefs([]), [])
+  assert.deepEqual(citedRefs(['Nothing is cited here.']), [])
+})
+
+/* What a surface says about a cited record. The real one is
+   `Summary.answerSources`, which reads it off the collected row. */
+const index = (names: Record<string, string>, opened: string[] = []) => ({
+  numberOf: (ref: string) => {
+    const at = Object.keys(names).indexOf(ref)
+    return at < 0 ? null : at + 1
+  },
+  nameOf: (ref: string) => names[ref] ?? null,
+  open: (ref: string) => { opened.push(ref) },
+})
+
+test('a citation is drawn as its number, with the token kept on the element and out of the text', () => {
+  const said = `The collection combines [${CITED}] and the feed rows under it.`
+  const rendered = renderToStaticMarkup(createElement(Citations.Provider,
+    { value: index({ 'adm-e3d8cae2cb43': 'Juno - NASA Science' }) },
+    createElement(Linked, { text: said })))
+  assert.ok(rendered.includes('[1]'), `drawn as its number: ${rendered}`)
+  assert.doesNotMatch(visible(rendered), /a79673349571|0:7631|adm-/,
+    'no reference, digest or byte range in the running text the owner reads')
+  assert.ok(rendered.includes(`data-cite="[${CITED}]"`),
+    'the whole recorded token is kept on the element: provenance preserved, not forced into the prose')
+  assert.ok(rendered.includes('Source 1: Juno - NASA Science'),
+    'and what the number stands for is said in words')
+})
+
+test('WITHOUT AN INDEX NOTHING IS NUMBERED: the recorded characters are drawn as they were', () => {
+  const said = `The collection combines [${CITED}] and more.`
+  const rendered = renderToStaticMarkup(createElement(Linked, { text: said }))
+  assert.ok(rendered.includes(CITED),
+    'a number standing for nothing a reader could open would be worse than the token')
+})
+
+test('a reference the index does not know keeps its recorded token', () => {
+  const said = `It combines [${CITED}] with the rest.`
+  const rendered = renderToStaticMarkup(createElement(Citations.Provider,
+    { value: index({ 'adm-aaa111111111': 'Somewhere else' }) },
+    createElement(Linked, { text: said })))
+  assert.ok(rendered.includes(CITED))
+})
+
+test('the Sources list names each number, and offers only the records it holds', () => {
+  const rendered = renderToStaticMarkup(createElement(SourceNotes, { notes: [
+    { n: 1, ref: 'adm-e3d8cae2cb43', title: 'Juno - NASA Science',
+      detail: 'Held file · space-missions/aaa · captured 25/11/2026', open: () => {} },
+    { n: 2, ref: 'adm-aaa111111111', title: 'Not in the collection shown',
+      detail: 'No live source was opened to show it.', open: null },
+  ] }))
+  assert.ok(rendered.includes(SOURCES_HEADING))
+  assert.ok(rendered.includes('Juno - NASA Science') && rendered.includes('captured 25/11/2026'))
+  assert.ok(rendered.includes('id="cite-source-1"'), 'the number in the prose links into this entry')
+  assert.ok(!/id="cite-source-2"/.test(rendered),
+    'a record this collection does not hold is named, not offered as a press')
+  assert.equal(renderToStaticMarkup(createElement(SourceNotes, { notes: [] })), '',
+    'an answer that cites nothing carries no Sources heading')
+})
+
+test('a numbered citation inside Markdown prose goes through the renderer Fluid already has', () => {
+  const drawn = citedInline(index({ 'adm-e3d8cae2cb43': 'Juno' }))
+  const out = renderToStaticMarkup(createElement('p', {},
+    ...drawn(`**Two** rows agree [${CITED}] on the window.`, 'k')))
+  assert.ok(out.includes('<strong>Two</strong>'), 'the Markdown reader still reads the Markdown')
+  assert.ok(out.includes('[1]'), out)
+  assert.doesNotMatch(visible(out), /a79673349571|adm-/, out)
 })

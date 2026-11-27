@@ -17,7 +17,7 @@
  * (annotate/Margin.tsx) reads them live and places each one by alignment
  * against `sourceOfPost`, the post's stored words as its body draws them. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { CLIENT_HEADERS, type Conversation, type Turn } from '../api'
+import { CLIENT_HEADERS, type Conversation, type Part, type Turn } from '../api'
 import { formatSize, itemOf, returnedItemOf } from '../quiet/media/view'
 import { hearPulse, type Moved, type Where } from '../fluid/identity/activity'
 import { sourceOf, type Source } from '../fluid/conversation/annotated'
@@ -103,6 +103,37 @@ const repairInPlace = (s: string) => s.replace(/[^\u0000-\u007f]+/g, (run) => { 
   return fixed.length < run.length ? fixed + ' '.repeat(run.length - fixed.length) : run
 })
 
+/* -- two recorded blocks that met with no character between them ------------
+   WHAT THE OWNER READ (`ent-bce57ba67f38`). A Turn's text parts are separate
+   recorded blocks, and they were joined with nothing at all, so where one
+   block ended a sentence and the next began another the two fused into a
+   sentence nobody wrote: "...the exact retained sources.The collection
+   combines...".
+
+   WHAT IS JOINED, AND WHAT IS NOT. The stored characters are still joined as
+   they stand for EDITING (`text: raw`, which the edit box compares against and
+   saves) and for placing anchors (`sourceOf`, which owns the offsets). This is
+   the DRAWN text alone, and it gains a paragraph break in exactly one place:
+   between two TEXT parts where the earlier ends a sentence and the later opens
+   one. A part that continues mid-sentence, and an inline reference inside a
+   sentence, are joined character to character as before -- a separator there
+   would break the sentence the author wrote. */
+const ENDS_A_SENTENCE = /[.!?]["'”’)\]]*$/
+const OPENS_A_SENTENCE = /^["'“([]*(?:[\p{Lu}\p{N}]|[#>|]|[-*+]\s)/u
+
+function drawnJoin(kept: Part[]): string {
+  let out = ''
+  let after = false      // the part just taken was a text part
+  for (const p of kept) {
+    const s = p.text ?? ''
+    const isText = p.type === 'text'
+    if (out && isText && after && ENDS_A_SENTENCE.test(out) && OPENS_A_SENTENCE.test(s)) out += '\n\n'
+    out += s
+    after = isText
+  }
+  return out
+}
+
 function bodySource(t: Turn, lifted: boolean): Source {
   const src = sourceOf({ parts: t.parts } as never)
   /* the body draws the text as written (renderable fences too), not the
@@ -124,15 +155,17 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   /* WHAT THE AUTHOR TYPED, as the server's edit box reads it (versions.py
      `flow_text`): text parts and the characters of inline references, in
      order, joined as they stand. Kept as written for editing; the repair of
-     mis-decoded characters is applied only to what is drawn. */
+     mis-decoded characters, and the paragraph break between two blocks that
+     would otherwise fuse (`drawnJoin`), are applied only to what is drawn. */
   /* A READ THAT IS MISSING AN OPTIONAL LIST IS STILL A READ. The server's own
      Turn view always carries `parts` and `topics`, but drawing a post is now
      done in more than one place (the reading column, a surface, a Magnet's
      card), and a thin or partial read must leave the post empty rather than
      throw -- a throw here takes down whatever the post is drawn inside. */
   const parts = Array.isArray(t.parts) ? t.parts : []
-  const raw = parts.filter((p) => p.type === 'text' || REFERENCE_PARTS.has(p.type)).map((p) => p.text ?? '').join('')
-  const text = repairText(raw).trim()
+  const kept = parts.filter((p) => p.type === 'text' || REFERENCE_PARTS.has(p.type))
+  const raw = kept.map((p) => p.text ?? '').join('')
+  const text = repairText(drawnJoin(kept)).trim()
   const items = parts.filter((p) => p.type !== 'text').map((p) => itemOf(p)).filter((x) => x !== null)
   /* a post that opens with a heading has its title already */
   const head = /^#{1,2} +(.+)\n/.exec(text + '\n')

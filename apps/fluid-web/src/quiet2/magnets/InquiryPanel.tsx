@@ -67,14 +67,14 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { MagnetResource } from './contract'
 import {
   answerHistory, answerText, derivedPerspectiveName, grounding, pastQuestions, perspectivesOf,
-  provenanceOf, questionSubtitle, recordedUnderstanding, restampAttachedQuestion, showPerspectiveContext, stampAttachedQuestion, statements,
+  provenanceOf, questionSubtitle, recordedUnderstanding, restampAttachedQuestion, showPerspectiveContext, stampAttachedQuestion,
   CHECKED_NEW, CHECKED_SAME, COLLECTION_MOVED, EVENT_WORDS,
   NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, SUPPORTING_WHY, WRITTEN_BY_MENTIS,
   type InquiryEvent, type PerspectiveStore,
 } from './perspectives'
-import { agentWritten, offeredQuestions, readStandingBriefing, withWords } from './Summary'
+import { agentWritten, Briefing, offeredQuestions, readStandingBriefing, withWords } from './Summary'
 import { retainedItems, resultPreview, resultTitle, rowByline, usePeople } from './EvidenceViews'
-import { AnswerStatement, Linked } from './links'
+import { Linked } from './links'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
 import { goTab, setOpen } from './places'
 import {
@@ -551,14 +551,21 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
           <div className="mgd-answer">
             {answers.current || told.challenges.length ? <>
               {answers.current && <>
-                {/* THE ANSWER STANDING NOW, statement by statement as it was
-                    recorded, then what it was grounded in. Each statement is
-                    laid out with the record's own words quoted under it and the
-                    addresses in it followable (owner ent-0b4f3f69b836,
-                    `links.tsx`): the recorded characters, given room to be
-                    read. */}
-                {statements(answerText(answers.current) || (agentWritten(answers.current) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'))
-                  .map((line, i) => <AnswerStatement key={`now-${i}`} line={line} />)}
+                {/* THE ANSWER STANDING NOW, DRAWN BY THE ONE RENDERER THERE IS
+                    FOR AN ANSWER (owner `ent-bce57ba67f38`: "Use the existing
+                    Markdown renderer and display the final answer"). This split
+                    the words on newlines and laid every line out as a
+                    statement, so an agent's written briefing arrived here as a
+                    stack of one-line paragraphs with its `##` headings, its
+                    table pipes and its citation tokens as literal text, while
+                    the Summary -- reading the same recorded answer -- drew it
+                    as the document it is. `Briefing` is that reading: prose for
+                    a written document, the statement-and-quotation layout for a
+                    statement-per-line synthesis, citations as numbers with a
+                    Sources list, and in both cases the recorded characters. */}
+                {answerText(answers.current)
+                  ? <Briefing resource={resource} answer={answers.current} />
+                  : <p className="mgd-p">{agentWritten(answers.current) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'}</p>}
                 <AnswerGrounding answer={answers.current} />
                 <p className="mgd-small mgd-muted">{ANSWER_WRITTEN_BY(answers.current)}
                   {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
@@ -572,11 +579,12 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
               <summary>{EARLIER_ANSWERS} ({answers.superseded.length})</summary>
               <ol className="q2p-answers">{answers.superseded.map((e, i) => <li key={`s:${e.post}`}>
                 <span className="mgd-subtle">{EARLIER_ANSWERS} {answers.superseded.length - i}</span>
-                {/* An earlier answer is a whole answer, and was arriving as one
-                    paragraph. It is laid out exactly as the one standing now,
-                    and is still the characters that were recorded. */}
-                {statements(answerText(e) || (agentWritten(e) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'))
-                  .map((line, j) => <AnswerStatement key={`s${i}-${j}`} line={line} />)}
+                {/* An earlier answer is a whole answer. It is read exactly as
+                    the one standing now, by the same renderer, and is still the
+                    characters that were recorded. */}
+                {answerText(e)
+                  ? <Briefing resource={resource} answer={e} />
+                  : <p className="mgd-p">{agentWritten(e) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'}</p>}
                 <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(e.data.answer?.ref ?? e.snapshot.ref)}>View it as it was recorded</button>
               </li>)}</ol>
             </details>}

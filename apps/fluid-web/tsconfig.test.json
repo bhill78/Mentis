@@ -63,6 +63,8 @@
     "tests/quiet_magnet_puck_unit.ts",
     "tests/quiet_magnet_part_b_unit.ts",
     "tests/quiet_magnet_briefing_unit.ts",
+    "tests/quiet_magnet_links_unit.ts",
+    "tests/quiet_magnet_presentation_unit.ts",
     "tests/quiet_magnet_perspective_unit.ts",
     "tests/quiet_magnet_understanding_unit.ts",
     "tests/quiet_magnet_read_unit.ts",

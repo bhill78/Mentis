@@ -75,11 +75,14 @@ import { CLIENT_HEADERS } from '../../api'
 import { Prose, blocksAt, blocksOf, isStructured, isTableDivider, isTableRow, rowCells, type Block } from '../../prose'
 import type { MagnetResource, MagnetSnapshot, SavedMagnet, SearchEntry, SearchSource } from './contract'
 import type { MagnetSource } from '../../fluid/surface/magnet/types'
-import Inspection, { capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
+import Inspection, { artifactOf, capturedText, plainEvidenceOrigin, retainedFiles, sourceLabel } from './Inspection'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { goTab, inspect, openOverlay, place, setOpen } from './places'
 import { resultTitle } from './EvidenceViews'
-import { AnswerStatement, Linked, SourceLink, linkHost, rowBody, rowHeader, rowLink } from './links'
+import {
+  AnswerStatement, Citations, Linked, SourceLink, SourceNotes, citedInline, citedRefs,
+  linkHost, rowBody, rowHeader, rowLink, type CitationIndex, type SourceNote,
+} from './links'
 import { collectionRows } from './collectionRows'
 import { supportsManualCollection } from './configuration'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
@@ -924,6 +927,156 @@ export function frozenWords(pkg: unknown): string {
     .filter((t) => !!t.trim()).join('\n\n')
 }
 
+/* ---------------------------------------------------------------------------
+   AN ANSWER IS THE ANSWER, NOT THE WORK OF WRITING IT (owner
+   `ent-bce57ba67f38`: "Summary and Perspectives should present substantive,
+   readable synthesized information, not agent narration, collection history,
+   execution details or internal instructions ... display the final answer, not
+   intermediate agent commentary").
+
+   WHAT WAS WRONG. A run's reply is frozen verbatim
+   (`perspectives_work.finalize`), and a model's reply commonly opens by saying
+   what it is about to do. The owner's own Magnet opened its briefing with
+   "I'll read the frozen question, collection records, manifest, and evidence,
+   then trace the briefing's claims…" -- a sentence about the agent's work,
+   standing where the answer's first sentence belongs, in the lead type.
+
+   WHAT IS DONE ABOUT IT, AND WHERE. Nothing is edited in the record: the
+   frozen package is what it is, it still verifies byte for byte, and "View the
+   recorded answer" still opens exactly what was frozen. This is a READING
+   rule, applied where the words are read for display, and it is deliberately
+   the narrowest one that fixes what the owner read:
+
+     - only LEADING runs of prose, before the answer's own content;
+     - only a sentence that OPENS as narration of the agent's own work -- "I'll
+       …", "Let me …", "I will …", "My plan …", optionally after a filler such
+       as "Okay," or "First,";
+     - a paragraph that is not plain prose (a heading, a list, a table, a
+       fence, a quotation) ENDS the scan, whatever it says;
+     - and if the strip would leave nothing at all, nothing is stripped: an
+       answer that is only narration is shown as the answer it is, so the
+       reader sees the problem rather than an empty card.
+
+   SEAM. The clean fix is server-side -- `finalize` could freeze the answer
+   without the preamble, or record where the answer begins. That is
+   `mentis/magnet/perspectives_work.py`, which this part does not own, so this
+   is the client-side strip the hand-off asked for as the stopgap.
+
+   AND THE SENTENCES THAT MEET WITH NO CHARACTER BETWEEN THEM. Read back off
+   TEST's own running candidate, the reply Turn this answer was frozen from
+   holds ONE text part of 5155 characters in which the agent's blocks are
+   already fused: "...the exact retained sources.The collection combines...",
+   "...not present in the frozen rows.The collection's strongest theme...".
+   `finalize` freezes `turns[0]["body"]["parts"]` verbatim, so it is faithful;
+   the fusion is older than Mentis's Turn, in whatever assembled the reply's
+   blocks into one part. That is a SEAM for whoever owns the reply path, and
+   it is reported as one -- but the owner is reading the result now, so the
+   missing character is restored for DISPLAY (`unfused`), and only ever the
+   one space that is missing. ---------------------------------------------- */
+
+/** TWO SENTENCES WITH NOTHING BETWEEN THEM, and the narrowest repair there is:
+ *  the space that is missing. Not a paragraph break -- a break inside a list
+ *  item or a table row would take apart a construct the author wrote, where a
+ *  space cannot.
+ *
+ *  BOUNDED SO THAT ONLY A DEFECT MATCHES. A terminal mark with at least two
+ *  lower-case letters in front of it and a capital followed by a lower-case
+ *  letter behind it, and no whitespace at all: `sources.The`. A version, a
+ *  decimal, an abbreviation (`U.S.`), a dotted word in capitals (`x.ORG`) and
+ *  an address (`example.com/path`) all fail one of those. A dotted identifier
+ *  written as prose rather than as code (`data.Text`) would match, which is
+ *  why source is exempt below: it is the one place such a token belongs. */
+const FUSED = /(?<=\p{Ll}\p{Ll})([.!?])(?=\p{Lu}\p{Ll})/gu
+
+/** A line of fenced or indented source, which is shown as the characters it
+ *  is and never repaired. */
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
+
+/** Running prose outside any code, with the missing space restored. Inline
+ *  code spans, fenced blocks and indented blocks are left exactly as written;
+ *  headings, lists and tables keep their own shape, because nothing but a
+ *  space is ever inserted. */
+export function unfused(words: unknown): string {
+  const src = typeof words === 'string' ? words : ''
+  const out: string[] = []
+  let fence: string | null = null
+  for (const line of src.split('\n')) {
+    const f = FENCE_LINE.exec(line)
+    if (fence !== null) {
+      out.push(line)
+      if (f && line.trim().startsWith(fence)) fence = null
+      continue
+    }
+    if (f) { fence = f[1]; out.push(line); continue }
+    if (/^ {4,}/.test(line)) { out.push(line); continue }
+    out.push(line.split(/(`[^`]*`)/).map((p, i) => i % 2 ? p : p.replace(FUSED, '$1 ')).join(''))
+  }
+  return out.join('\n')
+}
+
+/** A paragraph that is running prose, and so can carry a narrated sentence. A
+ *  heading, a quotation, a list item, a numbered item, a table row and a fence
+ *  are none of those, and stop the scan rather than being read for narration. */
+const NOT_PLAIN_PROSE = /^(?:#{1,6}\s|>|[-*+]\s|\d+[.)]\s|\||`{3,}|~{3,}|\s{4})/
+
+/** HOW AN AGENT OPENS A SENTENCE ABOUT ITS OWN WORK. First person and a verb
+ *  of intention or of procedure -- never merely first person, because an
+ *  answer may legitimately say "I found no record of it". Optional fillers in
+ *  front, which is how the same sentence arrives with "Okay," or "First," on
+ *  it. */
+const NARRATES = new RegExp(
+  '^(?:(?:ok(?:ay)?|alright|right|sure|certainly|first(?:ly)?|next|then|now|finally)\\b[\\s,.:;—–-]*)*' +
+  '(?:i\\s?[\'’]\\s?(?:ll|ve|m|d)\\b' +
+  '|i\\s+(?:will|am|have|shall|plan|intend|need|should|plan)\\b' +
+  '|let\\s+me\\b|let\\s?[\'’]\\s?s\\b' +
+  '|my\\s+(?:plan|approach)\\b' +
+  '|here\\s?[\'’]\\s?s\\s+(?:my|the)\\s+(?:plan|approach)\\b)', 'i')
+
+/** Where the first sentence of a run of prose ends. A terminal mark (or an
+ *  ellipsis), the marks that close around it, then whitespace -- or the end of
+ *  the run, in which case the whole run is that one sentence. */
+const SENTENCE_END = /[.!?…]["'”’)\]]*\s/
+
+/** `para` with its leading narrated sentences taken off; `''` where the whole
+ *  paragraph is narration. Nothing else is touched: the sentence that opens
+ *  the answer comes back with its own characters. */
+function withoutNarratedSentences(para: string): string {
+  let rest = para.trim()
+  while (rest && NARRATES.test(rest)) {
+    const m = SENTENCE_END.exec(rest)
+    if (!m) return ''
+    rest = rest.slice((m.index ?? 0) + m[0].length).trimStart()
+  }
+  return rest
+}
+
+/** A RECORDED ANSWER'S OWN WORDS, with a leading narration of the agent's work
+ *  left out of what is drawn. Returns the input unchanged where there is no
+ *  such preamble, and where taking it out would leave nothing.
+ *
+ *  The fused sentences are separated first (`unfused`): on TEST's own answer
+ *  the narrated sentence and the answer's first sentence are ONE run of
+ *  characters with no space between them, so until the space is there the end
+ *  of the narration cannot be found at all. */
+export function withoutNarration(words: unknown): string {
+  const src = unfused(words)
+  if (!src.trim()) return src
+  let rest = src.replace(/^\s+/, '')
+  for (;;) {
+    const cut = rest.search(/\n[ \t]*\n/)
+    const para = cut < 0 ? rest : rest.slice(0, cut)
+    const after = cut < 0 ? '' : rest.slice(cut).replace(/^\s+/, '')
+    if (NOT_PLAIN_PROSE.test(para)) break
+    const kept = withoutNarratedSentences(para)
+    if (kept === para.trim()) break
+    /* The paragraph's remainder is the answer's own opening: stop there. */
+    if (kept) { rest = after ? `${kept}\n\n${after}` : kept; break }
+    if (!after.trim()) return src
+    rest = after
+  }
+  return rest.trim() || src
+}
+
 /** READ THE FROZEN WORDS OF AN ANSWER A RUN WROTE.
  *
  *  `finalize` records the reply as an immutable package and the reply Turn it
@@ -934,10 +1087,16 @@ export function frozenWords(pkg: unknown): string {
  *  exact digest -- so what is shown is the frozen answer and never a
  *  substitute. Where the event does record `text` (an answer written by the
  *  synthesis, or by a later build that records it), that is used and nothing is
- *  fetched. */
+ *  fetched.
+ *
+ *  THE WORDS READ ARE THE ANSWER'S, not the account of writing it: a leading
+ *  narration is left out of what is drawn (`withoutNarration`), on both paths,
+ *  because this is the one door both surfaces read an agent-written answer
+ *  through. The frozen bytes are still verified whole before anything of them
+ *  is read, and the recorded package is unchanged. */
 export async function readFrozenAnswer(e: InquiryEvent): Promise<string> {
   const recorded = answerText(e)
-  if (recorded) return recorded
+  if (recorded) return withoutNarration(recorded)
   const held = heldAnswer(e)
   if (!held) throw new Error('This answer names no frozen record of its own words.')
   const r = await fetch(`/api/artifacts/${encodeURIComponent(held.ref)}`, { headers: CLIENT_HEADERS, cache: 'no-store' })
@@ -948,7 +1107,7 @@ export async function readFrozenAnswer(e: InquiryEvent): Promise<string> {
     throw new Error('The frozen answer did not verify against the record. Nothing of it is shown.')
   const words = frozenWords(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)))
   if (!words) throw new Error('The frozen answer holds no words to read.')
-  return words
+  return withoutNarration(words)
 }
 
 /** THE BRIEFING AS THIS VIEW MAY ACTUALLY SHOW IT: its words, and the
@@ -1129,6 +1288,71 @@ export function citedRows(cites: string[], results: RouteResult[]): Cited[] {
     out.push({ id, title: resultTitle(r) })
   }
   return out
+}
+
+/* ---------------------------------------------------------------------------
+   THE SOURCES AN ANSWER CITES IN ITS OWN CHARACTERS, NUMBERED.
+
+   `cites` is the structure the server records per statement, and `citedRows`
+   has named those rows by their own words since Part 5. A citation the agent
+   wrote INTO its sentence is the same thing said the other way round -- a held
+   reference, its source digest and the captured byte range -- and it had no
+   reader at all, so it arrived as 38 characters of token in the running text.
+
+   It is read here, through the id→title mapping that already exists: the
+   reference is matched to a collected row the three ways the inspection
+   matches one, and what the reader is told is the row's own title and the
+   clean origin and capture time the resting surfaces already use
+   (`resultTitle`, `plainEvidenceOrigin`) -- no key, no digest, no bounds. The
+   exact reference, digest and range stay on the element that replaced the
+   token (`data-cite`) and in the record the number opens, where Inspection's
+   provenance disclosure already holds Origin, Version, Captured and Bounds.
+   No new data plumbing: every field drawn here was already drawn somewhere on
+   this card. ----------------------------------------------------------------- */
+
+/** Said where an answer cites a record this collection does not hold. The
+ *  number is still drawn -- the sentence cited something -- and nothing is
+ *  substituted for a record that is not here. */
+export const CITED_NOT_HELD = 'Not in the collection shown'
+
+/** The collected row a citation's held reference names, or null. The same
+ *  three ways `Inspection` finds one, so a number that is a press opens what
+ *  the press promises. */
+export function citedRow(ref: string, rows: RouteResult[]): RouteResult | null {
+  return rows.find((r) => r.id === ref || r.version === ref || artifactOf(r) === ref) ?? null
+}
+
+/** THE NUMBERED SOURCES OF ONE ANSWER, in the order a reader meets them across
+ *  the whole of it, each named by what it is. */
+export function answerSources(texts: string[], results: RouteResult[],
+                              open: (id: string, from?: string) => void): SourceNote[] {
+  const rows = [...results, ...retainedFiles(results)]
+  return citedRefs(texts).map((ref, i) => {
+    const n = i + 1
+    const r = citedRow(ref, rows)
+    if (!r) return { n, ref, title: CITED_NOT_HELD,
+      detail: 'No live source was opened to show it.', open: null }
+    const at = when(r.at)
+    /* The site a reader recognises where the row recorded an address, and the
+       clean origin otherwise -- the same choice the inspection's own heading
+       line makes, and for the same reason: `plainEvidenceOrigin` carries the
+       held-file key, which is exactly what the owner asked to stop reading. */
+    const from = linkHost(rowLink(r)) ?? plainEvidenceOrigin(r)
+    return { n, ref, title: resultTitle(r),
+      detail: [from, at ? `captured ${at}` : ''].filter(Boolean).join(' · '),
+      open: () => open(r.id, `cite-source-${n}`) }
+  })
+}
+
+/** What the prose renderer is given for a run of citations: the numbers and
+ *  names of the notes already built, and the press each number is. */
+export function citationIndexOf(notes: SourceNote[]): CitationIndex {
+  const by = new Map(notes.map((s) => [s.ref, s]))
+  return {
+    numberOf: (ref) => by.get(ref)?.n ?? null,
+    nameOf: (ref) => { const s = by.get(ref); return s && s.title !== CITED_NOT_HELD ? s.title : null },
+    open: (ref) => by.get(ref)?.open?.(),
+  }
 }
 
 /** WHETHER A RECORDED ANSWER IS A WRITTEN DOCUMENT rather than one statement
@@ -1512,23 +1736,43 @@ export function briefingGroups(lines: AnswerLine[]): BriefingGroup[] {
  *  (`AnswerStatement`, `links.tsx`), and the records it was written from as
  *  presses -- with its trailing record-count line held back for the facts
  *  disclosure instead of shown here (plan Part 5, `answerRecordCount`).
- *  Either way the recorded characters are the recorded ones. */
+ *  Either way the recorded characters are the recorded ones.
+ *
+ *  AND THE CITATIONS THE ANSWER WROTE INTO ITS OWN SENTENCES ARE NUMBERS
+ *  (owner `ent-bce57ba67f38`). Every direct citation in the answer is numbered
+ *  once, across the whole of it, and drawn as `[1]`; what each number is comes
+ *  under the answer as a Sources list naming the record, where it came from and
+ *  when it was captured, and pressing either the number or the entry opens the
+ *  captured record with its exact reference, digest and bounds already
+ *  disclosed there. The renderer is the one that was already here: `Prose`
+ *  reads the document, with citations drawn inside its running text by
+ *  `citedInline` -- nothing of the Markdown reader is edited or replaced. */
 export function Briefing({ resource, answer }: { resource: MagnetResource; answer: InquiryEvent | null }) {
   const words = answerText(answer)
   if (!words) return null
-  if (isWrittenBriefing(words)) {
-    if (!Array.isArray(answer?.data?.lines) || !answer.data.lines.length)
-      return <div className="q2-prose"><Prose src={words} scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
-    return <>{briefingGroups(answerLines(answer)).map((group, i) => <div key={`answer-${i}`} className="q2-prose">
-      <Prose src={group.src} scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
-      {group.lines.map((line, j) => <Cites key={j} resource={resource} cites={line.cites}
-        part={group.lines.length > 1 ? citedPart(line.text, group.places[j]) : undefined} />)}
+  const lines = answerLines(answer)
+  /* THE WHOLE ANSWER IS NUMBERED ONCE, so a record cited in the first
+     paragraph and again in the fourth carries the same number in both. The
+     joined text leads, which is the order a reader meets them in; the recorded
+     statements follow, for an answer whose joined text and lines differ. */
+  const notes = answerSources([words, ...lines.map((l) => l.text)], resource.snapshot().results,
+    (id, from) => inspect(resource, id, from))
+  const index = citationIndexOf(notes)
+  const body = isWrittenBriefing(words)
+    ? !Array.isArray(answer?.data?.lines) || !answer.data.lines.length
+      ? <div className="q2-prose"><Prose src={words} inlineOf={citedInline(index)}
+        scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
+      : <>{briefingGroups(lines).map((group, i) => <div key={`answer-${i}`} className="q2-prose">
+        <Prose src={group.src} inlineOf={citedInline(index)}
+          scope={`magnet-answer:${answer?.post ?? resource.saved.id}-${i}`} />
+        {group.lines.map((line, j) => <Cites key={j} resource={resource} cites={line.cites}
+          part={group.lines.length > 1 ? citedPart(line.text, group.places[j]) : undefined} />)}
+      </div>)}</>
+    : <>{withoutRecordCount(lines).map((line, i) => <div key={`answer-${i}`}>
+      <AnswerStatement line={line.text} lead={!i} />
+      <Cites resource={resource} cites={line.cites} />
     </div>)}</>
-  }
-  return <>{withoutRecordCount(answerLines(answer)).map((line, i) => <div key={`answer-${i}`}>
-    <AnswerStatement line={line.text} lead={!i} />
-    <Cites resource={resource} cites={line.cites} />
-  </div>)}</>
+  return <Citations.Provider value={index}>{body}<SourceNotes notes={notes} /></Citations.Provider>
 }
 
 /** WHAT AN ANSWER WAS GROUNDED IN, beside the answer itself.

@@ -26,7 +26,10 @@
  *  edited -- and grounding, provenance and citations are drawn by their own
  *  components, untouched. Laying a sentence out does not make it say more.
  */
+import { createContext, useContext, type ReactNode } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
+import { inline } from '../../prose'
+import { DIRECT_CITE_IN_TEXT, parseDirectCite, type DirectCite } from '../../refid'
 import './links.css'
 
 const object = (v: unknown): Record<string, any> =>
@@ -154,7 +157,7 @@ export function shortLink(url: string, most = 48): string {
   return room > 1 ? `${host}${path.slice(0, room)}…` : `${host}…`
 }
 
-export type Piece = { text: string } | { url: string }
+export type Piece = { text: string } | { url: string } | { cite: DirectCite }
 
 /** An https address Mentis wrote into a statement. Bounded away from the
  *  quotation marks the answers are written with (`“ ”`) and from brackets, so
@@ -162,14 +165,33 @@ export type Piece = { text: string } | { url: string }
  *  punctuation is not swallowed. */
 const IN_PROSE = /https:\/\/[^\s<>"'“”(){}[\]]+/g
 
-/** A recorded statement split into its words and the addresses in it. Pure, and
- *  lossless: every character of the input comes back in exactly one piece. */
+/** The characters one piece stands for -- what makes `linkPieces` lossless
+ *  whatever kind of piece it produced. */
+export const saidIn = (p: Piece): string => 'url' in p ? p.url : 'cite' in p ? p.cite.said : p.text
+
+/** Addresses and direct citations, in one scan, so neither is found inside the
+ *  other's characters. */
+const IN_PROSE_OR_CITED = new RegExp(`${DIRECT_CITE_IN_TEXT.source}|${IN_PROSE.source}`, 'g')
+
+/** A recorded statement split into its words, the addresses in it and the
+ *  citations in it. Pure, and lossless: every character of the input comes back
+ *  in exactly one piece (`saidIn`). */
 export function linkPieces(text: unknown): Piece[] {
   const words = typeof text === 'string' ? text : ''
   const out: Piece[] = []
   let at = 0
-  for (const match of words.matchAll(IN_PROSE)) {
+  const take = (start: number, piece: Piece, length: number) => {
+    if (start > at) out.push({ text: words.slice(at, start) })
+    out.push(piece)
+    at = start + length
+  }
+  for (const match of words.matchAll(IN_PROSE_OR_CITED)) {
     const start = match.index ?? 0
+    if (start < at) continue
+    /* A CITATION IS PROVENANCE, NOT WORDS. Its reference, digest and byte
+       range are kept on the piece and never drawn as running text. */
+    const cited = parseDirectCite(match[0])
+    if (cited) { take(start, { cite: cited }, cited.said.length); continue }
     // A full stop, comma or colon after an address belongs to the sentence, not
     // to the address.
     const url = match[0].replace(/[.,;:!?)\]]+$/, '')
@@ -181,12 +203,137 @@ export function linkPieces(text: unknown): Piece[] {
     // Making that a link would be a link that does not resolve, so it stays
     // the plain text it is.
     if (url.includes('…')) continue
-    if (start > at) out.push({ text: words.slice(at, start) })
-    out.push({ url })
-    at = start + url.length
+    take(start, { url }, url.length)
   }
   if (at < words.length) out.push({ text: words.slice(at) })
   return out
+}
+
+/* ------------------------------------------------------------------------- *
+ * A CITATION AS A READER WANTS ONE (owner `ent-bce57ba67f38`: "Stop
+ * presenting ordinary information as forensic evidence. Use natural prose
+ * with numbered inline citations [1], [2], etc., and accessible source
+ * details. Preserve provenance internally without forcing users to read it.")
+ *
+ * WHAT WAS WRONG. A recorded answer carries its citations in its own
+ * characters, and this renderer recognised bare addresses and nothing else --
+ * so `[adm-e3d8cae2cb43@a79673349571[0:7631]]` was drawn as those 38
+ * characters, in the middle of the sentence, three or four times a paragraph.
+ * The reference, the source digest and the byte range are all true and all
+ * provenance: the reader needs to know WHICH SOURCE, which is a title.
+ *
+ * WHAT IT IS NOW. Each distinct cited record is numbered once, in the order a
+ * reader meets it across the whole answer (`citedRefs`), and drawn as that
+ * number. The number is a press that opens the captured record inside the
+ * card -- where Inspection's own provenance disclosure already holds the
+ * origin, version, capture time and bounds -- and the answer carries a
+ * Sources list naming each one in words (`SourceNotes`). The whole recorded
+ * token stays on the element as `data-cite`, so nothing of the provenance is
+ * lost from the surface; it is simply not in the running text.
+ *
+ * NOTHING IS NUMBERED THAT THE SURFACE CANNOT NAME. Where no index is
+ * provided, or the index does not know a reference, the token is drawn as the
+ * characters that were recorded -- exactly as before. A number standing for
+ * nothing a reader can open would be worse than the token.
+ * ------------------------------------------------------------------------- */
+
+/** What a surface must be able to say about a cited record for the number to
+ *  stand in for it. Supplied by the view that holds the collection
+ *  (`Summary.answerSources`); `null` where this run of text has none. */
+export interface CitationIndex {
+  /** The number this record carries in the answer, from 1, or null where the
+   *  answer's own sources do not include it. */
+  numberOf(ref: string): number | null
+  /** What the record is, in words -- the title a reader recognises. */
+  nameOf(ref: string): string | null
+  /** Open the captured record inside the card. `from` is the element the press
+   *  came from, so closing returns the reader to the citation they pressed. */
+  open(ref: string, from?: string): void
+}
+
+export const Citations = createContext<CitationIndex | null>(null)
+
+/** The records a run of recorded texts cites, each once, in the order a reader
+ *  meets them. The answer-wide order: the same record cited in the first and
+ *  the fourth statement is `[1]` in both. */
+export function citedRefs(texts: string[]): string[] {
+  const out: string[] = [], seen = new Set<string>()
+  for (const said of texts)
+    for (const m of String(said ?? '').matchAll(DIRECT_CITE_IN_TEXT)) {
+      const cited = parseDirectCite(m[0])
+      if (!cited || seen.has(cited.ref)) continue
+      seen.add(cited.ref)
+      out.push(cited.ref)
+    }
+  return out
+}
+
+/** One numbered citation, or the recorded token where it cannot be numbered.
+ *  The index is the one around this text (`Citations`), or the one the caller
+ *  names -- `citedInline` hands prose its own, because it has already decided
+ *  with it which tokens it is replacing. */
+export function Cite({ cite, index: named }: { cite: DirectCite; index?: CitationIndex | null }) {
+  const around = useContext(Citations)
+  const index = named ?? around
+  const n = index?.numberOf(cite.ref) ?? null
+  if (!index || n === null) return <>{cite.said}</>
+  const name = index.nameOf(cite.ref)
+  return <button type="button" className="q2-magnet-cite" data-cite={cite.said}
+    id={`cite-mark-${n}`} aria-label={`Source ${n}${name ? `: ${name}` : ''}`}
+    title={name ? `Source ${n}: ${name}` : `Source ${n}`}
+    onClick={() => index.open(cite.ref, `cite-mark-${n}`)}>[{n}]</button>
+}
+
+/** `inline`, with every direct citation drawn as its number instead of as its
+ *  recorded characters. Handed to `Prose` as `inlineOf`, so a written briefing
+ *  keeps the one Markdown renderer Fluid has and gains nothing but readable
+ *  citations. The extracted citation form is untouched: `inline` already draws
+ *  it as its own chip, and the two shapes cannot match each other. */
+export function citedInline(index: CitationIndex | null): (src: string, key: string) => ReactNode[] {
+  if (!index) return inline
+  return (src, key) => {
+    const out: ReactNode[] = []
+    let at = 0, n = 0
+    for (const m of src.matchAll(DIRECT_CITE_IN_TEXT)) {
+      const cited = parseDirectCite(m[0])
+      if (!cited || index.numberOf(cited.ref) === null) continue
+      const start = m.index ?? 0
+      if (start > at) out.push(...inline(src.slice(at, start), `${key}-p${n}`))
+      out.push(<Cite key={`${key}-c${n++}`} cite={cited} index={index} />)
+      at = start + cited.said.length
+    }
+    if (at < src.length) out.push(...inline(src.slice(at), `${key}-p${n}`))
+    return out
+  }
+}
+
+/** WHAT EACH NUMBER STANDS FOR, as a list under the answer: the number, the
+ *  record's own title, and the accessible detail (what it came from, when it
+ *  was captured). Pressing one opens the captured record, which is where the
+ *  exact reference, digest and bounds are already disclosed. */
+export interface SourceNote {
+  n: number
+  ref: string
+  title: string
+  detail: string
+  /** Null where the collection shown does not hold the record, which is said
+   *  rather than guessed at. */
+  open: (() => void) | null
+}
+export const SOURCES_HEADING = 'Sources'
+export function SourceNotes({ notes }: { notes: SourceNote[] }) {
+  if (!notes.length) return null
+  return <div className="q2-magnet-sources">
+    <div className="mgd-eyebrow">{SOURCES_HEADING}</div>
+    <ol className="q2-magnet-source-list" aria-label="Sources this answer cites">
+      {notes.map((s) => <li key={s.ref} value={s.n}>
+        {s.open
+          ? <button type="button" className="mgd-link" id={`cite-source-${s.n}`} onClick={s.open}>{s.title}</button>
+          : <span>{s.title}</span>}
+        <span className="mgd-subtle"> · {s.detail}</span>
+      </li>)}
+    </ol>
+  </div>
 }
 
 export interface Statement {
@@ -214,13 +361,16 @@ export function statement(line: unknown): Statement {
   return lead.trim() && quote.trim() ? { lead, quote } : { lead: said, quote: null }
 }
 
-/** Words with their addresses as links. Only an `https://` match from the text
- *  itself ever reaches an `href`, so no other scheme can be written into one. */
+/** Words with their addresses as links and their citations as numbers. Only an
+ *  `https://` match from the text itself ever reaches an `href`, so no other
+ *  scheme can be written into one. */
 export function Linked({ text }: { text: string }) {
   return <>{linkPieces(text).map((piece, i) => 'url' in piece
     ? <a key={`l${i}`} className="q2-magnet-url" href={piece.url} title={piece.url}
       target="_blank" rel="noopener noreferrer">{shortLink(piece.url)}</a>
-    : <span key={`t${i}`}>{piece.text}</span>)}</>
+    : 'cite' in piece
+      ? <Cite key={`c${i}`} cite={piece.cite} />
+      : <span key={`t${i}`}>{piece.text}</span>)}</>
 }
 
 /** One statement of a recorded answer: what it says, then the record's own

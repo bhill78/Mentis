@@ -56,3 +56,37 @@
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+
+/* -- a numbered citation, and what it stands for ---------------------------- *
+   `[1]` sits in the line as a superior number, in the approved gold, taking no
+   more room than the two brackets it is. It is a press, so it is a button; it
+   must not change the line's height, which is why it carries no padding and a
+   smaller type size rather than a box. The Sources list under the answer is the
+   ordinary record list of this card -- the title in gold as a press, its detail
+   in the quiet ink the other subtitles use. */
+.q2-magnet-card .q2-magnet-cite {
+  display: inline;
+  margin: 0 0 0 1px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.78em;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: super;
+  color: #edc35d;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.q2-magnet-card .q2-magnet-cite:hover { color: #f6d47d; text-decoration: underline; }
+.q2-magnet-card .q2-magnet-cite:focus-visible { outline: 2px solid #e6bc50; outline-offset: 2px; border-radius: 3px; }
+
+.q2-magnet-card .q2-magnet-sources { margin: 16px 0 0; }
+.q2-magnet-card .q2-magnet-source-list {
+  margin: 4px 0 0;
+  padding: 0 0 0 20px;
+  line-height: 1.6;
+}
+.q2-magnet-card .q2-magnet-source-list li { margin: 0 0 3px; }
+.q2-magnet-card .q2-magnet-source-list li::marker { color: #9a8c85; }

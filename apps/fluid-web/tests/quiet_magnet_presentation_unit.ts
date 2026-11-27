@@ -35,13 +35,16 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import type { RouteResult } from '../src/fluid/surface/magnet/route'
 import Summary, {
-  BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_PART, CITED_PLACE_UNSHOWN,
-  CITED_ROW, CITED_ROWS, DATED_WHY,
-  NAMES_NOTHING_YET, WRITTEN_FROM,
-  answerLines, answerRecordCount, briefingGroups, citedPart, citedRows, collectionOverview, datedMaterial,
-  datedTable, isWrittenBriefing,
-  materialLead, namedSubjects, offeredQuestions, rowPublication, summaryFacts, worthTabulating,
+  BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_NOT_HELD, CITED_PART,
+  CITED_PLACE_UNSHOWN, CITED_ROW, CITED_ROWS, DATED_WHY,
+  WRITTEN_FROM,
+  answerLines, answerRecordCount, answerSources, briefingGroups, citedPart, citedRows,
+  collectionOverview, datedMaterial, datedTable, isWrittenBriefing,
+  materialLead, namedSubjects, offeredQuestions, readFrozenAnswer, rowPublication, summaryFacts,
+  unfused, withoutNarration, worthTabulating,
 } from '../src/quiet2/magnets/Summary'
+import { SOURCES_HEADING } from '../src/quiet2/magnets/links'
+import { adapt } from '../src/quiet2/real'
 import Inspection, { CapturedWords, NOTHING_BUT_A_HEADER } from '../src/quiet2/magnets/Inspection'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import type { InquiryEvent } from '../src/quiet2/magnets/perspectives'
@@ -963,4 +966,186 @@ test('the collection listing in an inspection names each row by its own words', 
   assert.ok(!rendered.includes('space-missions/aaa111111111'),
     'never the raw storage object key the row is stored under')
   assert.ok(!rendered.includes('Published: 2026'), 'and the provenance trailer is not its preview')
+})
+
+/* --- the answer, not the account of writing it ------------------------------
+   Owner `ent-bce57ba67f38`: "Summary and Perspectives should present
+   substantive, readable synthesized information, not agent narration,
+   collection history, execution details or internal instructions ... display
+   the final answer, not intermediate agent commentary."
+
+   The preamble below is the one the owner read, frozen verbatim into a written
+   briefing by `perspectives_work.finalize`. ------------------------------- */
+
+const PREAMBLE = "I'll read the frozen question, collection records, manifest, and evidence, then trace the briefing's claims back to the retained rows."
+const ANSWER_OPENS = 'The collection holds three records of space missions, all of them dated.'
+
+/* THE EXACT CHARACTERS TEST's RUNNING CANDIDATE HOLDS, read back from
+   GET /api/turns/ent-116c910c16c2 (the reply `finalize` froze for
+   mag-265878e92e5c987c's standing question on 20261126-94928a5): one text part
+   in which the agent's blocks are already fused, apostrophes curled. */
+const TEST_FROZEN = 'I’ll read the frozen question, collection records, manifest, and evidence, then trace the briefing’s claims to the exact retained sources.The collection combines a few full NASA articles with many search-result records that retain only headlines and metadata. That distinction matters: several reported discoveries and launch claims can be identified, but their underlying evidence is not present in the frozen rows.The collection’s strongest theme is **how observations become more useful when missions and methods complement one another**.'
+
+test('two sentences the record itself fused are separated, by the one space that is missing', () => {
+  assert.ok(unfused(TEST_FROZEN).includes('retained sources. The collection combines'))
+  assert.ok(unfused(TEST_FROZEN).includes('frozen rows. The collection’s strongest theme'))
+  assert.ok(!unfused(TEST_FROZEN).includes('sources.The'))
+  assert.equal(unfused(TEST_FROZEN).replace(/ /g, ''), TEST_FROZEN.replace(/ /g, ''),
+    'nothing but spaces is added: every other character is the recorded one')
+})
+
+test('ONLY A DEFECT IS REPAIRED, and source is never touched', () => {
+  for (const words of [
+    'Version 1.2Beta was the build.',                       // a decimal
+    'The U.S. Navy reported it.',                           // an abbreviation
+    'See example.com/Path for it.',                         // an address
+    'It is at x.ORG now.',                                  // not a sentence either side
+    'The call is `perspectives_work.Finalize` in Python.',   // inline code
+    '```\nconst a = b.Then(c)\n```',                        // a fenced block
+    '    const a = b.Then(c)',                              // an indented block
+    '| a.Then | b |',                                       // a table row keeps its shape
+  ]) assert.equal(unfused(words), words, JSON.stringify(words))
+})
+
+test('TEST’s own frozen answer is read as the answer, with its blocks apart', () => {
+  const read = withoutNarration(TEST_FROZEN)
+  assert.ok(read.startsWith('The collection combines a few full NASA articles'),
+    `the narrated sentence goes and the answer leads: ${read.slice(0, 90)}`)
+  assert.ok(!read.includes('I’ll read the frozen question'), 'no agent narration in what is drawn')
+  assert.ok(read.includes('frozen rows. The collection’s strongest theme'),
+    'and the fused sentences inside the answer are apart')
+})
+
+test('a frozen answer that opens by narrating the agent’s work is read from the answer', () => {
+  assert.equal(withoutNarration(`${PREAMBLE} ${ANSWER_OPENS}`), ANSWER_OPENS,
+    'the narrated sentence goes; the answer’s own first sentence leads')
+  assert.equal(withoutNarration(`${PREAMBLE}\n\n${ANSWER_OPENS}`), ANSWER_OPENS,
+    'a narrated paragraph of its own goes whole')
+  assert.equal(withoutNarration(`Okay, I will check each row first. Let me start there.\n\n${ANSWER_OPENS}`),
+    ANSWER_OPENS, 'two narrated sentences, and a filler in front of one, go together')
+})
+
+test('NOTHING BUT A LEADING NARRATION IS TOUCHED', () => {
+  for (const words of [
+    ANSWER_OPENS,
+    `## What this Magnet holds\n\n${ANSWER_OPENS}`,
+    'I found no record of a launch in this collection.',
+    `${ANSWER_OPENS}\n\nI'll note that two rows share a publisher.`,
+    '- I will check this\n- and this',
+    '> I will read the records first.',
+    '',
+  ]) assert.equal(withoutNarration(words), words, JSON.stringify(words))
+})
+
+test('an answer that is NOTHING but narration is shown as the answer it is', () => {
+  // Stripping to nothing would hand the owner an empty card and hide the
+  // defect; the words are what the record holds.
+  assert.equal(withoutNarration(PREAMBLE), PREAMBLE)
+  assert.equal(withoutNarration(`${PREAMBLE}\n\nLet me begin.`), `${PREAMBLE}\n\nLet me begin.`)
+})
+
+test('the frozen words of a run’s answer are read without its preamble', async () => {
+  const parts = [{ type: 'text', text: `${PREAMBLE}\n\n${ANSWER_OPENS}` }]
+  const body = new TextEncoder().encode(JSON.stringify({ parts }))
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))]
+    .map((n) => n.toString(16).padStart(2, '0')).join('')
+  const event = { post: 'ent-answer111', perspective: 'ent-topic111', kind: 'answered',
+    at: WHEN, data: { answer_post: 'ent-reply111', execution: 'exec-1',
+      answer: { ref: 'adm-frozen111111', digest, size: body.byteLength } },
+    snapshot: { ref: 'adm-frozen111111' } } as unknown as InquiryEvent
+  const was = globalThis.fetch
+  globalThis.fetch = (async () => ({ ok: true, arrayBuffer: async () => body.buffer })) as unknown as typeof fetch
+  try {
+    assert.equal(await readFrozenAnswer(event), ANSWER_OPENS,
+      'the package still verifies whole; what is READ is the answer')
+  } finally { globalThis.fetch = was }
+})
+
+/* --- a citation as a number, with its source named ------------------------- */
+
+const citeOf = (r: RouteResult) => String((r as unknown as { value: { citation: string } }).value.citation)
+
+test('the sources an answer cites are numbered from the rows the collection holds', () => {
+  const said = `The collection combines ${citeOf(ROWS[0])} and ${citeOf(ROWS[1])}, and returns to ${citeOf(ROWS[0])}.`
+  const opened: string[] = []
+  const notes = answerSources([said], ROWS, (id) => opened.push(id))
+  assert.deepEqual(notes.map((s) => s.n), [1, 2], 'one number per record, not per mention')
+  assert.equal(notes[0].title, 'Roman Space Telescope passes its final thermal test - NASA',
+    'named by the row’s own headline, through the mapping the statement citations already use')
+  assert.match(notes[0].detail, /example\.org/, 'with the site a reader recognises')
+  assert.match(notes[0].detail, /captured /, 'and when it was captured')
+  assert.doesNotMatch(notes.map((s) => `${s.title} ${s.detail}`).join(' '),
+    /adm-|[0-9a-f]{40}|space-missions\//,
+    'no reference, held-file key or digest in what the reader is shown')
+  notes[0].open?.()
+  assert.deepEqual(opened, [ROMAN], 'and the entry opens the captured record')
+})
+
+test('a cited record this collection does not hold is named, and nothing is substituted', () => {
+  const notes = answerSources(['It rests on adm-999999999999@999999999999[0:10].'], ROWS, () => {})
+  assert.equal(notes.length, 1)
+  assert.equal(notes[0].title, CITED_NOT_HELD)
+  assert.equal(notes[0].open, null)
+})
+
+test('A WRITTEN BRIEFING’S CITATIONS ARE NUMBERS, AND ITS SOURCES ARE LISTED', async () => {
+  store()
+  const r = resource('mag-pcite')
+  await r.read()
+  const words = [
+    '## What this Magnet has gathered',
+    '',
+    `Three missions are recorded. The Roman thermal test ${citeOf(ROWS[0])} and the Europa Clipper burn ${citeOf(ROWS[1])} are the two most recent.`,
+    '',
+    `The Artemis site selection ${citeOf(ROWS[2])} is the earliest of them.`,
+  ].join('\n')
+  const answer = { post: 'ent-answer222', perspective: 'ent-topic222', kind: 'answered', at: WHEN,
+    data: { text: words }, snapshot: { ref: 'adm-snap222222' } } as unknown as InquiryEvent
+  const rendered = html(createElement(Briefing, { resource: r, answer }))
+  const read = rendered.replace(/<[^>]*>/g, '')
+  assert.ok(isWrittenBriefing(words), 'this is the written-document case')
+  assert.match(rendered, /<h[1-6] class="pr-h/, 'drawn by the Markdown renderer Fluid already has')
+  for (const n of ['[1]', '[2]', '[3]']) assert.ok(rendered.includes(n), `${n}: ${rendered}`)
+  assert.doesNotMatch(read, /adm-|@aaaaaaaaaaaa|0:\d{3}|space-missions\//,
+    `no reference, digest, byte range or held-file key in what is read: ${read}`)
+  assert.ok(read.includes(SOURCES_HEADING), 'and what each number is, is said under the answer')
+  assert.ok(read.includes('Roman Space Telescope passes its final thermal test')
+    && read.includes('Artemis Programme names the Artemis III landing site'),
+  'each by the record’s own words')
+  assert.ok(rendered.includes('data-cite='), 'the recorded token is kept on the element it replaced')
+})
+
+/* --- two recorded blocks that met with no character between them ----------- */
+
+const adapted = (parts: unknown[]) => {
+  const turn = { id: 'ent-fuse1111111', author: 'ent-who1111111', author_alias: '@who',
+    at: WHEN, number: 3, parts } as unknown as Parameters<typeof adapt>[0]
+  const post = adapt(turn, 'ent-conv1111111', () => undefined)
+  const md = post.blocks.find((b) => b.kind === 'text') as { md: string } | undefined
+  return { md: md?.md ?? '', stored: post.text ?? '' }
+}
+
+test('two text parts that would fuse into one sentence are drawn as two blocks', () => {
+  const got = adapted([
+    { type: 'text', text: 'Each claim is traced to the exact retained sources.' },
+    { type: 'text', text: 'The collection combines a feed and a page.' },
+  ])
+  assert.ok(got.md.includes('sources.\n\nThe collection'),
+    `the two recorded blocks are two paragraphs: ${JSON.stringify(got.md)}`)
+  assert.ok(!got.md.includes('sources.The'), 'and never a sentence nobody wrote')
+  assert.equal(got.stored,
+    'Each claim is traced to the exact retained sources.The collection combines a feed and a page.',
+    'the STORED characters are untouched: the edit box compares and saves these')
+})
+
+test('nothing else about the join changes: a continued sentence, and an inline reference', () => {
+  assert.equal(adapted([{ type: 'text', text: 'The collection combines a feed ' },
+    { type: 'text', text: 'and a page.' }]).md,
+  'The collection combines a feed and a page.', 'a continued sentence is one sentence')
+  assert.equal(adapted([{ type: 'text', text: 'Recorded against ' },
+    { type: 'turn', text: 'ent-abc123abc123' }, { type: 'text', text: ' in that Conversation.' }]).md,
+  'Recorded against ent-abc123abc123 in that Conversation.', 'an inline reference stays inline')
+  assert.equal(adapted([{ type: 'text', text: 'It is done.' },
+    { type: 'text', text: ' Next it is read.' }]).md,
+  'It is done. Next it is read.', 'a part that already begins with a space needs nothing')
 })
