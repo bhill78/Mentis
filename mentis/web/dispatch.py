@@ -4000,6 +4000,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         retained.update(_attach_answer_forms(
             cv, instance.instance_id, answered, participant))
     said = (outcome.reported or "").strip()
+    #: What of the reply below Mentis itself added, rather than the run: set
+    #: where a claim is rendered onto the text (`appended`, just below).
+    appended = None
     # THE RUN'S OUTCOME CLAIM, if its final text ends with an ```outcome
     # block (`operational.completion`): taken out of the text, which then
     # carries a one-line rendering of it instead. Any scope may claim this
@@ -4027,8 +4030,18 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # Invalid blocks stay as written, with their diagnostic on the end.
         unclaimed = inspected["unclaimed"]
         if claimed is not None:
+            # WHERE MENTIS'S OWN WORDS BEGIN, measured and not guessed. The
+            # rendering below is appended by Mentis, so the reply this
+            # boundary writes is partly the run's text and partly Mentis's --
+            # and a surface drawing the answer had no way to tell which
+            # characters were which except by recognising the trailer's
+            # wording. `with_rendering` keeps the run's text first, rstripped,
+            # so its length is exactly where the run stopped speaking.
+            run_said = said_clean.rstrip() if said_clean.strip() else ""
             said = _completion.with_rendering(said_clean, claimed,
                                               cv.alias(participant))
+            appended = {"part": 0, "start": len(run_said), "end": len(said),
+                        "what": "outcome-claim"}
     # A RUN THAT ANSWERED AND THEN SAID NOTHING MORE HAS NOT FAILED. Reporting
     # nothing at exit used to be indistinguishable from returning nothing at
     # all, so a clean run whose whole answer went through `respond` was recorded
@@ -4159,7 +4172,18 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 caused_by=expectation,
                 because="this execution's answer to the request it carries",
                 detail={"answers_request": expectation, "answers_turn": turn,
-                        "run": started})
+                        "run": started,
+                        # WHICH CHARACTERS OF THIS REPLY THE RUN WROTE, where
+                        # Mentis added any of its own. Only what is measured:
+                        # the run's own text, and the span Mentis appended to
+                        # it. Where the agent's text begins to answer -- after
+                        # whatever it narrated first -- is the agent's own
+                        # business and is NOT claimed here; only a deliberate
+                        # answer (`respond`) draws that line, and a run that
+                        # used it never reaches this fallback.
+                        **({"said_span": {"part": 0, "start": 0,
+                                          "end": appended["start"]},
+                            "appended": [appended]} if appended else {})})
         # WHAT IN IT WILL NOT RENDER, ON THE RECORD. The run has exited, so
         # there is nobody to hand a tool result to: the check of the Turn just
         # written goes on the act below that records how the run ended, about

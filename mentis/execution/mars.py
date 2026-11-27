@@ -58,6 +58,13 @@ class _RunState:
     #: THIS RUN'S SEND, once its prompt has been handed over: what the first
     #: session update acknowledges (`execution.send`). None until then.
     boundary: SendBoundary | None = None
+    #: WHICH MESSAGE THE LAST TEXT CAME FROM (ACP `messageId`), and whether a
+    #: tool call has been seen since. Together they say where one block of the
+    #: agent's prose ends and the next begins (`block_break`). `said_text` is
+    #: False until the run's first text chunk, so the first block never breaks.
+    said_text: bool = False
+    said_message: str | None = None
+    tool_since_text: bool = False
 
 
 def shell_cwd(state: "_RunState", call_id: str | None) -> str | None:
@@ -70,6 +77,38 @@ def shell_cwd(state: "_RunState", call_id: str | None) -> str | None:
     if any(t.get("kind") == "execute" and i != call_id for i, t in state.tools.items()):
         return None
     return state.spec.workspace
+
+
+def block_break(state: "_RunState", update: Any, text: str) -> bool:
+    """Whether a new BLOCK of the agent's prose starts at `text`, so that it
+    needs a separator from what the run has said so far.
+
+    `agent_message_chunk` is sent both for the token deltas of one block being
+    streamed ("Hel", "lo") and for the start of a genuinely separate block --
+    the agent stops to call a tool and resumes writing afterwards. Joining the
+    deltas is right and joining the blocks is not: a block's text begins at a
+    sentence rather than at a space, so without a separator the last sentence
+    of one block and the first of the next meet with no character between them.
+
+    ACP names the boundary itself: every chunk of one message carries the same
+    `messageId`, and a change means a new message began. Where an agent sends
+    one, that is the whole answer and nothing is guessed. Where it sends none,
+    a tool call since the last text says the same thing less exactly, and is
+    used only then.
+
+    Either way a break is added ONLY where the two would meet with no space at
+    all. An agent that ended its block with a newline, or begins the next with
+    one, spaced its own prose and it is left exactly as written.
+    """
+    if not state.said_text or not text or not state.result.text:
+        return False                      # the run's first text breaks nothing
+    message = getattr(update, "message_id", None)
+    if message is not None or state.said_message is not None:
+        if message == state.said_message:
+            return False
+    elif not state.tool_since_text:
+        return False
+    return not state.result.text[-1].isspace() and not text[0].isspace()
 
 
 #: The heading of the block every dispatched prompt closes with
@@ -853,9 +892,19 @@ class MarsExecution:
                 content = getattr(update, "content", None)
                 if getattr(content, "type", None) == "text":
                     text = getattr(content, "text", "")
+                    if block_break(state, update, text):
+                        state.result.text += "\n\n"
                     state.result.text += text
+                    state.said_text = True
+                    state.said_message = getattr(update, "message_id", None)
+                    state.tool_since_text = False
                     data["text"] = text
             elif kind in ("tool_call", "tool_call_update"):
+                # A NEW CALL ENDS THE BLOCK OF PROSE BEFORE IT (`block_break`);
+                # an update to a call already made says nothing about the text,
+                # because one can arrive while the agent is still writing.
+                if kind == "tool_call":
+                    state.tool_since_text = True
                 # ITS PLACE IN THE RUN, read before `_meta` is dropped: the
                 # native worker it belongs to, or that it starts one.
                 data.update(self._record_tool(state, update))
