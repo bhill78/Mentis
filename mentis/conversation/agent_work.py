@@ -30,6 +30,27 @@ AND THEN ONLY WHEN IT IS ONE OF:
              nobody, replying to nothing, expecting nothing of anybody
              (`ui/src/surfaces/followups.ts` `stray`, the same rule)
 
+MECHANICS ARE THE ONE KIND THE OWNER'S OWN HAND DOES NOT KEEP VISIBLE
+(owner, 2026-11-27, ent-de11a0235181: a Magnet's Conversation showed dozens
+of "Perspective reconciled: reconciled" and "Extracted one page from this
+Magnet" posts instead of what it had found). A Magnet's collection and
+Perspective lifecycle are recorded as RECORD_ONLY posts whose author is
+whoever activated the Magnet -- usually the owner -- so the owner rule above
+would keep every one of them in the room forever. They are bookkeeping and
+nobody wrote them: the post's words are composed by Mentis from the act it
+carries (`mentis.magnet.activation._said`, `mentis.magnet.perspectives.event`).
+So a post carrying one of `MECHANICS_ACTS` is `mechanics`, folded like agent
+work behind the same control, WHOEVER its author is -- unless the owner has
+engaged with it (addressed, reacted, responded) or anything under it is not
+itself folded, which the rules above and the thread walk below already decide.
+
+ONE MECHANICS POST IS NOT BOOKKEEPING: a Perspective `answered` event whose
+data carries the answer's own words (the evolving summary and every grounded
+synthesis answer, `perspectives_work` line "answered") IS the substantive
+content the owner came to read, and is never folded. The dispatched-run
+variant of the same event carries no words -- the answer is its own visible
+post -- and folds.
+
 No owner on the record: nothing is agent work -- unknown, never hidden.
 A deep link to a post is the view's to honour: it reveals what it names.
 
@@ -50,6 +71,36 @@ MAX_DEPTH = 8
 #: an agent wrote it (`followups.ts` `byExecution`).
 UNATTRIBUTED = "unattributed-local-request"
 FORM_ACTS = ("decision-form", "decision-form-attached")
+#: A Magnet's own bookkeeping, told by the act the post carries. The words of
+#: such a post are Mentis's, not an author's.
+MAGNET_EXTRACTED = "magnet-extracted"
+PERSPECTIVE_EVENT = "magnet-perspective-event"
+MECHANICS_ACTS = (MAGNET_EXTRACTED, PERSPECTIVE_EVENT)
+
+
+def _is_mechanics(act) -> bool:
+    """Whether this act makes its post a Magnet's bookkeeping."""
+    if act["act"] == MAGNET_EXTRACTED:
+        return True
+    if act["act"] != PERSPECTIVE_EVENT:
+        return False
+    detail = act.get("detail") or {}
+    if detail.get("event") != "answered":
+        return True
+    # An answered event that carries the answer's own words is the content.
+    words = (detail.get("data") or {}).get("text")
+    return not (isinstance(words, str) and words.strip())
+
+
+def _why_of(acts) -> str:
+    """What this mechanics post is, in the record's own vocabulary."""
+    for a in acts:
+        if a["act"] == MAGNET_EXTRACTED:
+            return "collection: one page extracted"
+        if a["act"] == PERSPECTIVE_EVENT:
+            verb = (a.get("detail") or {}).get("event") or "event"
+            return f"Perspective {verb}"
+    return "Magnet bookkeeping"
 
 
 def _walk(corpus, roots) -> tuple[dict, set]:
@@ -110,14 +161,21 @@ def classify(cv, post_ids, owner) -> dict:
     def base(n):
         """`n` on its own -- nothing under it read: a kind, or None."""
         e = entries.get(n)
-        if e is None or e.get("attributed_to") == owner:
+        if e is None:
             return None
         mine = on.get(n, ())
         to_owner = owner in ((e.get("body") or {}).get("addressed_to") or ())
         addressed = to_owner or any(
             a["act"] == "turn-addressed" and owner in (a.get("about") or ())
             for a in mine)
-        if addressed or n in reacted or n in answered:
+        engaged = addressed or n in reacted or n in answered
+        # BEFORE THE AUTHOR IS READ: a Magnet's bookkeeping is Mentis's words
+        # under whatever author activated it, the owner included.
+        if not engaged and any(_is_mechanics(a) for a in mine):
+            return {"kind": "mechanics", "to": None, "why": _why_of(mine)}
+        if e.get("attributed_to") == owner:
+            return None
+        if engaged:
             return None
         if authors.get(parent.get(n)) == owner:
             return None
@@ -193,7 +251,8 @@ def classify(cv, post_ids, owner) -> dict:
         why = {"brief": f"brief to {to}" if to else "delegation brief",
                "result": f"result to {to}" if to else "result to an agent",
                "finding": "finding",
-               "follow-up": "follow-up"}[k["kind"]]
+               "follow-up": "follow-up",
+               "mechanics": k.get("why") or "Magnet bookkeeping"}[k["kind"]]
         out[n] = {"kind": k["kind"], "why": why, "to": k.get("to"),
                   "to_name": to}
     return out

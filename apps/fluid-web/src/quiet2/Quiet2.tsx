@@ -365,13 +365,15 @@ function useMe() {
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
    Settings. */
-function ConversationTools({ people, conversation, name, named, who, setWho, showWork, setShowWork, say, onRenamed, trashed, onNewInstruction, onOpenRecord }: {
+function ConversationTools({ people, conversation, name, named, who, setWho, showWork, setShowWork, foldedCount, say, onRenamed, trashed, onNewInstruction, onOpenRecord }: {
   people: Person[]; conversation: Id | null; name: string
   /** in Trash: no Rename here (restore it first) */
   trashed?: boolean
   /** the name to start a rename from: empty while it is still unnamed */
   named: string
   showWork: boolean; setShowWork: (on: boolean) => void
+  /** how many posts the fold holds in this conversation, for the control */
+  foldedCount?: number
   who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
   /** a rename was recorded: whatever shows the name reads it again */
   onRenamed: () => void
@@ -404,7 +406,13 @@ function ConversationTools({ people, conversation, name, named, who, setWho, sho
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></svg>
         <span>{who ? who.name.replace(/^@/, '') : `${people.length} participants`}</span>
       </button>
-      {conversation && <button type="button" aria-pressed={showWork} onClick={() => setShowWork(!showWork)} title="Show agent work in this conversation">Agent work</button>}
+      {/* ONE CONTROL FOR EVERYTHING THIS CONVERSATION FOLDS: agent-to-agent
+          work and a Magnet's own bookkeeping (collection pages, Perspective
+          lifecycle). It says how many are behind it, so an owner can tell a
+          quiet conversation from a folded one. */}
+      {conversation && <button type="button" aria-pressed={showWork} onClick={() => setShowWork(!showWork)}
+        title="Show the agent work and Magnet bookkeeping this conversation folds away">
+        {showWork ? 'Hide folded' : foldedCount ? `Folded (${foldedCount})` : 'Folded'}</button>}
       {conversation && !READ_ONLY && <button aria-expanded={open === 'instructions'} aria-haspopup="dialog" onClick={() => setOpen(open === 'instructions' ? null : 'instructions')}>
         <span aria-hidden="true">≡</span><span>Instructions</span>
       </button>}
@@ -1234,17 +1242,28 @@ function Quiet2Page() {
   const linked = at && realId ? heldIn(realId).find((p) => p.number === at) : undefined
   const linkedRoot = linked?.root ?? linked?.id
   const shown = (p: PostT) => showConversationPost(p, showWork, linkedRoot) && (!who || p.by.id === who.id || p.requestedBy?.id === who.id) && (!topic || !!p.topics?.includes(topic))
-  /* posts that do not match the filter fold into one quiet line per run */
-  const rows: ({ post: PostT } | { hidden: number; key: string })[] = []
+  /* posts that do not match the filter fold into one quiet line per run.
+     A line says WHICH fold holds them: the one the reader chose by person or
+     Topic, or the standing one over agent work and a Magnet's bookkeeping. */
+  const rows: ({ post: PostT } | { hidden: number; work: number; key: string })[] = []
   for (const id of top) {
     const p = postOf(id)
     if (!p) continue
     if (shown(p)) rows.push({ post: p })
     else {
+      const isWork = !!p.agentWork && !showWork && p.id !== linkedRoot
       const last = rows[rows.length - 1]
-      if (last && 'hidden' in last) last.hidden++; else rows.push({ hidden: 1, key: 'h-' + p.id })
+      if (last && 'hidden' in last) { last.hidden++; if (isWork) last.work++ }
+      else rows.push({ hidden: 1, work: isWork ? 1 : 0, key: 'h-' + p.id })
     }
   }
+  /* HOW MANY POSTS THE FOLD HOLDS, so the control says there is something
+     behind it: agent work and a Magnet's own bookkeeping, counted as they
+     would fold whether or not they are shown now. */
+  const foldedCount = top.reduce((n, id) => {
+    const p = postOf(id)
+    return n + (p && p.agentWork && p.id !== linkedRoot ? 1 : 0)
+  }, 0)
 
   /* THE PLACE A VIEW'S COMPOSER WRITES TO (Fluid keeps one draft per
      place): two composers on one place would share and overwrite a draft,
@@ -1979,7 +1998,7 @@ function Quiet2Page() {
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>}
         {conversationId && <ConversationState row={convRow} say={setNotice} />}
-        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} showWork={showWork} setShowWork={(on) => { if (conversationId) setShowsAgentWork(conversationId, on) }} say={setNotice} trashed={trashed}
+        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} showWork={showWork} setShowWork={(on) => { if (conversationId) setShowsAgentWork(conversationId, on) }} foldedCount={foldedCount} say={setNotice} trashed={trashed}
           onNewInstruction={() => setAuthorNew({ kind: 'conversation-instruction', conversation: conversationId ? { id: conversationId, name } : null })}
           onOpenRecord={(id) => enterBrain({ page: 'record', entry: id }, { from: 'link' })}
           named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />}
@@ -2004,8 +2023,14 @@ function Quiet2Page() {
               Read earlier posts</button> <span>{real.read?.older} earlier {real.read?.topic ? (real.read.older === 1 ? 'post' : 'posts') : (real.read?.older === 1 ? 'thread' : 'threads')}</span></p>
           )}
           {rows.map((r) => 'hidden' in r
-            ? <p key={r.key} className="q2-folded">{r.hidden} {r.hidden === 1 ? 'post' : 'posts'} folded by the filter</p>
-            : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
+            ? <p key={r.key} className="q2-folded">{r.hidden} {r.hidden === 1 ? 'post' : 'posts'} folded{r.work === r.hidden
+                ? <>: agent work and this Magnet&rsquo;s bookkeeping. <button className="q2-link" onClick={() => { if (conversationId) setShowsAgentWork(conversationId, true) }}>Show {r.work === 1 ? 'it' : 'them'}</button></>
+                : ' by the filter'}</p>
+            : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}>
+                {/* shown only because the reader asked for the fold, or
+                    followed a link into it: it says what it is */}
+                {r.post.agentWork && <p className="q2-folded">{r.post.agentWork.kind === 'mechanics' ? 'Mechanics' : 'Agent work'} · {r.post.agentWork.why}</p>}
+                <Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
       <Dock dockRef={dock} beside={deleted ? null : jump} closed={trashed && convRow ? <TrashedComposer row={convRow} say={setNotice} /> : deleted ? <DeletedComposer /> : undefined}

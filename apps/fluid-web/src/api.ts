@@ -317,7 +317,10 @@ export interface OwedHere {
 }
 
 export interface AgentWork {
-  kind: 'brief' | 'result' | 'finding' | 'follow-up'
+  /** `mechanics` is a Magnet's own bookkeeping -- a collection page extracted,
+   *  a Perspective created, prepared, bound or reconciled -- folded away with
+   *  agent work and under the same control, whoever its author is. */
+  kind: 'brief' | 'result' | 'finding' | 'follow-up' | 'mechanics'
   why: string
   to: Id | null
   to_name: string | null

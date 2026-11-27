@@ -24,7 +24,7 @@ import PostCard, { WorkStatusProvider } from './PostCard'
 import { drawnBy, filterOf, focused, inThread, pinsOf, setFilter, setFocused, setTopic, topicOf, useThreads } from './threads'
 import { useWorking } from './working'
 import WorkingLine from '../runs/WorkingLine'
-import { agentWhy, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWorkIn } from './agentWork'
+import { agentWhy, foldedLabel, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWorkIn } from './agentWork'
 import TimeSpent from '../../experimental/TimeSpent'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 import { CONVERSATION_ID } from '../focus/types'
@@ -684,9 +684,9 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
       {workShown > 0 && width !== 'rail' && (
         <div className="fx-agent-work-bar">
           <button className="fx-agent-work-toggle" aria-pressed={showWork}
-            title={showWork ? 'Fold away the posts agents wrote to each other' : 'Show the briefs, findings, results and follow-ups agents wrote to each other'}
+            title={showWork ? 'Fold away the posts agents wrote to each other and this Magnet’s own bookkeeping' : 'Show the briefs, findings, results and follow-ups agents wrote to each other, and a Magnet’s collection and Perspective bookkeeping'}
             onClick={() => setShowsAgentWork(id, !showWork)}>
-            {showWork ? `Hide agent work (${work.size})` : `Show ${folded.size} agent work ${folded.size === 1 ? 'post' : 'posts'}`}
+            {showWork ? `Hide folded posts (${work.size})` : `Show ${folded.size} folded ${folded.size === 1 ? 'post' : 'posts'}`}
           </button>
         </div>
       )}
@@ -704,7 +704,7 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
       <WorkStatusProvider conversation={id}>
         {shown.map((p) => work.has(p.id) ? (
           <div key={p.id} className="fx-agent-work" data-agent-work={store.posts.get(p.id)?.agent_work?.kind}>
-            <p className="fx-agent-work-why">Agent work · {agentWhy(p.id)}</p>
+            <p className="fx-agent-work-why">{foldedLabel(p.id)} · {agentWhy(p.id)}</p>
             <PostCard id={p.id} place={p} scroller={scroller} />
           </div>
         ) : <PostCard key={p.id} id={p.id} place={p} scroller={scroller} />)}

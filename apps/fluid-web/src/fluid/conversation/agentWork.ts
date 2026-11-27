@@ -48,3 +48,11 @@ export function useAgentWorkIn(ids: Id[]): Set<Id> {
 
 /** What the post says it is, for the line over its card while shown. */
 export const agentWhy = (id: Id) => store.posts.get(id)?.agent_work?.why ?? null
+
+/** Which kind of folded post this is, as the server classified it. */
+export const agentKind = (id: Id) => store.posts.get(id)?.agent_work?.kind ?? null
+
+/** WHAT THE LINE OVER A FOLDED CARD CALLS IT. A Magnet's bookkeeping is not
+ *  agent work -- nobody wrote it, Mentis composed it from the act the post
+ *  carries -- so it says so, while folding with it under one control. */
+export const foldedLabel = (id: Id) => agentKind(id) === 'mechanics' ? 'Mechanics' : 'Agent work'
