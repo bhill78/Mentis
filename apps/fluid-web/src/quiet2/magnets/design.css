@@ -210,16 +210,13 @@
 /* ---- conversation blocks (round 3) ------------------------------------ */
 
 .q2-magnet-card .mgd-chatbubble {
-  padding: 15px 17px;
-  background: #38302d;
-  border-radius: 10px;
+  padding: 10px 0 4px;
   line-height: 1.5;
-  margin: 12px 0;
 }
 .q2-magnet-card .mgd-answer {
   border-left: 2px solid #d6ad54;
-  padding: 2px 0 2px 17px;
-  line-height: 1.55;
+  padding: 10px 0 4px 15px;
+  line-height: 1.5;
 }
 .q2-magnet-card .mgd-compose {
   border: 1px solid #806e61;
