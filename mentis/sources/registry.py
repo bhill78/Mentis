@@ -497,6 +497,78 @@ class Sources:
     def __init__(self, corpus, cv):
         self.corpus, self.cv = corpus, cv
 
+    def worker_write(self, args, *, actor, written_by):
+        """The public-source subset of the existing registry, not authority.
+
+        /api/worker decides permission and supplies identity. Every acquisition
+        still confirms the connector's plan and uses its ordinary write path.
+        No binding, erasure, grant or caller-supplied identity is accepted.
+        """
+        actions = {
+            "preview": {"connector", "name", "include", "exclude", "options"},
+            "acquire": {"connector", "draft", "plan"},
+            "plan": {"collection", "within", "scope"},
+            "sweep": {"collection", "plan", "within", "scope", "because"},
+            "revise_scope": {"collection", "include", "exclude", "options", "because"},
+        }
+        action = args.get("action")
+        if not isinstance(action, str) or action not in actions:
+            raise Refused("choose preview, acquire, plan, sweep or revise_scope")
+        unknown = set(args) - actions[action] - {"action"}
+        if unknown:
+            raise Refused(f"{sorted(unknown)[0]!r} is not an argument of {action}")
+        for key in ("connector", "name", "collection", "draft", "plan", "within", "because"):
+            if key in args and (not isinstance(args[key], str) or not args[key].strip()):
+                raise Refused(f"{key} must be non-empty text")
+        for key in ("include", "exclude"):
+            if key in args and not (isinstance(args[key], list) and
+                                   all(isinstance(p, str) for p in args[key])):
+                raise Refused(f"{key} must be a list of text patterns")
+        if "scope" in args:
+            scope = args["scope"]
+            if not isinstance(scope, dict) or set(scope) - {"include", "exclude", "options"}:
+                raise Refused("scope takes only include, exclude and options")
+            for key in ("include", "exclude"):
+                if key in scope and not (isinstance(scope[key], list) and
+                                         all(isinstance(p, str) for p in scope[key])):
+                    raise Refused(f"scope.{key} must be a list of text patterns")
+        required = {
+            "preview": ("connector", "name"),
+            "acquire": ("connector", "draft", "plan"),
+            "plan": ("collection",), "sweep": ("collection", "plan"),
+            "revise_scope": ("collection", "include", "exclude"),
+        }
+        for key in required[action]:
+            if key not in args:
+                raise Refused(f"{action} needs {key}")
+        connector = (args["connector"] if action in ("preview", "acquire")
+                     else connector_of(self.corpus, args["collection"]))
+        if connector not in ("rss-atom", "web", "web-search"):
+            raise Refused("write_source takes only public network collections")
+        # Check malformed options even on a plan, before the connector can
+        # fetch anything. The connector owns URL, count and transport checks.
+        if "options" in args:
+            _options(connector, args["options"])
+            if not isinstance(args["options"], dict):
+                raise Refused("options must be an object")
+        if "scope" in args and "options" in args["scope"]:
+            if not isinstance(args["scope"]["options"], dict):
+                raise Refused("scope.options must be an object")
+            _options(connector, args["scope"]["options"])
+        fields = {k: v for k, v in args.items() if k != "action"}
+        if action == "preview":
+            return self.preview_new(**fields)
+        if action == "acquire":
+            return self.acquire_new(fields["draft"], fields["plan"],
+                                    connector=connector, actor=actor,
+                                    written_by=written_by)
+        if action == "plan":
+            return self.plan(**fields)
+        if action == "sweep":
+            fields["plan_id"] = fields.pop("plan")
+            return self.sweep(**fields, actor=actor, written_by=written_by)
+        return self.revise_scope(**fields, by=actor, written_by=written_by)
+
     # -- what there is ------------------------------------------------------
     def descriptors(self):
         return descriptors()

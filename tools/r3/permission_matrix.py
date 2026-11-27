@@ -44,7 +44,7 @@ NAMES = list(OPERATIONS) + list(SESSION_ACTS) + ["", "no_such_op", "it's_an_op",
 def _grants() -> list[list[str] | None]:
     subsets = [list(chosen) for size in range(len(AUTHORITY) + 1)
                for chosen in itertools.combinations(AUTHORITY, size)]
-    assert len(subsets) == 64
+    assert len(subsets) == 2 ** len(AUTHORITY)
     # `[]` is both its own row in the document's table and the empty subset. It is one shape.
     return [None, *subsets, ["delegate"], ["resolve_intake"], ["deep_dive"], ["no_such_operation"]]
 

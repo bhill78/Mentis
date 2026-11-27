@@ -43,7 +43,7 @@ fn every_shape_permits_what_python_permits_in_python_s_order() {
     let matrix = matrix();
     let results = matrix["results"].as_array().unwrap();
     let shapes = matrix["shapes"].as_array().unwrap();
-    assert_eq!(shapes.len(), 10 * (1 + 64 + 4));
+    assert_eq!(shapes.len(), 10 * (1 + 128 + 4));
     for shape in shapes {
         let scope = shape["scope"].as_str();
         let operations = operations_of(shape);

@@ -63,12 +63,13 @@ const HANDS_OFF: [&str; 1] = ["delegate"];
 const RESOURCES: [&str; 3] = ["claim_resource", "release_resource", "resources"];
 
 /// `worker.ORGANISES`.
-const ORGANISES: [&str; 5] = [
+const ORGANISES: [&str; 6] = [
     "open_topic",
     "open_conversation",
     "summon_participant",
     "propose_material",
     "respond",
+    "write_source",
 ];
 
 /// `worker.DEEP_DIVE`, `RESUME_INTAKE`, `ATTACH_FOLLOW_UP`, `COORDINATE`.

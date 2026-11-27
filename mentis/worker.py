@@ -239,8 +239,10 @@ ASKS = ("request_decision", "request_input", "answer", "timer",
 #: honest path honest, and a run that follows the interface cannot fan out. It
 #: is not a wall. The wall does not exist -- see the `_api` docstring in
 #: `mentis/web/__init__.py` for why, and what it would cost to build one.
+# Public source preparation/acquisition joins only this grant-controlled set
+# (owner ent-bafd3112a474). It is not a default worker or Magnet capability.
 ORGANISES = ("open_topic", "open_conversation", "summon_participant",
-             "propose_material", "respond")
+             "propose_material", "respond", "write_source")
 
 #: HANDING WORK ON IS NOT ORGANISING. Every dispatched execution may hand
 #: work outside its role to the Participant whose role it is. It does not
@@ -446,7 +448,7 @@ SESSION_ACTS = ("record_request", "record_outcome", "take_up", "contribute")
 #: one it is refused, said as a `coordination` refusal naming `record_request`.
 #: Narrows, never widens: each was admitted before without `under`.
 SESSION_COORDINATION = ("delegate", "summon_participant", "attach_follow_up",
-                        "change_workflow", RESUME_INTAKE)
+                        "change_workflow", RESUME_INTAKE, "write_source")
 
 #: Every op a session may name `under` for: the coordinating ones, and those
 #: whose lineage needs carried work.
@@ -3658,6 +3660,36 @@ def _write_decision_form(cv, args, *, actor, parent, here, wrote, act, where,
 #: a cause or a `written_by`, because the server derives all four from the grant.
 ACT_TOOLS = [
     {
+        "name": "write_source",
+        "description": (
+            "Prepare or acquire public network sources through the existing "
+            "source registry. Requires write_source in the request's authority. "
+            "Preview a new rss-atom, web or web-search collection, then acquire "
+            "with its returned draft, connector and plan. For an existing "
+            "collection, plan then sweep with the returned plan; optional scope "
+            "is confirmed with that plan. revise_scope appends a revision "
+            "without acquisition. No local binding, deletion or Magnet change. "
+            "Fetch bounds, refusals and changed-plan checks remain in force. "
+            "Use a new op_key for a fresh preview or refresh; resend a lost "
+            "answer with the same key."),
+        "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": [
+                "preview", "acquire", "plan", "sweep", "revise_scope"]},
+            "connector": {"type": "string", "enum": [
+                "rss-atom", "web", "web-search"]},
+            "name": {"type": "string"},
+            "collection": {"type": "string"},
+            "draft": {"type": "string"},
+            "plan": {"type": "string"},
+            "include": {"type": "array", "items": {"type": "string"}},
+            "exclude": {"type": "array", "items": {"type": "string"}},
+            "options": {"type": "object"},
+            "scope": {"type": "object"},
+            "within": {"type": "string"},
+            "because": {"type": "string"},
+        }, "required": ["action"]},
+    },
+    {
         "name": "record_request",
         "description": (
             "Record the request for work begun in this hand-started session: "
@@ -5835,6 +5867,24 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                       "the work to the owner instead"],
             who="the owner, by asking for the work (a recorded request "
                 "carries `coordinate` for this session)")
+
+    if name == "write_source":
+        from mentis import api
+        from mentis.sources import Refused
+        # The door already checked permitted; identities come only from its
+        # live grant, never from source-operation arguments.
+        try:
+            return api.sources(surface.corpus).worker_write(
+                {k: v for k, v in args.items()
+                 if k not in ("under", "authorized_by", "op_key")},
+                actor=actor, written_by=wrote)
+        except Refused as exc:
+            # Raise through the keyed transaction: refusals cannot leave an
+            # operation key or a partly declared collection behind.
+            raise NotPermitted(
+                op=name, boundary="validation", why=str(exc),
+                recovery=["correct the source request or return the refusal"]
+            ) from exc
 
     def _act(act, **kw):
         kw.setdefault("caused_by", parent)

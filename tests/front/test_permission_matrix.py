@@ -23,7 +23,7 @@ def test_it_parses_and_covers_every_axis():
         "no-such-scope", "it's a scope", "scöpe"}
     grants = [s["operations"] for s in shapes if s["scope"] == "worker"]
     assert None in grants and [] in grants
-    assert len(grants) == 1 + 64 + 4
+    assert len(grants) == 1 + 2 ** len(worker.AUTHORITY) + 4
     assert set(worker.OPERATIONS) | set(worker.SESSION_ACTS) <= set(held["names"])
 
 

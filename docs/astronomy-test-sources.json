@@ -1,0 +1,60 @@
+{
+  "status": "prepared; no TEST writes performed",
+  "server": "http://127.0.0.1:8780",
+  "magnet": "mag-265878e92e5c987c",
+  "evidence": "adm-1158d2e00ad8",
+  "authority": {
+    "route": "/api/worker",
+    "operation": "write_source",
+    "scope": "organising",
+    "required_operation": "write_source"
+  },
+  "previews": [
+    {
+      "label": "NASA ongoing publisher feed",
+      "args": {
+        "action": "preview",
+        "connector": "rss-atom",
+        "name": "NASA published news - ongoing discovery",
+        "include": ["*"],
+        "exclude": [],
+        "options": {"feeds": ["https://www.nasa.gov/news-release/feed/"], "since": ""}
+      }
+    },
+    {
+      "label": "ESA selected astronomy article; static evidence",
+      "args": {
+        "action": "preview",
+        "connector": "web",
+        "name": "Astronomy - selected ESA Euclid evidence",
+        "include": ["*"],
+        "exclude": [],
+        "options": {
+          "urls": ["https://www.esa.int/articles/about-us/directorates/science/euclid/euclid-breaks-own-quasar-record-by-40-million-years"],
+          "depth": 0
+        }
+      }
+    },
+    {
+      "label": "Universe Today selected astronomy article; static evidence",
+      "args": {
+        "action": "preview",
+        "connector": "web",
+        "name": "Astronomy - selected Milky Way simulation evidence",
+        "include": ["*"],
+        "exclude": [],
+        "options": {
+          "urls": ["https://www.universetoday.com/articles/ai-helps-three-powerful-supercomputers-simulate-the-milky-way-in-extraordinary-detail"],
+          "depth": 0
+        }
+      }
+    }
+  ],
+  "preserve_source": {"kind": "file", "collection": "col-fea202869d76"},
+  "append_source_shape": {"kind": "file", "collection": "<actual collection returned by acquire>"},
+  "preserve_collection": {"mode": "scheduled", "schedule": "PT6H"},
+  "do_not_acquire": [
+    {"url": "https://astrobites.org/feed/", "reason": "HTTP 403 in completed public spike"},
+    {"url": "https://aasnova.org/feed/", "reason": "exceeds existing 1048576-byte feed response cap"}
+  ]
+}
