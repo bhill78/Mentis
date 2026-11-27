@@ -1050,16 +1050,28 @@ function withoutNarratedSentences(para: string): string {
   return rest
 }
 
+/** THE OUTCOME TRAILER MENTIS APPENDS TO A RUN'S REPLY, recognised by the
+ *  parenthetical it always closes with. It is the run's recorded claim and its
+ *  evidence references -- execution detail about the work, not the answer to
+ *  the question -- and the owner named exactly that among what should not be
+ *  on these surfaces. It is the last paragraph of the frozen reply, it is
+ *  still in the record, and "View the recorded answer" still opens the whole
+ *  of what was frozen. */
+const CLAIM_TRAILER = /\n[ \t]*\n[^\n]*\(the agent's claim; what Mentis recorded is shown with the work\)[ \t]*$/
+
 /** A RECORDED ANSWER'S OWN WORDS, with a leading narration of the agent's work
- *  left out of what is drawn. Returns the input unchanged where there is no
- *  such preamble, and where taking it out would leave nothing.
+ *  and a trailing claim trailer left out of what is drawn. Returns the input
+ *  unchanged where there is neither, and where taking one out would leave
+ *  nothing.
  *
  *  The fused sentences are separated first (`unfused`): on TEST's own answer
  *  the narrated sentence and the answer's first sentence are ONE run of
  *  characters with no space between them, so until the space is there the end
  *  of the narration cannot be found at all. */
 export function withoutNarration(words: unknown): string {
-  const src = unfused(words)
+  const whole = unfused(words)
+  const cut = whole.replace(CLAIM_TRAILER, '')
+  const src = cut.trim() ? cut : whole
   if (!src.trim()) return src
   let rest = src.replace(/^\s+/, '')
   for (;;) {
@@ -1748,7 +1760,12 @@ export function briefingGroups(lines: AnswerLine[]): BriefingGroup[] {
  *  reads the document, with citations drawn inside its running text by
  *  `citedInline` -- nothing of the Markdown reader is edited or replaced. */
 export function Briefing({ resource, answer }: { resource: MagnetResource; answer: InquiryEvent | null }) {
-  const words = answerText(answer)
+  /* READ, not merely fetched. `readFrozenAnswer` already reads an answer whose
+     words come out of its frozen package; an answer that recorded its words on
+     the event reaches this surface without passing through it, so the same
+     reading is applied here. Both are idempotent, so an answer that came the
+     other way is unchanged by it. */
+  const words = withoutNarration(answerText(answer))
   if (!words) return null
   const lines = answerLines(answer)
   /* THE WHOLE ANSWER IS NUMBERED ONCE, so a record cited in the first

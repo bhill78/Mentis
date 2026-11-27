@@ -318,22 +318,34 @@ const visible = (markup: string) => markup.replace(/<[^>]*>/g, '')
 test('a direct citation is read as a citation, and the brackets around it with it', () => {
   const said = `The collection combines [${CITED}] and the feed rows under it.`
   const pieces = linkPieces(said)
-  assert.deepEqual(pieces.filter((p) => 'cite' in p).map((p) => ('cite' in p ? p.cite.ref : '')),
-    ['adm-e3d8cae2cb43'])
-  const cited = pieces.find((p) => 'cite' in p)
-  assert.ok(cited && 'cite' in cited)
-  assert.equal(cited.cite.said, `[${CITED}]`,
+  const cited = pieces.find((p) => 'cites' in p)
+  assert.ok(cited && 'cites' in cited)
+  assert.deepEqual(cited.cites.map((c) => c.ref), ['adm-e3d8cae2cb43'])
+  assert.equal(cited.said, `[${CITED}]`,
     'the brackets the agent wrote around it are taken in, so its number is not drawn inside a second pair')
-  assert.equal(cited.cite.source12, 'a79673349571')
-  assert.deepEqual([cited.cite.start, cited.cite.end], [0, 7631])
+  assert.equal(cited.cites[0].source12, 'a79673349571')
+  assert.deepEqual([cited.cites[0].start, cited.cites[0].end], [0, 7631])
   assert.equal(pieces.map(saidIn).join(''), said,
     'lossless: the recorded characters are all still accounted for')
+})
+
+test('A BRACKETED GROUP OF CITATIONS IS ONE RUN, brackets and separators with it', () => {
+  // The shape the owner's own answer uses:
+  // "[adm-a0dc…@ead7…[0:757]; adm-d364…@c2ec…[0:837]]". Matching each citation
+  // alone left the group's `[` and `]` stranded around the numbers.
+  const said = `They do not establish a timeline. [${CITED}; ${CITED_B}]`
+  const pieces = linkPieces(said)
+  const run = pieces.find((p) => 'cites' in p)
+  assert.ok(run && 'cites' in run)
+  assert.deepEqual(run.cites.map((c) => c.ref), ['adm-e3d8cae2cb43', 'adm-aaa111111111'])
+  assert.equal(run.said, `[${CITED}; ${CITED_B}]`, 'the whole run, brackets and separator included')
+  assert.equal(pieces.map(saidIn).join(''), said)
 })
 
 test('a bare direct citation is read too, and loses no character', () => {
   const said = `Two rows agree on the launch window ${CITED} and nothing outside them was read.`
   const pieces = linkPieces(said)
-  assert.equal(pieces.filter((p) => 'cite' in p).length, 1)
+  assert.equal(pieces.filter((p) => 'cites' in p).length, 1)
   assert.equal(pieces.map(saidIn).join(''), said)
 })
 
@@ -341,7 +353,7 @@ test('AN EXTRACTED CITATION KEEPS EXACTLY WHAT IT HAD: the two shapes are disjoi
   // `refid.ts` draws this one as its own chip through `Prose`. Nothing here may
   // take it, or that chip is lost.
   const extracted = 'adm-e3d8cae2cb43@a79673349571~text.plain@1+0123456789ab/fedcba987654[0:12]{char/1:7}'
-  assert.deepEqual(linkPieces(`See ${extracted} for it.`).filter((p) => 'cite' in p), [],
+  assert.deepEqual(linkPieces(`See ${extracted} for it.`).filter((p) => 'cites' in p), [],
     'the extracted form is not a direct citation')
 })
 
@@ -353,7 +365,7 @@ test('a token that is not a citation is not made into one', () => {
     'adm-e3d8cae2cb43@a79673349571',           // no range at all
     'ent-e3d8cae2cb43@a79673349571[0:12]',     // not a held reference
   ]) {
-    assert.deepEqual(linkPieces(said).filter((p) => 'cite' in p), [], said)
+    assert.deepEqual(linkPieces(said).filter((p) => 'cites' in p), [], said)
     assert.equal(linkPieces(said).map(saidIn).join(''), said, said)
   }
 })

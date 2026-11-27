@@ -114,6 +114,33 @@ const DIRECT_BODY = String.raw`adm-[0-9a-f]{8,}@[0-9a-f]{12}\[` + NUM + ':' + NU
 export const DIRECT_CITE_IN_TEXT = new RegExp(
   String.raw`(?<![\w/-])\[` + DIRECT_BODY + String.raw`\]|(?<![\w/-])` + DIRECT_BODY, 'g')
 
+/** A RUN OF CITATIONS AS AN AGENT ACTUALLY WRITES ONE: a bracketed group
+ *  separated by `;` or `,` --
+ *  `[adm-a0dc…@ead7…[0:757]; adm-d364…@c2ec…[0:837]]` -- or a single citation,
+ *  bracketed or bare. Read as one run so the brackets and the separators are
+ *  consumed with it; matching each citation on its own left the group's own
+ *  `[` and `]` stranded around the numbers that replaced them. */
+export const DIRECT_CITE_RUN_IN_TEXT = new RegExp(
+  String.raw`(?<![\w/-])\[\s*` + DIRECT_BODY +
+  String.raw`(?:\s*[;,]\s*` + DIRECT_BODY + String.raw`)*\s*\]` +
+  String.raw`|(?<![\w/-])` + DIRECT_BODY +
+  String.raw`(?:\s*[;,]\s*` + DIRECT_BODY + String.raw`)*`, 'g')
+
+/** Every citation in one such run, in order; `[]` for anything that is not
+ *  one. The run's own `said` is kept on each, so the characters it stood for
+ *  can be carried on the element that replaced it. */
+export function parseCiteRun(s: string): DirectCite[] {
+  const said = typeof s === 'string' ? s : ''
+  const inner = /^\[([\s\S]*)\]$/.exec(said.trim())?.[1] ?? said
+  const out: DirectCite[] = []
+  for (const part of inner.split(/\s*[;,]\s*/)) {
+    const one = parseDirectCite(part.trim())
+    if (!one) return []
+    out.push({ ...one, said })
+  }
+  return out
+}
+
 export interface DirectCite {
   ref: string
   source12: string

@@ -29,7 +29,7 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { inline } from '../../prose'
-import { DIRECT_CITE_IN_TEXT, parseDirectCite, type DirectCite } from '../../refid'
+import { DIRECT_CITE_RUN_IN_TEXT, parseCiteRun, type DirectCite } from '../../refid'
 import './links.css'
 
 const object = (v: unknown): Record<string, any> =>
@@ -157,7 +157,7 @@ export function shortLink(url: string, most = 48): string {
   return room > 1 ? `${host}${path.slice(0, room)}…` : `${host}…`
 }
 
-export type Piece = { text: string } | { url: string } | { cite: DirectCite }
+export type Piece = { text: string } | { url: string } | { cites: DirectCite[]; said: string }
 
 /** An https address Mentis wrote into a statement. Bounded away from the
  *  quotation marks the answers are written with (`“ ”`) and from brackets, so
@@ -167,11 +167,11 @@ const IN_PROSE = /https:\/\/[^\s<>"'“”(){}[\]]+/g
 
 /** The characters one piece stands for -- what makes `linkPieces` lossless
  *  whatever kind of piece it produced. */
-export const saidIn = (p: Piece): string => 'url' in p ? p.url : 'cite' in p ? p.cite.said : p.text
+export const saidIn = (p: Piece): string => 'url' in p ? p.url : 'cites' in p ? p.said : p.text
 
 /** Addresses and direct citations, in one scan, so neither is found inside the
  *  other's characters. */
-const IN_PROSE_OR_CITED = new RegExp(`${DIRECT_CITE_IN_TEXT.source}|${IN_PROSE.source}`, 'g')
+const IN_PROSE_OR_CITED = new RegExp(`${DIRECT_CITE_RUN_IN_TEXT.source}|${IN_PROSE.source}`, 'g')
 
 /** A recorded statement split into its words, the addresses in it and the
  *  citations in it. Pure, and lossless: every character of the input comes back
@@ -190,8 +190,8 @@ export function linkPieces(text: unknown): Piece[] {
     if (start < at) continue
     /* A CITATION IS PROVENANCE, NOT WORDS. Its reference, digest and byte
        range are kept on the piece and never drawn as running text. */
-    const cited = parseDirectCite(match[0])
-    if (cited) { take(start, { cite: cited }, cited.said.length); continue }
+    const cited = parseCiteRun(match[0])
+    if (cited.length) { take(start, { cites: cited, said: match[0] }, match[0].length); continue }
     // A full stop, comma or colon after an address belongs to the sentence, not
     // to the address.
     const url = match[0].replace(/[.,;:!?)\]]+$/, '')
@@ -259,29 +259,34 @@ export const Citations = createContext<CitationIndex | null>(null)
 export function citedRefs(texts: string[]): string[] {
   const out: string[] = [], seen = new Set<string>()
   for (const said of texts)
-    for (const m of String(said ?? '').matchAll(DIRECT_CITE_IN_TEXT)) {
-      const cited = parseDirectCite(m[0])
-      if (!cited || seen.has(cited.ref)) continue
-      seen.add(cited.ref)
-      out.push(cited.ref)
-    }
+    for (const m of String(said ?? '').matchAll(DIRECT_CITE_RUN_IN_TEXT))
+      for (const cited of parseCiteRun(m[0])) {
+        if (seen.has(cited.ref)) continue
+        seen.add(cited.ref)
+        out.push(cited.ref)
+      }
   return out
 }
 
-/** One numbered citation, or the recorded token where it cannot be numbered.
- *  The index is the one around this text (`Citations`), or the one the caller
- *  names -- `citedInline` hands prose its own, because it has already decided
- *  with it which tokens it is replacing. */
-export function Cite({ cite, index: named }: { cite: DirectCite; index?: CitationIndex | null }) {
+/** ONE RUN OF CITATIONS, drawn as its numbers -- or the characters that were
+ *  recorded, where this surface cannot number them. The index is the one
+ *  around this text (`Citations`), or the one the caller names: `citedInline`
+ *  hands prose its own, because it has already decided with it which runs it
+ *  is replacing. */
+export function Cite({ cites, said, index: named }:
+  { cites: DirectCite[]; said: string; index?: CitationIndex | null }) {
   const around = useContext(Citations)
   const index = named ?? around
-  const n = index?.numberOf(cite.ref) ?? null
-  if (!index || n === null) return <>{cite.said}</>
-  const name = index.nameOf(cite.ref)
-  return <button type="button" className="q2-magnet-cite" data-cite={cite.said}
-    id={`cite-mark-${n}`} aria-label={`Source ${n}${name ? `: ${name}` : ''}`}
-    title={name ? `Source ${n}: ${name}` : `Source ${n}`}
-    onClick={() => index.open(cite.ref, `cite-mark-${n}`)}>[{n}]</button>
+  const numbers = index ? cites.map((c) => index.numberOf(c.ref)) : []
+  if (!index || numbers.some((n) => n === null)) return <>{said}</>
+  return <span className="q2-magnet-cites" data-cite={said}>{cites.map((c, i) => {
+    const n = numbers[i] as number
+    const name = index.nameOf(c.ref)
+    return <button key={c.ref} type="button" className="q2-magnet-cite"
+      id={`cite-mark-${n}`} aria-label={`Source ${n}${name ? `: ${name}` : ''}`}
+      title={name ? `Source ${n}: ${name}` : `Source ${n}`}
+      onClick={() => index.open(c.ref, `cite-mark-${n}`)}>[{n}]</button>
+  })}</span>
 }
 
 /** `inline`, with every direct citation drawn as its number instead of as its
@@ -294,13 +299,14 @@ export function citedInline(index: CitationIndex | null): (src: string, key: str
   return (src, key) => {
     const out: ReactNode[] = []
     let at = 0, n = 0
-    for (const m of src.matchAll(DIRECT_CITE_IN_TEXT)) {
-      const cited = parseDirectCite(m[0])
-      if (!cited || index.numberOf(cited.ref) === null) continue
+    for (const m of src.matchAll(DIRECT_CITE_RUN_IN_TEXT)) {
+      const cited = parseCiteRun(m[0])
+      if (!cited.length || cited.some((c) => index.numberOf(c.ref) === null)) continue
       const start = m.index ?? 0
+      if (start < at) continue
       if (start > at) out.push(...inline(src.slice(at, start), `${key}-p${n}`))
-      out.push(<Cite key={`${key}-c${n++}`} cite={cited} index={index} />)
-      at = start + cited.said.length
+      out.push(<Cite key={`${key}-c${n++}`} cites={cited} said={m[0]} index={index} />)
+      at = start + m[0].length
     }
     if (at < src.length) out.push(...inline(src.slice(at), `${key}-p${n}`))
     return out
@@ -368,8 +374,8 @@ export function Linked({ text }: { text: string }) {
   return <>{linkPieces(text).map((piece, i) => 'url' in piece
     ? <a key={`l${i}`} className="q2-magnet-url" href={piece.url} title={piece.url}
       target="_blank" rel="noopener noreferrer">{shortLink(piece.url)}</a>
-    : 'cite' in piece
-      ? <Cite key={`c${i}`} cite={piece.cite} />
+    : 'cites' in piece
+      ? <Cite key={`c${i}`} cites={piece.cites} said={piece.said} />
       : <span key={`t${i}`}>{piece.text}</span>)}</>
 }
 
