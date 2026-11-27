@@ -19,7 +19,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==8.4.2", "pytest-xdist==3.8.0", "playwright==1.61.0"]
+dev = ["pytest==8.4.2", "playwright==1.61.0"]
+# The test venv only (never the runtime venv the environments run from): parallel runs.
+test = ["pytest-xdist==3.8.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["mentis"]
@@ -32,5 +34,5 @@ markers = [
     "brain: reads a copy of a real Brain named by MENTIS_TEST_BRAIN",
     "installer: install, update, rollback and Brain-preservation lifecycle (real processes) and the real installer build; specialized, opt in with -m installer when tools/installer or migrations change",
 ]
-# Ordinary development verification: parallel, one file per worker. `-n 0` for a single targeted test.
-addopts = "-m 'not live and not installer' -p no:cacheprovider -n 8 --dist loadfile"
+# Ordinary development verification: parallel when pytest-xdist is installed (tests/parallel_default.py).
+addopts = "-m 'not live and not installer' -p no:cacheprovider -p tests.parallel_default"

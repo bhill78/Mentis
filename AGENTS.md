@@ -150,9 +150,14 @@ The destination is a fully Rust-owned backend, with the Brain unchanged and MARS
 - **Testing** (owner, 2026-11-27):
   - While developing, run the tests for what you changed (`pytest tests/test_x.py -n 0`), plus
     the execution-boundary tests when touching dispatch or `mentis.execution`.
-  - Before integrating, and as a release's tests gate, run the ordinary suite: plain `pytest`. It
-    runs in parallel by default and takes about 4 minutes. It stops at once if the UI build or the
-    UI's node modules are missing.
+  - Before integrating, and as a release's tests gate, run the ordinary suite with plain `pytest`
+    from the test venv (`C:\Work\Mentis-test-venv`, the runtime's packages plus pytest-xdist; see
+    `tools/env/README.md`). It runs in parallel by default and takes about 4 minutes. It stops at
+    once if the UI build or the UI's node modules are missing.
+    - Never install test-only packages into `C:\Work\Mentis\.venv`: DAY-TO-DAY and TEST run
+      from it, and the release tool treats a change there as an unverified runtime.
+    - Load-sensitive under parallel runs; rerun alone before treating a failure as real:
+      `test_result_destinations_scaling`.
   - Specialized tiers are opt-in:
     - `-m installer`: the install/update/rollback lifecycle. Run it when `tools/installer` or a
       Brain migration changes.
