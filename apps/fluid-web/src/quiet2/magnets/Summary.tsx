@@ -723,14 +723,13 @@ export function askOrdinaryQuestion(resource: MagnetResource, question: string):
    where the shared hand-off belongs is noted as a seam for the owner of those
    files. */
 
-/** THE WORDING FROZEN FOR THE RUN, and so the instruction it answers. It opens
- *  with this Magnet's standing question verbatim -- the question whose answer
- *  the Summary shows, and the one `bind` checks the sent Turn begins with --
- *  and then says, in the owner's own words from #1017, what kind of answer is
- *  wanted. It is a wording of that same kept question, recorded as one: the
- *  earlier wordings stay readable under it. */
-export const BRIEFING_ASK = `${STANDING_QUESTION} Write the answer as a research briefing: the meaningful themes running through the collected records, the noteworthy discoveries and developments they report, what those imply, and the interesting avenues they leave worth exploring. Ground every statement in the attached collected records and cite the exact ones each statement is written from. Counts and collection statistics are secondary; put them last or leave them out.`
+/** Answer instructions travel in the asking Turn, separately from the saved
+ *  question. Refreshing an answer must preserve that question's exact bytes. */
+export const BRIEFING_INSTRUCTIONS = 'Write the answer as a research briefing: the meaningful themes running through the collected records, the noteworthy discoveries and developments they report, what those imply, and the interesting avenues they leave worth exploring. Write publication prose with Markdown headings and lists where the content warrants them. Begin with the substantive answer; omit first-person process narration and closing work reports. Ground every statement in the attached collected records and cite the exact ones each statement is written from, using the attached evidence citation tokens that the reader renders as numbered inline markers with accessible provenance. Counts and collection statistics are secondary; put them last or leave them out.'
+export const BRIEFING_ASK = `${STANDING_QUESTION}\n\n${BRIEFING_INSTRUCTIONS}`
 export const WRITE_THE_BRIEFING = 'Ask an agent for a briefing'
+const briefingRequest = (question: string) => question.endsWith(BRIEFING_INSTRUCTIONS)
+  ? question : `${question}\n\n${BRIEFING_INSTRUCTIONS}`
 /** Said beside the press, because a press that looks like it spends a run must
  *  say what it actually does -- AND NO MORE THAN IT DOES. It used to promise
  *  this collection as "the only evidence" for the briefing, which the act does
@@ -848,7 +847,9 @@ export async function askForBriefing(resource: MagnetResource, store: Perspectiv
   if (!batch)
     throw new Error('Collect something first. A briefing is written from this Magnet’s collected records, and there are none.')
   const held = miniComposerDraft(resource)
-  if (held.text.trim() && held.text !== BRIEFING_ASK)
+  const earlier = store.snapshot().active
+  if (held.text.trim() && held.text !== BRIEFING_ASK
+    && (!earlier?.requestInstructions || held.text !== briefingRequest(earlier.text)))
     throw new Error('The Conversation Composer already holds different words of yours. Keep or clear them before asking for a briefing.')
   const topic = await store.ensureStanding()
   if (store.snapshot().selected !== topic) await store.select(topic)
@@ -863,7 +864,12 @@ export async function askForBriefing(resource: MagnetResource, store: Perspectiv
     selected: resource.snapshot().results.filter((r) => before.selections[r.id]).length,
     continuation: before.continuation === true,
   }
-  const prepared = await store.prepare(BRIEFING_ASK, `magnet-briefing:${resource.saved.id}:${crypto.randomUUID()}`)
+  const saved = await store.ordinaryContext()
+  if (!saved || saved.perspective !== topic)
+    throw new Error('The active question changed before the briefing was frozen. Nothing was sent.')
+  const prepared = { ...await store.prepare(saved.question, `magnet-briefing:${resource.saved.id}:${crypto.randomUUID()}`),
+    requestInstructions: saved.question.endsWith(BRIEFING_INSTRUCTIONS) ? '' : BRIEFING_INSTRUCTIONS }
+  store.update({ active: prepared })
   const resumed = store.snapshot().resumed === true
   // The record's own current wording, read fresh: the sent Turn has to begin
   // with the question as the record holds it (`perspectives_work.bind`), and
@@ -874,7 +880,7 @@ export async function askForBriefing(resource: MagnetResource, store: Perspectiv
   if (!prepared.question?.ref || context.revision !== prepared.question.ref)
     throw new Error('This Magnet’s kept question is not at the wording the briefing request was frozen with, so that request cannot be sent as it stands. It is kept, and nothing was sent.')
   const now = miniComposerDraft(resource)
-  if (now.text !== held.text && now.text.trim() && now.text !== BRIEFING_ASK)
+  if (now.text !== held.text && now.text.trim() && now.text !== briefingRequest(prepared.text))
     throw new Error(BRIEFING_OWN_WORDS_KEPT)
   /* THE CHIP IS THIS QUESTION, AT THE WORDING FROZEN. The press promises to
      carry the frozen ask into the Conversation, and the send only carries it
@@ -884,7 +890,7 @@ export async function askForBriefing(resource: MagnetResource, store: Perspectiv
      before. */
   showPerspectiveContext(resource, topic, context.name)
   restampAttachedQuestion(resource, topic, prepared.question)
-  saveMiniComposer(resource, { ...now, text: prepared.text })
+  saveMiniComposer(resource, { ...now, text: briefingRequest(prepared.text) })
   focusMiniComposer()
   goTab(resource, 'Conversation')
   setOpen(resource, true)
@@ -1540,10 +1546,23 @@ export function citedRow(ref: string, rows: RouteResult[]): RouteResult | null {
 /** THE NUMBERED SOURCES OF ONE ANSWER, in the order a reader meets them across
  *  the whole of it, each named by what it is. */
 export function answerSources(texts: string[], results: RouteResult[],
-                              open: (id: string, from?: string) => void): SourceNote[] {
+                              open: (id: string, from?: string) => void,
+                              recorded?: unknown): SourceNote[] {
   const rows = [...results, ...retainedFiles(results)]
-  return citedRefs(texts).map((ref, i) => {
-    const n = i + 1
+  const sources: { n: number; ref: string }[] = []
+  const numbers = new Set<number>(), refs = new Set<string>()
+  for (const value of Array.isArray(recorded) ? recorded : []) {
+    const c = object(value)
+    if (!Number.isSafeInteger(c.n) || c.n < 1 || typeof c.item !== 'string' || !c.item
+      || numbers.has(c.n) || refs.has(c.item)) continue
+    sources.push({ n: c.n, ref: c.item })
+    numbers.add(c.n); refs.add(c.item)
+  }
+  let next = Math.max(0, ...numbers) + 1
+  for (const ref of citedRefs(texts)) if (!refs.has(ref)) {
+    sources.push({ n: next++, ref }); refs.add(ref)
+  }
+  return sources.map(({ n, ref }) => {
     const r = citedRow(ref, rows)
     if (!r) return { n, ref, title: CITED_NOT_HELD,
       detail: 'No live source was opened to show it.', open: null }
@@ -1561,9 +1580,11 @@ export function answerSources(texts: string[], results: RouteResult[],
 
 /** What the prose renderer is given for a run of citations: the numbers and
  *  names of the notes already built, and the press each number is. */
-export function citationIndexOf(notes: SourceNote[]): CitationIndex {
+export function citationIndexOf(notes: SourceNote[], recordedNumbers = false): CitationIndex {
   const by = new Map(notes.map((s) => [s.ref, s]))
+  const numbered = new Map(notes.map((s) => [s.n, s.ref]))
   return {
+    refOf: (n) => recordedNumbers ? numbered.get(n) ?? null : null,
     numberOf: (ref) => by.get(ref)?.n ?? null,
     nameOf: (ref) => { const s = by.get(ref); return s && s.title !== CITED_NOT_HELD ? s.title : null },
     open: (ref) => by.get(ref)?.open?.(),
@@ -1976,9 +1997,13 @@ export function Briefing({ resource, answer }: { resource: MagnetResource; answe
      joined text leads, which is the order a reader meets them in; the recorded
      statements follow, for an answer whose joined text and lines differ. */
   const notes = answerSources([words, ...lines.map((l) => l.text)], resource.snapshot().results,
-    (id, from) => inspect(resource, id, from))
-  const index = citationIndexOf(notes)
-  const body = isWrittenBriefing(words)
+    (id, from) => inspect(resource, id, from), answer?.data?.citations)
+  const numbered = Array.isArray(answer?.data?.citations) && !!answer.data.citations.length
+  const index = citationIndexOf(notes, numbered)
+  const body = numbered
+    ? <div className="q2-prose"><Prose src={words} inlineOf={citedInline(index)}
+      scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>
+    : isWrittenBriefing(words)
     ? !Array.isArray(answer?.data?.lines) || !answer.data.lines.length
       ? <div className="q2-prose"><Prose src={words} inlineOf={citedInline(index)}
         scope={`magnet-answer:${answer?.post ?? resource.saved.id}`} /></div>

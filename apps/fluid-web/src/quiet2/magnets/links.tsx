@@ -241,6 +241,9 @@ export function linkPieces(text: unknown): Piece[] {
  *  stand in for it. Supplied by the view that holds the collection
  *  (`Summary.answerSources`); `null` where this run of text has none. */
 export interface CitationIndex {
+  /** The recorded row for a publication's literal [n] marker. Older answers
+   *  carry direct references instead and do not need this lookup. */
+  refOf?(number: number): string | null
   /** The number this record carries in the answer, from 1, or null where the
    *  answer's own sources do not include it. */
   numberOf(ref: string): number | null
@@ -274,7 +277,7 @@ export function citedRefs(texts: string[]): string[] {
  *  hands prose its own, because it has already decided with it which runs it
  *  is replacing. */
 export function Cite({ cites, said, index: named }:
-  { cites: DirectCite[]; said: string; index?: CitationIndex | null }) {
+  { cites: { ref: string }[]; said: string; index?: CitationIndex | null }) {
   const around = useContext(Citations)
   const index = named ?? around
   const numbers = index ? cites.map((c) => index.numberOf(c.ref)) : []
@@ -299,14 +302,24 @@ export function citedInline(index: CitationIndex | null): (src: string, key: str
   return (src, key) => {
     const out: ReactNode[] = []
     let at = 0, n = 0
+    const runs: { start: number; said: string; cites: { ref: string }[] }[] = []
     for (const m of src.matchAll(DIRECT_CITE_RUN_IN_TEXT)) {
       const cited = parseCiteRun(m[0])
       if (!cited.length || cited.some((c) => index.numberOf(c.ref) === null)) continue
-      const start = m.index ?? 0
+      runs.push({ start: m.index ?? 0, said: m[0], cites: cited })
+    }
+    for (const m of src.matchAll(/(?<!\\)\[([1-9]\d*)\](?![\[(])/g)) {
+      const ref = index.refOf?.(Number(m[1]))
+      if (ref && index.numberOf(ref) === Number(m[1]))
+        runs.push({ start: m.index ?? 0, said: m[0], cites: [{ ref }] })
+    }
+    runs.sort((a, b) => a.start - b.start)
+    for (const run of runs) {
+      const start = run.start
       if (start < at) continue
       if (start > at) out.push(...inline(src.slice(at, start), `${key}-p${n}`))
-      out.push(<Cite key={`${key}-c${n++}`} cites={cited} said={m[0]} index={index} />)
-      at = start + m[0].length
+      out.push(<Cite key={`${key}-c${n++}`} cites={run.cites} said={run.said} index={index} />)
+      at = start + run.said.length
     }
     if (at < src.length) out.push(...inline(src.slice(at), `${key}-p${n}`))
     return out

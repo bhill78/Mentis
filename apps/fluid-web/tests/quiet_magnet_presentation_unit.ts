@@ -38,7 +38,7 @@ import Summary, {
   BRIEFING_REWRITTEN, Briefing, CITED_ITEM, CITED_ITEMS, CITED_NOT_HELD, CITED_PART,
   CITED_PLACE_UNSHOWN, CITED_ROW, CITED_ROWS, DATED_WHY,
   WRITTEN_FROM,
-  answerLines, answerRecordCount, answerSources, briefingGroups, citedPart, citedRows,
+  answerLines, answerRecordCount, answerSources, briefingGroups, citationIndexOf, citedPart, citedRows,
   collectionOverview, datedMaterial, datedTable, frozenAnswerWords, isWrittenBriefing,
   materialLead, namedSubjects, offeredQuestions, readFrozenAnswer, rowPublication, summaryFacts,
   unfused, withoutNarration, worthTabulating,
@@ -1209,6 +1209,35 @@ test('a run’s frozen answer is read with Mentis’s trailer cut by offset', as
 /* --- a citation as a number, with its source named ------------------------- */
 
 const citeOf = (r: RouteResult) => String((r as unknown as { value: { citation: string } }).value.citation)
+
+test('publication markers keep their recorded numbers and open the retained rows', async () => {
+  store()
+  const r = resource('mag-publication')
+  await r.read()
+  const lines = [
+    { text: '## Mission developments', cites: [] },
+    { text: '- Roman passes its thermal test. [1]', cites: [ROMAN] },
+    { text: '- Europa Clipper completes a burn. [2]', cites: [CLIPPER] },
+    { text: 'Roman is ready for the next stage. [1]', cites: [ROMAN] },
+  ]
+  const citations = [{ n: 1, item: ROMAN, title: 'Roman', url: null },
+    { n: 2, item: CLIPPER, title: 'Clipper', url: null }]
+  const opened: string[] = []
+  const notes = answerSources(lines.map((l) => l.text), ROWS, (id) => opened.push(id), citations)
+  const index = citationIndexOf(notes, true)
+  assert.equal(index.refOf?.(1), ROMAN)
+  index.open(index.refOf!(2)!)
+  assert.deepEqual(opened, [CLIPPER])
+  const answer = answered(lines)
+  answer.data.citations = citations
+  const rendered = html(createElement(Briefing, { resource: r, answer }))
+  assert.match(rendered, /class="pr-h pr-h2"/)
+  assert.match(rendered, /<ul/)
+  assert.equal((rendered.match(/class="q2-magnet-cite"/g) ?? []).length, 3)
+  assert.match(rendered, /id="cite-source-1"/)
+  assert.match(rendered, /id="cite-source-2"/)
+  assert.doesNotMatch(rendered.replace(/<[^>]*>/g, ''), /adm-|@aaaaaaaaaaaa|Written from/)
+})
 
 test('the sources an answer cites are numbered from the rows the collection holds', () => {
   const said = `The collection combines ${citeOf(ROWS[0])} and ${citeOf(ROWS[1])}, and returns to ${citeOf(ROWS[0])}.`

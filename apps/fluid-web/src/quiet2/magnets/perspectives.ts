@@ -187,7 +187,7 @@ export function questionSubtitle(p: Perspective, selected: string | null): strin
 export interface Perspective { perspective: string; name: string; retired: boolean; question: Artifact | null; current_question?: { text: string; revision: string } | null; events: number }
 export interface Artifact { ref: string; digest: string; size: number; media_type: string }
 export interface InquiryEvent { seq: number; post: string; event: string; perspective: string | null; snapshot: Artifact; data: Record<string, any> }
-export interface PreparedInquiry { intent: string; perspective: string; brain: string; question: Artifact; manifest: Artifact; records: Artifact; artifacts: Artifact[]; parts: { type: 'file'; ref: string; media_type: string; alt: string }[]; reach: 'work'; request_op: string; text: string; closure: { count: number; bytes: number }; disclosure: string }
+export interface PreparedInquiry { intent: string; perspective: string; brain: string; question: Artifact; manifest: Artifact; records: Artifact; artifacts: Artifact[]; parts: { type: 'file'; ref: string; media_type: string; alt: string }[]; reach: 'work'; request_op: string; text: string; requestInstructions?: string; closure: { count: number; bytes: number }; disclosure: string }
 export interface OrdinaryContext { perspective: string; name: string; question: string; revision: string }
 export interface PendingAction { brain: string; magnet: string; kind: string; target: string | null; tail: string; data: Record<string, unknown>; op: string; result?: any; selectOp: string }
 export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Perspective; selectedDetail?: Perspective; rows: Perspective[]; selected: string | null; viewed?: string | null; loading: boolean; error?: string; events: InquiryEvent[]; next: string | null; listNext: string | null; historyComplete: boolean; priors: string[]; continuation: boolean; selections: Record<string, 'supporting' | 'contradicting' | 'context'>; declared: string[]; active?: PreparedInquiry; receipt?: any; answer?: any
@@ -894,7 +894,7 @@ export const perspectiveInstruction = (perspective: string): string =>
 /** The exact words the asking Turn carries for a frozen ask: the frozen
  *  question first, verbatim, then what the run is told. */
 export const perspectiveWords = (prepared: PreparedInquiry): string =>
-  `${prepared.text}\n\n${perspectiveInstruction(prepared.perspective)}`
+  `${prepared.text}${prepared.requestInstructions ? `\n\n${prepared.requestInstructions}` : ''}\n\n${perspectiveInstruction(prepared.perspective)}`
 
 /** Preserve the shared Composer's addressing, runtime, reply and Work choices.
  *

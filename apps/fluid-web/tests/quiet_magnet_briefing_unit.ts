@@ -146,7 +146,7 @@ function asking(r: MagnetResource, opts: {
     artifacts: [{ ref: BATCH, digest, size: 2048, media_type: 'application/json' },
       { ref: 'adm-manifest1111', digest, size: 10, media_type: 'application/json' }],
     parts: [], reach: 'work', request_op: 'perspective-request:ent-intent111111',
-    text: BRIEFING_ASK, closure: { count: 2, bytes: 20 }, disclosure: '' })
+    text: words, closure: { count: 2, bytes: 20 }, disclosure: '' })
   return { s, sent, prepared, selectedNow: () => selected, revisionNow: () => revision }
 }
 
@@ -268,7 +268,7 @@ test('asking for a briefing freezes the standing question with this collection a
   assert.equal(selectedNow(), STANDING)
   // THEN the words are frozen as this wording of that question...
   assert.equal(sent[1][0], `/${STANDING}/question`)
-  assert.deepEqual(sent[1][1], { text: BRIEFING_ASK })
+  assert.deepEqual(sent[1][1], { text: STANDING_QUESTION }, 'answer instructions do not revise the standing question')
   assert.match(String(sent[1][2]), new RegExp(`^magnet-briefing:${r.saved.id}:`))
   // ...and the input package is prepared from the collection in hand.
   assert.equal(sent[2][0], `/${STANDING}/prepare`)
@@ -369,9 +369,28 @@ test('the frozen ask carries no generated work override, which the one door refu
   // What the run is told travels as the message's own words instead, after the
   // frozen question, which `bind` requires the Turn to BEGIN with.
   assert.ok(String(out.text).startsWith(active.text), 'the sent words begin with the frozen question')
+  assert.equal(active.text, STANDING_QUESTION, 'the frozen question has no answer instructions')
+  assert.match(String(out.text), /publication prose/)
+  assert.match(String(out.text), /omit first-person process narration/)
   assert.match(String(out.text), /read_artifact/, 'and go on to say what to do with the attached records')
   assert.deepEqual(out.parts[0], { type: 'text', text: out.text },
     'the one text part is the exact projection of the words, as the door checks')
+})
+
+test('refreshing preserves a saved standing question byte for byte', async () => {
+  store()
+  const r = resource('mag-stable-question')
+  await r.read()
+  const original = '  What changed in Roman\u2019s mission?\nKeep this wording.  '
+  const { s, sent } = asking(r, { wording: original })
+  await askForBriefing(r, s)
+  const written = sent.find(([tail]) => String(tail).endsWith('/question'))![1] as { text: string }
+  assert.equal(written.text, original)
+  const active = s.snapshot().active!
+  assert.equal(active.text, original)
+  const out = perspectiveRequest({ text: miniComposerDraft(r).text }, active)
+  assert.ok(String(out.text).startsWith(original + '\n\n'))
+  assert.match(String(out.text).slice(original.length), /publication prose/)
 })
 
 /* --- a stale intent is resumed, and said to be (review F3) ------------------ */

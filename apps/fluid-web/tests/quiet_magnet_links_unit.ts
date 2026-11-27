@@ -446,3 +446,15 @@ test('a numbered citation inside Markdown prose goes through the renderer Fluid 
   assert.ok(out.includes('[1]'), out)
   assert.doesNotMatch(visible(out), /a79673349571|adm-/, out)
 })
+
+test('recorded numeric markers open their mapped source without changing Markdown links', () => {
+  const ref = 'adm-e3d8cae2cb43'
+  const mapped = { ...index({ [ref]: 'Juno' }), refOf: (n: number) => n === 1 ? ref : null }
+  const out = renderToStaticMarkup(createElement('p', {},
+    ...citedInline(mapped)('**Juno** [1], again [1], unknown [2], and [1](https://example.org).', 'n')))
+  assert.equal((out.match(/class="q2-magnet-cite"/g) ?? []).length, 2)
+  assert.match(out, /Source 1: Juno/)
+  assert.match(out, /<strong>Juno<\/strong>/)
+  assert.match(out, /href="https:\/\/example.org\/"/)
+  assert.ok(visible(out).includes('[2]'), 'unknown numbers stay as recorded')
+})
