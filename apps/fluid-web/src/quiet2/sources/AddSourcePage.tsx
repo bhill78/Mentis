@@ -33,11 +33,16 @@ import ScopeForm, { optionDefaults, presetValue, type ScopeValue } from '../../s
 import SqliteFlow, { type SqliteHeld } from '../../surfaces/sources/sqlite/SqliteFlow'
 import {
   cancelRun, runToEnd, takesAddress,
-  type Choices, type Descriptor, type Picker, type Preview, type RunView, type SweepResult,
+  type Choices, type Descriptor, type Picker, type Preset, type Preview, type RunView, type SweepResult,
 } from '../../surfaces/sources/route'
 import { SEARCH_FROM, count, failureWords, itemWord, kindsShown, size } from './words'
 
 const STEPS = ['Kind', 'Where and what', 'Preview', 'Take']
+
+/** A connector whose descriptor declares no presets of its own (an endpoint
+ *  connector configured entirely by its scope fields): a scope still needs
+ *  a starting value, so it takes everything until the fields say otherwise. */
+const CUSTOM_PRESET: Preset = { id: 'custom', label: 'Custom', include: ['*'], exclude: [] }
 
 export default function AddSourcePage({ descriptors, picker, me, connector, onConnector, onOpenSource, onChanged, onCancel }: {
   descriptors: Descriptor[]
@@ -131,8 +136,12 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   onOffer: (connector: string) => void
   onCancel: () => void
 }) {
-  const first = descriptor.presets.find((x) => x.id === 'notes') ?? descriptor.presets[0]
+  const first = descriptor.presets.find((x) => x.id === 'notes') ?? descriptor.presets[0] ?? CUSTOM_PRESET
   const byAddress = takesAddress(descriptor)
+  // AN ENDPOINT CONNECTOR WITH NO LOCATION OF ITS OWN (rss-atom, web,
+  // web-search): what it reads comes from its scope fields, not a folder or
+  // a typed address, so there is no "where" to ask for at all.
+  const noWhere = descriptor.binding === 'endpoint' && !byAddress
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
   const [root, setRoot] = useState<string | null>(null)
@@ -150,7 +159,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   const [tried, setTried] = useState(false)
   const hasOptions = descriptor.scope_fields.some((f) => f.option)
   const remote = byAddress && !root && address.trim() ? address.trim() : null
-  const where = root ?? remote
+  const where = noWhere || !!(root ?? remote)
   /* SOMETHING WAS FILLED IN HERE AND NOTHING HAS RECORDED IT. Once the
      source has been taken (`result`) there is nothing unfinished left.
      A PATH TYPED INTO THE PICKER AND NOT YET USED counts: it never reaches
@@ -232,6 +241,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
             onChange={(e) => { setNameEdited(true); setName(e.target.value); edited() }} />
           {tried && !name.trim() && <p className="q2-src-bad" role="alert">Give it a name.</p>}
         </label>
+        {!noWhere && (
         <div className="q2-src-field"><span>Where it is, on this machine</span>
           {root && (
             <p className="q2-src-chosen"><b>{baseName(root)}</b><code>{root}</code>
@@ -249,6 +259,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
           )}
           {!root && <p className="q2-src-faint">Read-only: Mentis never changes anything in the source.</p>}
         </div>
+        )}
         {byAddress && !result && (
           <div className="q2-src-host q2-src-address">
             <AddressField value={address} disabled={busy} onChange={(v) => { setAddress(v); if (v.trim()) { setRoot(null); setChoosing(true) } edited() }} />

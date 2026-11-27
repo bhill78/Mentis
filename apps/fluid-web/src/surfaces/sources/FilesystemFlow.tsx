@@ -15,6 +15,7 @@ import {
   thingWord,
   type Choices,
   type Descriptor,
+  type Preset,
   type Preview,
   type RunView,
   type SourcesRoute,
@@ -49,6 +50,11 @@ interface FolderList {
   refused: string | null
 }
 
+/** A connector whose descriptor declares no presets of its own (an endpoint
+ *  connector configured entirely by its scope fields): a scope still needs
+ *  a starting value, so it takes everything until the fields say otherwise. */
+const CUSTOM_PRESET: Preset = { id: 'custom', label: 'Custom', include: ['*'], exclude: [] }
+
 export default function FilesystemFlow({
   descriptor,
   me,
@@ -64,7 +70,7 @@ export default function FilesystemFlow({
   go: (r: SourcesRoute) => void
   onChanged: () => void
 }) {
-  const notes = descriptor.presets.find((p) => p.id === 'notes') ?? descriptor.presets[0]
+  const notes = descriptor.presets.find((p) => p.id === 'notes') ?? descriptor.presets[0] ?? CUSTOM_PRESET
   const [name, setName] = useState('')
   const [root, setRoot] = useState<string | null>(null)
   const [choosing, setChoosing] = useState(true)
@@ -74,9 +80,13 @@ export default function FilesystemFlow({
   // locations. Exactly one of the two is sent; nothing is fetched until the
   // preview, and nothing that could be a credential belongs in it.
   const byAddress = takesAddress(descriptor)
+  // AN ENDPOINT CONNECTOR WITH NO LOCATION OF ITS OWN (rss-atom, web,
+  // web-search): what it reads comes from its scope fields, not a folder or
+  // a typed address, so there is no "where" to ask for at all.
+  const noWhere = descriptor.binding === 'endpoint' && !byAddress
   const [address, setAddress] = useState('')
   const remote = byAddress && !root && address.trim() ? address.trim() : null
-  const where = root ?? remote
+  const where = noWhere || !!(root ?? remote)
   const [scope, setScope] = useState<ScopeValue>(presetValue(notes, optionDefaults(descriptor)))
   const hasOptions = descriptor.scope_fields.some((f) => f.option)
   const [run, setRun] = useState<RunView | null>(null)
@@ -151,6 +161,7 @@ export default function FilesystemFlow({
             <span className="src-label">Name</span>
             <input value={name} onChange={(e) => { setNameEdited(true); setName(e.target.value) }} placeholder={descriptor.binding === 'local-file' ? 'Filled in from the file you pick' : 'Filled in from the folder you pick'} disabled={!!result} />
           </label>
+          {!noWhere && (
           <div className="src-field">
             <span className="src-label">Where, on this machine</span>
             {root && <div className="src-note"><b>{baseName(root)}</b><p className="src-mono">{root}</p>
@@ -162,6 +173,7 @@ export default function FilesystemFlow({
             }} />}
 
           </div>
+          )}
           {byAddress && (
             <AddressField
               value={address}
