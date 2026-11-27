@@ -670,6 +670,18 @@ export const OTHER_IDENTITY = 'Nothing was sent: the unresolved attempt with the
   + 'so its key cannot answer for this one. Refresh the Conversation and see what is recorded before sending these words again.'
 export const MOVED_SEND = 'Nothing was recorded: this server now serves another Brain than this card was opened on. '
   + 'Reload for the Brain it serves; your words are still here.'
+/** THE KEY BELONGED TO ANOTHER QUESTION'S REQUEST. Said after the door's own
+ *  words, because what the owner does next is not a retry: this send has no
+ *  key of its own until the question is asked again. */
+export const CONFLICTING_KEY = 'Nothing was recorded. Ask the question again from the Perspectives view, '
+  + 'which freezes a new request with a key of its own; your words are kept.'
+/** The door's refusal of a key already used for a different managed intent
+ *  (`mentis/fluid/commands.py`: "conflicting-replay"). Read as the door says
+ *  it -- refused, with that code -- and never inferred from wording. */
+export const conflictingKey = (body: unknown): boolean => {
+  const o = object(body)
+  return !!o && o.refused === true && o.code === 'conflicting-replay'
+}
 
 const newOp = () => `mini-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
@@ -1055,8 +1067,20 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const refusal = errorOf(answer.body)
       if (answer.status !== 200 || refusal) {
         /* ANSWERED AND REFUSED: nothing was recorded, and the key stays with
-           these words so a deliberate retry is still the same one post. */
+           these words so a deliberate retry is still the same one post.
+           EXCEPT A KEY THAT STANDS FOR ANOTHER INTENT. Where the door says it
+           refused because this operation key was used for a different managed
+           intent, nothing of this post was recorded and nothing ever can be
+           under that key: holding it would make every retry the same refusal.
+           The key is let go and the words are kept, so asking again from the
+           question freezes a fresh intent with a key of its own. */
         const why = refusal ?? `This post was not recorded (${answer.status}).`
+        if (conflictingKey(answer.body)) {
+          letGo(attempt)
+          if (!sendStill(mine)) return
+          emit({ uncertain: false, uncertainOp: undefined, sendError: `${why}. ${CONFLICTING_KEY}` })
+          return
+        }
         settle(attempt, 'refused', why)
         if (!sendStill(mine)) return
         emit({ uncertain: false, uncertainOp: undefined, sendError: why })

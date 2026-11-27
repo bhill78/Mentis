@@ -636,13 +636,23 @@ export class PerspectiveStore {
     if (last) {
       const held = await this.get(`/${topic}/intents/${last.post}`)
       if (this.state.selected !== topic) throw new Error('The active Perspective changed while recovering the original intent. Nothing was sent.')
-      if (!held.binding || !(held.answers?.length)) {
-        /* AN EARLIER UNANSWERED INTENT IS RESUMED, NOT RE-FROZEN. Keeping the
+      if (!held.binding) {
+        /* AN EARLIER UNSENT INTENT IS RESUMED, NOT RE-FROZEN. Keeping the
            original intent is the right thing -- it is the one the record holds
            and may already have been seen -- but it is a DIFFERENT act from
            freezing the collection in hand, and `resumed` is how a caller that
            promises one or the other can say which it did. Its own frozen
-           wording is what the chip must stand for, not the latest. */
+           wording is what the chip must stand for, not the latest.
+           ONLY WHILE ITS REQUEST WAS NEVER RECORDED. An intent that is bound
+           is bound to an actual request, and its operation key is that
+           request's: asking again -- another answer, or a first one after the
+           original run was stopped -- is a DIFFERENT managed intent, which the
+           door refuses under a key already used for another one
+           ("conflicting-replay", mentis/fluid/commands.py). So a bound intent
+           falls through to freezing a new one, which carries an operation key
+           of its own. A retry of an unresolved send never reaches here at all:
+           it is covered by the attempt the Magnet holds, which carries its own
+           request and key (`conversation.ts`). */
         if (held.prepared?.text === text && held.prepared?.brain === page.bound()) {
           this.update({ active: held.prepared, resumed: true, bound: undefined, finalizing: undefined })
           restampAttachedQuestion(this.resource, topic, held.prepared.question)

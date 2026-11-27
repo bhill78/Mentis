@@ -118,6 +118,72 @@ test('asking an agent freezes the exact words with `prepare`, then hands off to 
   assert.equal(f.r.snapshot().tab, 'Conversation')
 })
 
+/* -- ONE OPERATION KEY PER MANAGED INTENT ----------------------------------
+ *
+ *  The door refuses a key already recorded against a different managed intent
+ *  ("conflicting-replay", mentis/fluid/commands.py). The key is the intent's
+ *  own (`perspective-request:<intent>`), so what decides is which intent the
+ *  ask carries: a question asked again after its request was recorded is a NEW
+ *  intent and gets a key of its own, while an intent whose request was never
+ *  recorded is resumed under the key it already has. */
+
+const WORDS = 'Answer the kept question from the collected evidence.'
+const inquiry = (intent: string, over: Record<string, unknown> = {}) => ({
+  intent, perspective: A, brain: page.bound(),
+  question: { ref: 'adm-frozenrev11', digest: 'd'.repeat(64), size: 1, media_type: 'application/json' },
+  manifest: { ref: 'adm-manifest11', digest: 'e'.repeat(64), size: 1, media_type: 'application/json' },
+  records: { ref: 'adm-records111', digest: 'f'.repeat(64), size: 1, media_type: 'application/json' },
+  artifacts: [], parts: [], reach: 'work' as const, request_op: `perspective-request:${intent}`,
+  text: WORDS, closure: { count: 0, bytes: 0 }, disclosure: '', ...over,
+})
+
+/** One Magnet whose last frozen intent is whatever the test says it is. */
+function asking(held: { prepared: any; binding: unknown; answers: unknown[] }) {
+  const f = fixture()
+  f.r.update({ activation: { post: 'ent-batch1111111', artifact: { ref: 'adm-batch111111' }, at: 0, state: 'collected' }, results: [] })
+  f.store.update({ selected: A, viewed: A })
+  f.store.ordinaryContext = async () => ({ perspective: A, name: A, question: WORDS, revision: 'adm-frozenrev11' })
+  const read = f.store.get
+  f.store.get = async (tail = '') => {
+    if (tail.includes('/intents/')) return held
+    if (tail.includes('/history')) return { magnet: f.r.saved.id, perspective: A, next: null,
+      events: [{ seq: 1, post: held.prepared.intent, event: 'prepared', perspective: A, data: {} }] }
+    return read(tail)
+  }
+  const sent: any[] = []
+  f.store.write = async (...args) => {
+    sent.push(args)
+    if (args[0] === `/${A}/question`) return { perspective: A, question: { ref: 'adm-frozenrev11' } }
+    if (args[0] === `/${A}/prepare`) return inquiry('ent-intent2222')
+    throw new Error(`unexpected write ${args[0]}`)
+  }
+  return { ...f, sent }
+}
+
+test('asking again once the earlier intent’s request is recorded freezes a new intent with its own key', async () => {
+  const earlier = inquiry('ent-intent1111')
+  const f = asking({ prepared: earlier, binding: { request: 'ent-request11111' }, answers: [] })
+  const got = await f.store.prepare(WORDS, `perspective-ask:${A}:again`)
+  assert.deepEqual(f.sent.map((x) => x[0]), [`/${A}/question`, `/${A}/prepare`],
+    'the collection in hand is frozen again rather than the bound intent resumed')
+  assert.equal(got.intent, 'ent-intent2222')
+  assert.equal(got.request_op, 'perspective-request:ent-intent2222')
+  assert.notEqual(got.request_op, earlier.request_op,
+    'two distinct managed intents never share one operation key')
+  assert.equal(f.store.snapshot().resumed, false)
+  assert.equal(f.store.snapshot().active?.request_op, got.request_op)
+})
+
+test('an intent whose request was never recorded is resumed under its own key, and nothing is frozen again', async () => {
+  const earlier = inquiry('ent-intent1111')
+  const f = asking({ prepared: earlier, binding: null, answers: [] })
+  const got = await f.store.prepare(WORDS, `perspective-ask:${A}:retry`)
+  assert.deepEqual(f.sent, [], 'neither a new wording nor a new package is written')
+  assert.equal(got.intent, 'ent-intent1111')
+  assert.equal(got.request_op, earlier.request_op, 'a retry of the same intent keeps its key')
+  assert.equal(f.store.snapshot().resumed, true)
+})
+
 test('uncertain edit survives remount and freezes original target, text and key after viewed lens changes', async () => {
   const f = fixture(); f.store.update({ selected: A, viewed: A })
   const sent: any[] = []

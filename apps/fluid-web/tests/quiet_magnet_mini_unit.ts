@@ -483,6 +483,46 @@ test('a refusal and a moved Brain keep the words and start nothing again', async
   moved.dispose(); forgetMiniDrafts()
 })
 
+/* A KEY THE DOOR SAYS BELONGS TO ANOTHER MANAGED INTENT. `conflicting-replay`
+   (mentis/fluid/commands.py) says two things at once: nothing of this post was
+   recorded, and this key stands for a different intent. Holding it would make
+   every later press the same refusal, so it is let go -- unlike an ordinary
+   refusal, where the key is kept so a deliberate retry is still one post. */
+test('a key refused as another managed intent’s is let go; an ordinary refusal keeps its key', async () => {
+  forgetMiniDrafts(); sends.length = 0
+  const { get } = seam((path) => path.startsWith('/fluid/api/participants') ? participants(ME) : { status: 200, body: conversationBody() })
+  const mine = resourceFor()
+  const conflict = store({ resource: mine, get, post: sender(async () => ({ status: 409,
+    body: { error: 'this operation key was used for different managed intent', refused: true, code: 'conflicting-replay' } })) })
+  await conflict.read()
+  conflict.draft('Answer the kept question from the collected evidence.')
+  await conflict.send()
+  assert.equal(miniAttempt(mine), null, 'the refused key is not held against these words')
+  assert.match(conflict.snapshot().sendError!, /different managed intent/)
+  assert.match(conflict.snapshot().sendError!, /Ask the question again/)
+  assert.equal(conflict.snapshot().uncertain, false)
+  assert.equal(conflict.snapshot().draft, 'Answer the kept question from the collected evidence.', 'and the words are kept')
+  const first = sends.length
+  await conflict.send()
+  assert.equal(sends.length, first + 1)
+  assert.notEqual(sends[first].body.op, sends[first - 1].body.op,
+    'the next press goes under a key of its own, never the one that stood for another intent')
+  conflict.dispose(); forgetMiniDrafts()
+
+  const other = resourceFor()
+  const ordinary = store({ resource: other, get, post: sender(async () => ({ status: 422,
+    body: { error: 'this conversation is in Trash', refused: true } })) })
+  await ordinary.read()
+  ordinary.draft('words')
+  await ordinary.send()
+  const kept = miniAttempt(other)
+  assert.equal(kept?.state, 'refused', 'an ordinary refusal still keeps its key for the same one post')
+  const before = sends.length
+  await ordinary.send()
+  assert.equal(sends[before].body.op, kept!.op, 'and the retry of those words is that same key')
+  ordinary.dispose(); forgetMiniDrafts()
+})
+
 /* -- an attempt outlives the card that made it ------------------------------- */
 
 test('an uncertain send survives the card: the remounted retry is the same key and the same reply target', async () => {
