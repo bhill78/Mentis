@@ -107,7 +107,7 @@ def route(st, path: str, query: dict) -> dict:
             corpus, one("id"), before=one("before"), after=one("after"),
             limit=_read._limit(one("limit"), _read.PAGE, _read.PAGE_MAX),
             shape=one("shape", "threads"), start=one("from"),
-            topic=one("topic") or None)
+            topic=one("topic") or None, cv=cv)
         return {**out, "cursor": at}
     if rest == "search":
         if not one("conversation"):

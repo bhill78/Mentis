@@ -686,7 +686,7 @@ def names(corpus, ids) -> dict:
 # -- collections --------------------------------------------------------------
 
 def conversation_collection(corpus, cid, *, before, after, limit,
-                            shape, start=None, topic=None) -> dict:
+                            shape, start=None, topic=None, cv=None) -> dict:
     """`GET /fluid/api/collections/conversation`: a Conversation's members --
     its home posts and the posts included in it, once each -- in stream order,
     one bounded page.
@@ -702,7 +702,19 @@ def conversation_collection(corpus, cid, *, before, after, limit,
     (`topic_contributions`) -- each as its own unit, flat, as production's
     focused flow draws a Topic's Turns. Same cursors, same numbers, under the
     key `topic:<conversation>:<topic>`. A Topic of another Conversation is
-    refused by name. Without it the answer is exactly what it was."""
+    refused by name. Without it the answer is exactly what it was.
+
+    `cv` (opr-d8e0ec806221): with it, the page keeps reading -- in the same
+    pattern `latest._sifted` already uses -- until it holds `limit` members
+    the view will actually DRAW (what the fold leaves in: `agent_work.
+    classify`), or the Conversation's end is reached, instead of stopping at
+    `limit` raw members that may be mostly what the view folds away. That is
+    the whole repair: a Magnet whose newest `limit` members are all its own
+    bookkeeping drew a page that read as empty but for "N posts folded".
+    What folds is still IN the page -- the fold is the view's to draw, and
+    its control says how many it holds -- so only how far to read changed,
+    never what a page carries or what its cursors mean. Without `cv`, or
+    with `topic`, the page is exactly what it was."""
     link_of = conversation_scope(corpus, cid)
     also = list(link_of)
     b_key, a_key = _window(corpus, before, after, start)
@@ -711,6 +723,9 @@ def conversation_collection(corpus, cid, *, before, after, limit,
     if topic is not None:
         page = _topic_page(corpus, cid, topic, also,
                            before=b_key, after=a_key, limit=limit)
+    elif cv is not None:
+        page = _unfolded_page(corpus, cv, cid, also, shape=shape,
+                              before=b_key, after=a_key, limit=limit)
     else:
         page = corpus.members_page(
             cid, home=IN_CONVERSATION, kind=CONTRIBUTION, replies=REPLIES_TO,
@@ -755,6 +770,87 @@ def conversation_collection(corpus, cid, *, before, after, limit,
         if rows and newer else None,
         "limit": limit,
     }
+
+
+#: `_unfolded_page`'s scan, the same bounds `latest._sifted` uses: candidates
+#: read a chunk at this many times the limit, at least CHUNK_MIN; at most
+#: ROUNDS chunks and SCAN_MAX candidates in all.
+CHUNK, CHUNK_MIN, ROUNDS, SCAN_MAX = 4, 40, 4, 400
+
+
+def _unfolded_page(corpus, cv, cid, also, *, shape, before, after,
+                   limit) -> dict:
+    """ONE PAGE, but kept to what will actually be shown: `members_page` read
+    in growing chunks, classifying each chunk's agent work (`agent_work.
+    classify`, the same answer `posts` and `latest` act on) and keeping only
+    what it leaves in, until `limit` are kept, the Conversation's end is
+    reached in this direction, or the scan is bounded (ROUNDS chunks,
+    SCAN_MAX candidates) -- `latest._sifted`'s own pattern, over
+    `members_page` instead of `page_rows`.
+
+    THE PAGE STILL CARRIES WHAT FOLDS. Only how FAR to read is decided by
+    the classification: `rows` is the whole window read, folded members
+    included, cut at the `limit`th member that is not folded. The view --
+    which classifies again for itself -- needs them: its fold says how many
+    it holds ("Folded (30)") and shows them where the reader asks, and a
+    page that dropped them would leave that control pointing at nothing.
+    So a page is at least `limit` drawable members (or this end of the
+    Conversation), and at most SCAN_MAX members in all.
+
+    `total`: as `members_page` gives it."""
+    from mentis.conversation import agent_work
+    from mentis.operational.work_overview import owner_of
+    owner = owner_of(cv)
+    backward = after is None
+    # ROUND ONE READS EXACTLY `limit`, as a plain page would -- so a page
+    # that needs no scanning ahead (nothing in it is agent work) costs what
+    # it always cost, classifying added. Only once that falls short does a
+    # round widen (latest._sifted's CHUNK, CHUNK_MIN), so the extra reading
+    # -- and the extra statements it costs -- happens only where folding
+    # actually bites.
+    want, kept, scanned_rows, total, scanned = limit, [], [], None, 0
+    b, a = before, after
+    for _ in range(ROUNDS):
+        want = min(want, SCAN_MAX - scanned)
+        if want <= 0:
+            break
+        page = corpus.members_page(
+            cid, home=IN_CONVERSATION, kind=CONTRIBUTION, replies=REPLIES_TO,
+            also=also, roots=shape == "threads", before=b, after=a,
+            limit=want)
+        rows = page["rows"]
+        if not rows:
+            break
+        if total is None:
+            total = page["total"]
+        work = agent_work.classify(cv, [r[0] for r in rows], owner)
+        found = [r for r in rows if not work.get(r[0])]
+        if backward:
+            scanned_rows, kept = rows + scanned_rows, found + kept
+        else:
+            scanned_rows, kept = scanned_rows + rows, kept + found
+        scanned += len(rows)
+        if len(kept) >= limit or len(rows) < want:
+            break
+        if backward:
+            b = (rows[0][2], rows[0][1])
+        else:
+            a = (rows[-1][2], rows[-1][1])
+        want = min(SCAN_MAX, max(CHUNK_MIN, limit * CHUNK))
+    # CUT AT THE LIMIT-TH DRAWABLE MEMBER, keeping the folded members beside
+    # it: the window ends where the page has enough to read. What lies past
+    # that cut is not scanned past -- the cursors are this window's own edges
+    # -- so the next page reads it in its place, once.
+    # Only where `limit` were actually found: short of that the scan ran to
+    # this end of the Conversation (or its bound), and the members past the
+    # last drawable one are the end -- trimming them would offer an "earlier"
+    # page that is folded all the way down, the very thing being repaired.
+    if len(kept) >= limit:
+        kept = kept[-limit:] if backward else kept[:limit]
+        edge = kept[0][5] if backward else kept[-1][5]
+        scanned_rows = [r for r in scanned_rows
+                        if (r[5] >= edge if backward else r[5] <= edge)]
+    return {"rows": scanned_rows, "total": total}
 
 
 def _topic_page(corpus, cid, topic, also, *, before, after, limit) -> dict:

@@ -714,12 +714,55 @@ def _root_of_turn(st, tid):
     return root_of.get(tid, tid)
 
 
-def _batch_asked(one, units):
+#: HOW FAR A BATCH MAY REACH PAST WHAT FOLDS (`_unfolded_lo`): at most this
+#: many units beyond the one asked for are looked at. A Conversation that is
+#: folded all the way down stops here rather than reading itself whole.
+BATCH_FOLD_SCAN = 400
+
+
+def _unfolded_lo(st, units, lo, hi, size):
+    """`lo` moved back until the batch `units[lo:hi]` holds `size` units the
+    view will DRAW, or the scan's bound is reached.
+
+    WHY (owner, 2026-11-27, ent-15a36a065eb8). Folding a Magnet's own
+    bookkeeping out of its Conversation (5788d855) is right, and left the
+    first page of a busy Magnet reading as nothing but "30 posts folded":
+    the batch was the newest 30 UNITS, and all thirty of them were
+    bookkeeping. A page is a page of what there is to read, so the batch is
+    counted in what the fold leaves in (`agent_work.classify`, the same
+    answer every view acts on) -- `latest._sifted`'s pattern.
+
+    What folds is STILL IN THE BATCH, in its place: the view draws the fold,
+    says how many it holds and shows them where the reader asks. Only where
+    the window starts changed.
+    """
+    if size is None or lo <= 0 or hi <= lo:
+        return lo
+    from mentis.conversation import agent_work
+    from mentis.operational.work_overview import owner_of
+    floor = max(0, lo - BATCH_FOLD_SCAN)
+    folds = agent_work.classify(
+        st.cv, [u["turn"] for u in units[floor:hi]], owner_of(st.cv))
+    drawn = 0
+    for i in range(hi - 1, floor - 1, -1):
+        if not folds.get(units[i]["turn"]):
+            drawn += 1
+            if drawn >= size:
+                return min(lo, i)
+    return floor
+
+
+def _batch_asked(one, units, st=None):
     """Which bounded batch was asked for, or a refusal saying why not.
 
     A target that is not a unit of this scope is refused BY NAME. Answering
     the newest batch instead would be a different question answered silently,
     which is the one failure that cannot be told from success.
+
+    With `st`, the newest batch and a batch BEFORE a unit -- the two a reader
+    pages back through -- are counted in units the view will draw rather than
+    raw units (`_unfolded_lo`). `after` and `around` are unchanged: they sit
+    at a unit the reader named.
     """
     at = {u["turn"]: i for i, u in enumerate(units)}
     by_number = {u["number"]: u["turn"] for u in units}
@@ -747,6 +790,8 @@ def _batch_asked(one, units):
     total = len(units)
     if not asked:
         lo = 0 if size is None else max(0, total - size)
+        if st is not None:
+            lo = _unfolded_lo(st, units, lo, total, size)
         return {"lo": lo, "hi": total,
                 "mode": "all" if size is None else "recent",
                 "size": size}, None
@@ -762,7 +807,10 @@ def _batch_asked(one, units):
     i = at[tid]
     n = DEFAULT_BATCH if size is None else size
     if name == "before":
-        return {"lo": max(0, i - n), "hi": i, "mode": "before", "size": n}, None
+        lo = max(0, i - n)
+        if st is not None:
+            lo = _unfolded_lo(st, units, lo, i, n)
+        return {"lo": lo, "hi": i, "mode": "before", "size": n}, None
     if name == "after":
         return {"lo": i + 1, "hi": min(total, i + 1 + n),
                 "mode": "after", "size": n}, None
@@ -4476,7 +4524,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             under = _subtree(rows, chain)
             numbers = {r["turn"]: r["number"] for r in rows}
             units, unit = _scope_units(rows, wanted, root_of)
-            asked, refusal = _batch_asked(one, units)
+            asked, refusal = _batch_asked(one, units, st)
             if refusal:
                 return refusal
             chosen = units[asked["lo"]:asked["hi"]]
