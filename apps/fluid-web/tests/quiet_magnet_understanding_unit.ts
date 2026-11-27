@@ -39,8 +39,8 @@ import Summary, {
   frequentWords, itemIdentity, offeredQuestions, recordedChallenges, startingAction, summaryFacts, summarySource,
 } from '../src/quiet2/magnets/Summary'
 import Perspectives, {
-  AnswerGrounding, DISCUSSION_READS, PastQuestions, SupportingItems, TAKE_TO_CONVERSATION,
-  discussSelectedQuestion, tryAsking,
+  ABOUT_THIS_ANSWER, ANSWER_WRITTEN_BY, AnswerGrounding, DISCUSSION_READS, PastQuestions, READ_AGAIN,
+  SupportingItems, TAKE_TO_CONVERSATION, discussSelectedQuestion, tryAsking,
 } from '../src/quiet2/magnets/InquiryPanel'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
@@ -575,24 +575,34 @@ test('the Summary lead is the recorded answer, and what changed is the differenc
 
 /* --- question-first Perspectives -------------------------------------------- */
 
-/** THE APPROVED ASKING SURFACE (round-3 `02-compact-current`, `09-current-help`).
+/** THE ASKING SURFACE (round-3 `02-compact-current`, `09-current-help`, as the
+ *  owner's later hands-on reading of it corrects them).
  *  Nothing asked yet is a place to ask something, not a form to administer:
- *  eyebrow, `Explore a question` with `Past questions ▾` at the far edge, one
- *  muted sentence, the compose box, `TRY ASKING`, a divider, and ONE line
- *  pairing `AVAILABLE NOW` with what ordinary Conversation does. Everything
- *  administrative is behind `Past questions ▾`, and nothing was removed. */
+ *  `Explore a question` with `Past questions ▾` at the far edge, one muted
+ *  sentence, the compose box, `TRY ASKING`, a divider, and ONE line pairing
+ *  `AVAILABLE NOW` with what ordinary Conversation does. Everything
+ *  administrative is behind `Past questions ▾`, and nothing was removed.
+ *
+ *  THE EYEBROW IS GONE, and that is the change this test now holds in place.
+ *  Round 3 drew `PERSPECTIVES` over `Explore a question`; the owner read the
+ *  built surface and asked for redundant headings to go
+ *  (`ent-15a36a065eb8`, 2026-11-27, later than those mockups and so the
+ *  wording that stands). The card's own tab bar already reads `Perspectives` a
+ *  hand's width above, so the word was printed twice with nothing between
+ *  them. What the surface opens on is what the reader came to do. */
 test('nothing asked yet renders the approved asking surface and no administrative control', () => {
   store()
   const { r } = resource('mag-equestionfirst')
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
-  const eyebrow = rendered.indexOf('>Perspectives<')
   const heading = rendered.indexOf('Explore a question')
   const box = rendered.indexOf('What would you like to explore?')
   const press = rendered.indexOf('Ask →')
   const examples = rendered.indexOf('TRY ASKING')
   const today = rendered.indexOf('AVAILABLE NOW')
-  assert.ok(eyebrow >= 0 && heading > eyebrow, 'the eyebrow names the place and the heading says what to do')
-  assert.ok(rendered.includes('mgd-h2'), 'the heading is the design’s own 25px heading')
+  assert.ok(heading >= 0, 'the heading says what to do, and leads the surface')
+  assert.ok(!rendered.includes('>Perspectives<'),
+    'and the place name is not printed a second time under the tab that says it')
+  assert.ok(rendered.includes('mgd-h2'), 'the heading is the design’s own heading element')
   assert.ok(box > heading && press > box, 'the compose box and its one press come before anything else')
   assert.ok(examples > press && today > examples, 'then what to try, then what is available today')
   assert.ok(rendered.includes('Past questions ▾'), 'history and provenance are one link away')
@@ -657,6 +667,57 @@ test('a saved question renders as the question and what is understood of it', ()
   assert.ok(rendered.includes(DISCUSSION_READS), 'and it says what asking keeps and what discussing is')
   assert.ok(rendered.includes(TAKE_TO_CONVERSATION), 'one press takes this question into the Conversation')
   assert.ok(!rendered.includes('— Remove') && !rendered.includes('About “'), 'the administrative row is gone')
+})
+
+/** THE ANSWER'S APPARATUS IS DISCLOSED, NOT DISPLAYED AND NOT DELETED (owner
+ *  `ent-15a36a065eb8`: "Remove ... permanently visible buttons. Keep secondary
+ *  actions and provenance available through progressive disclosure").
+ *
+ *  On the resting surface: the question, the answer, and the one press to the
+ *  records it rests on. Behind `About this answer ▾`: what it was grounded in,
+ *  who wrote it, the recorded answer itself, and the three presses that ACT on
+ *  the answer rather than read it -- answering again, reading the question
+ *  again, and taking it to the Conversation, which used to be a filled button
+ *  standing permanently under every answer.
+ *
+ *  Nothing was removed to make room: every one of them is asserted present,
+ *  and asserted to be inside the disclosure rather than above it. The
+ *  disclosure is shut at rest, so the surface opens on the answer. */
+test('the answer stands alone, and everything secondary to reading it is one disclosure away', () => {
+  store()
+  const { r } = resource('mag-eapparatus')
+  const topic = 'ent-topicA11111'
+  const perspective = { perspective: topic, name: 'Does the bench drift?', retired: false, question: null,
+    current_question: { text: 'Does the bench drift between batches?', revision: 'adm-revision111' }, events: 2 }
+  const current = answerEvent('The bench drifted 0.4 µm over four batches.')
+  perspectivesOf(r).update({ rows: [perspective], selected: topic, viewed: topic,
+    viewedDetail: perspective, selectedDetail: perspective, events: [current] })
+  const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
+
+  const answer = rendered.indexOf('The bench drifted 0.4 µm over four batches.')
+  const support = rendered.indexOf('Explore supporting items ↗')
+  const disclosure = rendered.indexOf(ABOUT_THIS_ANSWER)
+  assert.ok(answer >= 0, 'the answer itself is on the surface')
+  assert.ok(disclosure > answer, 'and the apparatus comes after it, not before')
+  assert.ok(support >= 0 && support < disclosure,
+    'the one press to the records the answer rests on stays on the surface')
+
+  // SHUT AT REST. A `<details>` with no `open` attribute opens only when asked.
+  assert.match(rendered, /<details class="q2p-about q2-magnet-disclosure"><summary>/,
+    'the apparatus is a disclosure of this surface’s own kind')
+  assert.ok(!/<details class="q2p-about[^"]*"[^>]*\sopen/.test(rendered), 'and it rests shut')
+
+  // NOTHING WAS REMOVED, and each of them is behind it rather than above it.
+  for (const behind of [GROUNDED_IN_COLLECTION.toUpperCase(), ANSWER_WRITTEN_BY(current),
+    'View the recorded answer', 'Answer again from this collection', READ_AGAIN, TAKE_TO_CONVERSATION]) {
+    const at = rendered.indexOf(behind)
+    assert.ok(at >= 0, `${behind} is still offered`)
+    assert.ok(at > disclosure, `${behind} is behind the disclosure, not permanently on screen`)
+  }
+  // And the press that took this question to the Conversation is no longer a
+  // filled button standing under the answer.
+  assert.ok(!/<button[^>]*class="mgd-button mgd-secondary"[^>]*>Discuss this in the Conversation/.test(rendered),
+    'taking the question to the Conversation is a lettered action now, not a slab')
 })
 
 /** SUPPORTING ITEMS (`06-future-support`): opened from the answer block, the

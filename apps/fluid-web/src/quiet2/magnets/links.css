@@ -48,10 +48,14 @@
 .q2-magnet-card .q2-magnet-statement { margin: 0 0 15px; }
 .q2-magnet-card .q2-magnet-statement:last-child { margin-bottom: 0; }
 .q2-magnet-card .q2-magnet-statement > .mgd-p { margin: 0; line-height: 1.6; }
+/* THE RULE DOWN THE QUOTATION IS GONE (owner `ent-15a36a065eb8`: accent lines
+   out). A quotation in a publication is told from the text around it by its
+   indent, its ink and the marks already printed around it -- the surface drew
+   all three AND a 2px bar. The indent is kept, a little wider so it still
+   reads as set in from the statement over it. */
 .q2-magnet-card .q2-magnet-said {
-  margin: 6px 0 0;
-  padding: 0 0 0 14px;
-  border-left: 2px solid #5c4d45;
+  margin: 7px 0 0;
+  padding: 0 0 0 18px;
   color: #c4b6b0;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -82,11 +86,27 @@
 .q2-magnet-card .q2-magnet-cite:hover { color: #f6d47d; text-decoration: underline; }
 .q2-magnet-card .q2-magnet-cite:focus-visible { outline: 2px solid #e6bc50; outline-offset: 2px; border-radius: 3px; }
 
-.q2-magnet-card .q2-magnet-sources { margin: 16px 0 0; }
+/* THE SOURCES, AS A PUBLICATION SETS THEM: under the article, smaller than it,
+   numbered to match the markers in the running text, and not competing with it.
+   The title stays the press that opens the captured record -- that is the
+   progressive disclosure, and it is where the exact reference, digest and
+   bounds already are -- but it is lettered rather than gilded, so a list of
+   twelve sources is a column of references and not a wall of gold. */
+.q2-magnet-card .q2-magnet-sources { margin: 26px 0 0; }
+.q2-magnet-card .q2-magnet-sources > .mgd-eyebrow { color: #9b8c84; }
 .q2-magnet-card .q2-magnet-source-list {
-  margin: 4px 0 0;
-  padding: 0 0 0 20px;
-  line-height: 1.6;
+  margin: 8px 0 0;
+  padding: 0 0 0 22px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #a89991;
 }
-.q2-magnet-card .q2-magnet-source-list li { margin: 0 0 3px; }
+.q2-magnet-card .q2-magnet-source-list li { margin: 0 0 4px; }
+.q2-magnet-card .q2-magnet-source-list .mgd-link {
+  font-weight: 500;
+  color: #ccbdb5;
+  font-size: inherit;
+}
+.q2-magnet-card .q2-magnet-source-list .mgd-link:hover { color: #edc35d; text-decoration: underline; text-underline-offset: 2px; }
+.q2-magnet-card .q2-magnet-source-list .mgd-subtle { font-size: inherit; color: #8d807a; }
 .q2-magnet-card .q2-magnet-source-list li::marker { color: #9a8c85; }

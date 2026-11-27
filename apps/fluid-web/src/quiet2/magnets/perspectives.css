@@ -89,6 +89,10 @@
   border-bottom: 1px solid #50423c;
 }
 .q2-magnet-card .q2p-row:hover:not(:disabled), .q2-magnet-card .q2p-row:focus-visible { background: #2f2827; }
+/* ...except the rule under it, which the owner asked to go with the rest of
+   the borders (`ent-15a36a065eb8`). A list of questions is read as a list from
+   its spacing; the hover and the current-row wash still say which is which. */
+.q2-magnet-card .q2-magnet-perspectives .q2p-row { border-bottom: 0; padding: 10px 0; }
 .q2-magnet-card .q2p-row[aria-current='true'] { background: #332b29; }
 .q2-magnet-card .q2p-row-text { display: block; min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .q2-magnet-card .q2p-row-text b, .q2-magnet-card .q2p-aside-row b { display: block; }
@@ -117,6 +121,194 @@
 .q2-magnet-card .q2-magnet-perspectives .mgd-button { font-size: 13px; font-weight: 650; }
 .q2-magnet-card .q2-magnet-perspectives .mgd-link { font-weight: 600; }
 .q2-magnet-card .q2-magnet-perspectives .mgd-link.mgd-small { font-size: 13px; }
+
+
+/* ========================================================================== *
+ * QUIET'S VISUAL PHILOSOPHY ON PERSPECTIVES (owner `ent-15a36a065eb8`).
+ *
+ * The companion of the same block in `summary.css`, and the same four
+ * decisions: the reading serif for what is said, space instead of rules, one
+ * quiet label system, and actions as typography. Scoped to
+ * `.q2-magnet-perspectives` throughout, so the Collection and the frame keep
+ * `design.css` as it was ported from the round-3 mockups.
+ *
+ * What is structural here was done in `InquiryPanel.tsx` instead, because CSS
+ * cannot disclose: the answer's grounding, who wrote it, the recorded answer
+ * and the three presses that act on it are behind `About this answer ▾`, and
+ * the eyebrow that repeated the tab's own word is gone.
+ * ========================================================================== */
+
+/* -- the question is the headline ------------------------------------------ */
+
+/* A kept question is what this page is about, so it is set as the page's
+   title rather than as a bolded line in a bubble. The bubble keeps its
+   spacing and loses everything else; it was never a container, only padding. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-chatbubble { padding: 0 0 4px; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-asked {
+  display: block;
+  margin: 0 0 20px;
+  font-family: var(--q2-sans);
+  font-size: 1.3125rem;
+  font-weight: 650;
+  line-height: 1.26;
+  letter-spacing: -.012em;
+  color: #eee8e5;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-head .mgd-h2 {
+  font-size: 1.3125rem;
+  font-weight: 650;
+  line-height: 1.26;
+  letter-spacing: -.012em;
+  margin: 0;
+}
+
+/* -- the answer ------------------------------------------------------------ */
+
+/* THE GOLD RULE DOWN THE ANSWER IS GONE. It was there to say "this block is
+   the answer"; on a page whose whole subject is the answer it said nothing and
+   drew a line through the reading column. The answer is now simply the body of
+   the page, in the reading serif, with the room to be read. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-answer {
+  border-left: 0;
+  padding: 0;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2-prose { line-height: 1.62; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2-prose p { margin: 0 0 .95em; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-answer > .mgd-p,
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-main > .mgd-p {
+  font-family: var(--q2-serif);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-answer p { margin: 0 0 .9em; }
+
+/* What is said ABOUT the answer is the apparatus, not the answer. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about { margin: 4px 0 0; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about > summary > .mgd-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a89991;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about > summary:hover > .mgd-link,
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about[open] > summary > .mgd-link { color: #edc35d; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about > div { margin: 12px 0 4px; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about > div > .mgd-link { display: block; margin-top: 10px; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-about .mgd-small { font-size: 12px; color: #978983; }
+
+/* `GROUNDED IN THIS COLLECTION` was a filled chip; it is the same small-caps
+   label every other label on these two surfaces now uses. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-grounding { display: block; margin: 0 0 10px; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-grounding > .mgd-today,
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-grounding > .mgd-future {
+  display: block;
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: .1em;
+  font-weight: 700;
+  color: #9b8c84;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-outside > .mgd-future { color: #e0b65f; }
+
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-foot { gap: 16px; margin: 16px 0 0; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history { margin: 18px 0 0; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history > summary {
+  font-size: 12px; font-weight: 600; color: #a89991; list-style: none;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history > summary::-webkit-details-marker { display: none; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history > summary::marker { content: ''; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history[open] > summary { color: #edc35d; }
+
+/* -- one label system ------------------------------------------------------ */
+
+/* Set as written, for the reason given in `summary.css`: a label in capitals
+   is a one-word kicker, and these are sentences. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-aside .mgd-h3,
+/* `TRY ASKING`, which the view writes as a bare subtitle. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-main > .mgd-subtle {
+  letter-spacing: .05em;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: none;
+  color: #9b8c84;
+  margin: 0;
+}
+
+/* -- space, not rules ------------------------------------------------------ */
+
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-divider { border-top: 0; margin: 26px 0 0; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-item { border-bottom: 0; padding: 12px 0; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-aside .mgd-item:first-of-type { padding-top: 12px; }
+
+/* The suggested question loses its gold bar and is set in the reading serif:
+   it is a question to read, not a callout to notice. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-example {
+  border-left: 0;
+  padding-left: 0;
+  margin: 10px 0 0;
+  font-family: var(--q2-serif);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: #d8c8b8;
+}
+
+/* `AVAILABLE NOW` beside `Ordinary Conversation` was a chip and a subtitle
+   describing a state nobody is operating. It is one quiet line. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-today,
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-future {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: #9b8c84;
+}
+
+/* `What can I do today?` was a panel with a 3px gold edge and a filled
+   background inside a panel inside a card. It is the same words, set in. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-help {
+  background: none;
+  border-left: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 18px 0 0;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-help .mgd-button {
+  background: none; border: 1px solid #7b685c; border-radius: 999px; padding: 6px 14px; color: #eee8e5;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-help .mgd-button:hover:not(:disabled) {
+  background: none; border-color: #e0b65f; color: #f6e9dd;
+}
+
+/* -- the compose box, as a field rather than a box ------------------------- */
+
+/* It was a rounded, bordered, filled panel sitting inside the panel: one of
+   the nested containers the owner named. A field on a printed form is a rule
+   under the place you write, and that is all this needs to be. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-compose {
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #5d4e47;
+  border-radius: 0;
+  padding: 2px 0 10px;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-compose:focus-within { border-bottom-color: #e0b65f; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-compose-foot { margin-top: 14px; }
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-compose-foot > .mgd-subtle { font-size: 12px; color: #978983; }
+/* The send stays a shape -- it is the one thing this surface is for. */
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-compose-foot .mgd-button {
+  background: none;
+  border: 1px solid #7b685c;
+  border-radius: 999px;
+  padding: 7px 16px;
+  color: #eee8e5;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .q2p-compose-foot .mgd-button:hover:not(:disabled) {
+  background: none; border-color: #e0b65f; color: #f6e9dd;
+}
+.q2 .q2-magnet-card .q2-magnet-perspectives .mgd-hint { font-size: 12px; color: #978983; margin: 14px 0 0; }
 
 /* Kept for `EvidenceViews`' own supporting-items block, which still carries
    these class names. This view no longer renders them. */

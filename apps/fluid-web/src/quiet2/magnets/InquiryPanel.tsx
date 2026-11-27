@@ -115,6 +115,12 @@ export const tryAsking = (resource: MagnetResource): string =>
 export const READ_AGAIN = 'Read this question again'
 /** The heading the kept answer and the ones before it live under. */
 export const EARLIER_ANSWERS = 'Earlier answers'
+/** THE ONE DISCLOSURE THE ANSWER'S APPARATUS LIVES BEHIND (owner
+ *  `ent-15a36a065eb8`: secondary actions and provenance through progressive
+ *  disclosure, not permanently on screen and not hidden). What it holds is the
+ *  grounding statement, who wrote the answer, the recorded answer itself, and
+ *  the presses that act on the answer rather than read it. */
+export const ABOUT_THIS_ANSWER = 'About this answer'
 /** ONE PRESS FROM A QUESTION INTO THE MAGNET'S CONVERSATION (owner
  *  `opr-85178afc5f3a`), folded in here rather than left as separate polish.
  *  The question being viewed is made the active one if it is not already --
@@ -566,9 +572,6 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                 {answerText(answers.current)
                   ? <Briefing resource={resource} answer={answers.current} />
                   : <p className="mgd-p">{agentWritten(answers.current) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'}</p>}
-                <AnswerGrounding answer={answers.current} />
-                <p className="mgd-small mgd-muted">{ANSWER_WRITTEN_BY(answers.current)}
-                  {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
               </>}
               {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span><Linked text={wordingOf(e) ?? ''} /></p>)}
             </> : <>
@@ -588,32 +591,55 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                 <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(e.data.answer?.ref ?? e.snapshot.ref)}>View it as it was recorded</button>
               </li>)}</ol>
             </details>}
-            <div className="mgd-row mgd-spread q2p-answer-foot">
+            {/* EVERYTHING SECONDARY TO READING THE ANSWER IS BEHIND ONE
+                DISCLOSURE (owner `ent-15a36a065eb8`: "Keep secondary actions
+                and provenance available through progressive disclosure").
+                What stands on the surface is the question, the answer, and the
+                one press that goes to the records the answer rests on. What
+                opens here is what a reader asks for only when they want it:
+                what the answer was grounded in, who wrote it, the recorded
+                answer itself, and the three presses that act on it -- answering
+                again, reading the question again, and taking it to the
+                Conversation. Nothing was deleted; each is the same press, with
+                the same guard, in one place instead of three rows. */}
+            <div className="mgd-row q2p-answer-foot">
               <button type="button" className="mgd-link mgd-small" onClick={() => setPlace('support')}>Explore supporting items ↗</button>
-              {/* Asking the saved question of the collection again, beside the
-                  answer it would supersede. */}
-              {!!answers.current && <button type="button" className="mgd-link mgd-small" disabled={!mayWrite} onClick={answerAgain}>Answer again from this collection</button>}
-              {/* The manual half of refresh, beside the answer it refreshes. */}
-              <button type="button" className="mgd-link mgd-small" disabled={busy} onClick={() => void run(() => reread())}>{READ_AGAIN}</button>
+              {readAgain && <span className="mgd-small mgd-muted" role="status">{readAgain}</span>}
             </div>
-            {readAgain && <p className="mgd-small mgd-muted" role="status">{readAgain}</p>}
+            <details className="q2p-about q2-magnet-disclosure">
+              <summary><span className="mgd-link mgd-small">{ABOUT_THIS_ANSWER} ▾</span></summary>
+              <div aria-label="What this answer rests on, and what can be done with it">
+                {!!answers.current && <>
+                  <AnswerGrounding answer={answers.current} />
+                  <p className="mgd-small mgd-muted">{ANSWER_WRITTEN_BY(answers.current)}
+                    {answers.current.data.answer?.ref && <> <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(answers.current!.data.answer.ref)}>View the recorded answer</button></>}</p>
+                  {/* Asking the saved question of the collection again, beside
+                      the answer it would supersede. */}
+                  <button type="button" className="mgd-link mgd-small" disabled={!mayWrite} onClick={answerAgain}>Answer again from this collection</button>
+                </>}
+                {/* The manual half of refresh, beside the answer it refreshes. */}
+                <button type="button" className="mgd-link mgd-small" disabled={busy} onClick={() => void run(() => reread())}>{READ_AGAIN}</button>
+                {/* ONE PRESS FROM THIS QUESTION INTO THE MAGNET'S CONVERSATION
+                    (owner `opr-85178afc5f3a`): it makes this question the
+                    active one if it is not, and copies its own saved words into
+                    the Conversation's Composer at the version this card is
+                    showing. It was a filled button standing permanently under
+                    the answer; it is the same press, offered here. */}
+                <button type="button" className="mgd-link mgd-small" disabled={busy || !mayWrite} onClick={() => void run(() => takeToConversation(resource, store))}>{TAKE_TO_CONVERSATION} →</button>
+              </div>
+            </details>
           </div>
-          {/* ONE PRESS FROM THIS QUESTION INTO THE MAGNET'S CONVERSATION
-              (owner `opr-85178afc5f3a`), folded into the question surface
-              rather than left as separate polish: it makes this question the
-              active one if it is not, and copies its own saved words into the
-              Conversation's Composer at the version this card is showing. */}
-          <button type="button" className="mgd-button mgd-secondary" disabled={busy || !mayWrite} onClick={() => void run(() => takeToConversation(resource, store))}>{TAKE_TO_CONVERSATION} →</button>
           <div className="mgd-space" />
           {compose}
           <p className="mgd-hint">{DISCUSSION_READS}</p>
         </> : <>
-          {/* 02 / 09: nothing asked yet. */}
+          {/* 02 / 09: nothing asked yet. THE PLACE NAME IS SAID ONCE: the
+              card's own tab bar already reads `Perspectives`, so the eyebrow
+              that repeated it under the tab is one of the redundant headings
+              the owner asked to be rid of (`ent-15a36a065eb8`). What leads the
+              surface is what the reader is here to do. */}
           <div className="mgd-row mgd-spread q2p-head">
-            <div>
-              <div className="mgd-eyebrow">Perspectives</div>
-              <h3 className="mgd-h2">Explore a question</h3>
-            </div>
+            <h3 className="mgd-h2">Explore a question</h3>
             {openPast}
           </div>
           <p className="mgd-p mgd-muted">Ask a question or share an idea to discuss.</p>
