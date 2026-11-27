@@ -312,8 +312,8 @@ ok(!/'Held · not refreshed'/.test(readFileSync(src + 'quiet2/sources/SourcePage
    cold server over a copy of TEST's Brain), and it is why a prior round reported the
    wizard as offering no kinds at all (ent-3e0abfa18d84). */
 {
-  const panel = (descriptors: Descriptor[], read: boolean) => renderToStaticMarkup(createElement(AddSourcePage, {
-    descriptors, read, me: null, connector: null,
+  const panel = (descriptors: Descriptor[], read: boolean, why: string | null = null) => renderToStaticMarkup(createElement(AddSourcePage, {
+    descriptors, read, why, me: null, connector: null,
     onConnector: () => {}, onOpenSource: () => {}, onChanged: () => {}, onCancel: () => {},
   }))
   const kinds: Descriptor[] = [
@@ -322,6 +322,14 @@ ok(!/'Held · not refreshed'/.test(readFileSync(src + 'quiet2/sources/SourcePage
   const reading = panel([], false)
   ok(reading.includes('Reading the kinds of source this Brain can take'), 'before the source system answers, the page says it is reading')
   ok(!reading.includes('No kind matches'), 'and states no verdict about kinds it has not been told about')
+  const failed = panel([], false, 'Failed to fetch')
+  ok(failed.includes('could not be read'), 'a failed source system read is named as a failure')
+  ok(failed.includes('Failed to fetch'), 'the source system read error is available to the reader')
+  ok(!failed.includes('Reading the kinds') && !failed.includes('No kind of source can be taken'), 'a failed read is distinct from not yet answered and answered with nothing')
+  const sourceMain = readFileSync(src + 'quiet2/sources/SourceMain.tsx', 'utf8')
+  const quiet = readFileSync(src + 'quiet2/Quiet2.tsx', 'utf8')
+  ok(/read=\{data !== null\} why=\{why\}/.test(sourceMain), 'SourceMain passes the read failure through to Add a source')
+  ok(/<SourceMain state=\{sourceMain\} data=\{sourcesRead\.data\} why=\{sourcesRead\.error\}/.test(quiet), 'Quiet2 supplies the /api/sources error to SourceMain')
   const none = panel([], true)
   ok(none.includes('No kind of source can be taken on this machine'), 'answered with nothing, it says that, which is a different thing')
   ok(!none.includes('No kind matches'), 'and still does not blame a search nobody made')

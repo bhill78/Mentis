@@ -44,7 +44,7 @@ const STEPS = ['Kind', 'Where and what', 'Preview', 'Take']
  *  a starting value, so it takes everything until the fields say otherwise. */
 const CUSTOM_PRESET: Preset = { id: 'custom', label: 'Custom', include: ['*'], exclude: [] }
 
-export default function AddSourcePage({ descriptors, read = true, picker, me, connector, onConnector, onOpenSource, onChanged, onCancel }: {
+export default function AddSourcePage({ descriptors, read = true, why, picker, me, connector, onConnector, onOpenSource, onChanged, onCancel }: {
   descriptors: Descriptor[]
   /** WHETHER THE SOURCE SYSTEM HAS ANSWERED YET.
    *
@@ -60,6 +60,8 @@ export default function AddSourcePage({ descriptors, read = true, picker, me, co
    *  whether it has answered; this page says only what is true of the answer
    *  it has. */
   read?: boolean
+  /** The source system's read failed; this is distinct from an unanswered read. */
+  why?: string | null
   picker?: Picker
   me: Id | null
   connector: string | null
@@ -114,7 +116,9 @@ export default function AddSourcePage({ descriptors, read = true, picker, me, co
             can take no kind at all; or it answered, there are kinds, and the
             search above narrowed them away. Only the last of those is "No
             kind matches." */}
-        {!shown.length && (!read
+        {!shown.length && (why
+          ? <p className="q2-src-faint" role="alert">The kinds of source this Brain can take could not be read. {why}</p>
+          : !read
           ? <p className="q2-src-faint" role="status">Reading the kinds of source this Brain can take…</p>
           : available.length
             ? <p className="q2-src-faint">No kind matches.</p>

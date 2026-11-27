@@ -1914,7 +1914,7 @@ function Quiet2Page() {
   ) : sourceMain ? (
     <div className="q2-col q2-col-brain q2-col-sources">
       {saidLine}
-      <SourceMain state={sourceMain} data={sourcesRead.data} me={me} canWrite={!READ_ONLY}
+      <SourceMain state={sourceMain} data={sourcesRead.data} why={sourcesRead.error} me={me} canWrite={!READ_ONLY}
         onState={sourceTo}
         onBack={sourcesBack} onLeave={() => goCentre(null)} onCancel={sourcesBack}
         onBeside={surfacePanes.length ? sourceBeside : null} onChanged={() => sourcesRead.reload()} />

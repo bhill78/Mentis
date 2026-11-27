@@ -29,9 +29,10 @@ export interface SourceMainState { view: SourceMainView; reading: SourcesRoute |
 /** A participant, as a person reads them; never an id where a name is known. */
 export const personWords = (id: Id | null | undefined): string => (id ? (knownName(id) ?? shortId(id, 10)).replace(/^@/, '') : 'someone')
 
-export default function SourceMain({ state, data, me, canWrite, onState, onBack, onLeave, onCancel, onBeside, onChanged }: {
+export default function SourceMain({ state, data, why, me, canWrite, onState, onBack, onLeave, onCancel, onBeside, onChanged }: {
   state: SourceMainState
   data: SourcesAnswer | null
+  why?: string | null
   me: Id | null
   canWrite: boolean
   onState: (s: SourceMainState) => void
@@ -104,7 +105,7 @@ export default function SourceMain({ state, data, me, canWrite, onState, onBack,
         </div>
       )}
       {view.page === 'add' && (canWrite
-        ? <AddSourcePage descriptors={descriptors} read={data !== null} picker={data?.picker} me={me} connector={view.connector}
+        ? <AddSourcePage descriptors={descriptors} read={data !== null} why={why} picker={data?.picker} me={me} connector={view.connector}
             onConnector={(connector) => onState({ view: { page: 'add', connector }, reading: null })}
             onOpenSource={openSource} onChanged={onChanged} onCancel={onCancel} />
         : <div className="rv rv-full"><p className="q2m-faint" role="alert">This page is read-only: a source cannot be added here.</p></div>)}
