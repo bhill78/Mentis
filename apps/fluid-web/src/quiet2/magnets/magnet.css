@@ -67,9 +67,27 @@
    hairline. The mockup's `.head` -- 20px above the line, 15px below it, 24px
    at the sides, the controls 12px apart -- with the near inset above clearing
    the puck. */
+/* ONE RULE, NOT TWO (owner ent-15a36a065eb8: "remove unnecessary borders,
+   accent lines"). The header carried a hairline and the tab row carried
+   another one 45px below it, so every tab of the card opened behind two
+   stacked lines with a band of nothing between them. The tab row's rule is
+   the one that does the work -- it separates the chrome from the reading
+   area and it is what the selected tab's underline sits in -- so the
+   header's is the one that goes. */
 .q2 .q2-magnet-card>header{display:flex;align-items:center;gap:12px;flex:none;
-  padding:20px var(--magnet-head-far) 15px var(--magnet-head-near);
-  min-height:29px;border-bottom:1px solid var(--magnet-rule);background:var(--magnet-brown)}
+  padding:20px var(--magnet-head-far) 13px var(--magnet-head-near);
+  min-height:29px;background:var(--magnet-brown)}
+/* THE TWO SECONDARY CONTROLS ARE NOT ALWAYS ON SCREEN. Resizing (⤢, which the
+   draggable edges already do) and settings (⚙) sat lit beside the Magnet's
+   name on every tab, for every reader, whether or not either was wanted.
+   They are kept exactly where they were, reachable the moment the card is
+   pointed at or holds focus -- so a keyboard reaches them by tabbing, and a
+   touch device, which has no hover to reveal them with, keeps them drawn.
+   Closing (×) is not secondary and never fades. */
+.q2 .q2-magnet-card>header .q2-magnet-icon:not(.q2-magnet-dismiss){opacity:0;transition:opacity .13s ease-out}
+.q2 .q2-magnet-card:hover>header .q2-magnet-icon,
+.q2 .q2-magnet-card:focus-within>header .q2-magnet-icon{opacity:1}
+@media (hover:none){.q2 .q2-magnet-card>header .q2-magnet-icon{opacity:1}}
 .q2 .q2-magnet-flipped .q2-magnet-card{--magnet-head-near:24px;--magnet-head-far:48px}
 /* The mockup's `.title{flex:1}`: the name takes the line and the controls sit
    at the far edge without a second spacing rule. */
@@ -138,17 +156,26 @@
   margin:0 0 calc(10px + 4px * var(--magnet-room-h));padding-bottom:calc(7px + 4px * var(--magnet-room-h));border-bottom:1px solid var(--magnet-rule)}
 .q2 .q2-magnet-overlay-head h3{margin:0;font-size:calc(14px + 2px * var(--magnet-room));font-weight:700;color:#f6f1ef}
 .q2 .q2-magnet-overlay-head h3:focus-visible{outline:3px solid #fff3be;outline-offset:4px}
-.q2 .q2-magnet-panel{border:1px solid var(--magnet-rule);border-radius:12px;background:#322a28;
-  padding:calc(10px + 3px * var(--magnet-room-h)) calc(11px + 4px * var(--magnet-room));margin:calc(8px + 3px * var(--magnet-room-h)) 0}
-.q2 .q2-magnet-note{border:1px solid #5c4c33;border-left:3px solid #edbf50;border-radius:10px;background:#352c24;
-  padding:calc(10px + 3px * var(--magnet-room-h)) calc(12px + 4px * var(--magnet-room));margin:calc(10px + 4px * var(--magnet-room-h)) 0;color:#e6dcd4}
+/* A BAND, NOT A BOX INSIDE A BOX (owner ent-15a36a065eb8: "remove ... nested
+   containers"). A framed, rounded, differently-shaded panel drawn inside the
+   card's own frame is the card's border said a second time, and a column of
+   them reads as an administrative form. What actually separates one group of
+   controls from the next is a rule and some air, so that is what is left. */
+.q2 .q2-magnet-panel{border:0;border-top:1px solid var(--magnet-rule);border-radius:0;background:none;
+  padding:calc(14px + 4px * var(--magnet-room-h)) 0 calc(4px + 2px * var(--magnet-room-h));margin:calc(12px + 4px * var(--magnet-room-h)) 0 0}
+/* The contextual note keeps the one mark that means something -- the gold rule
+   down its near edge -- and loses the box and the shade around it. */
+.q2 .q2-magnet-note{border:0;border-left:2px solid #edbf50;border-radius:0;background:none;
+  padding:2px 0 2px calc(14px + 4px * var(--magnet-room));margin:calc(12px + 4px * var(--magnet-room-h)) 0;color:#e6dcd4}
 .q2 .q2-magnet-note>:first-child{margin-top:0}
 .q2 .q2-magnet-note>:last-child{margin-bottom:0}
 /* Settings opens on its controls: the heading row is the overlay's title line
    and the framed blocks below it hold the advanced material (§4). */
-.q2 .q2-magnet-settings>section{border:1px solid var(--magnet-rule);border-radius:12px;background:#322a28;
-  padding:calc(10px + 3px * var(--magnet-room-h)) calc(11px + 4px * var(--magnet-room));margin:calc(8px + 3px * var(--magnet-room-h)) 0}
-.q2 .q2-magnet-settings>section:first-of-type{padding-top:calc(10px + 3px * var(--magnet-room-h))}
+.q2 .q2-magnet-settings>section{border:0;border-top:1px solid var(--magnet-rule);border-radius:0;background:none;
+  padding:calc(16px + 5px * var(--magnet-room-h)) 0 calc(6px + 3px * var(--magnet-room-h));margin:0}
+/* The first group sits under the overlay's own title rule; it needs air, not
+   a second line directly beneath the first. */
+.q2 .q2-magnet-settings>section:first-of-type{border-top:0;padding-top:calc(6px + 3px * var(--magnet-room-h))}
 .q2 .q2-magnet-settings>section>h4:first-child{margin-top:0}
 .q2 .q2-magnet-settings summary{cursor:pointer;width:max-content}
 .q2 .q2-magnet-settings .q2-magnet-move{padding-top:calc(10px + 3px * var(--magnet-room-h))}
@@ -210,7 +237,16 @@
 .q2 .q2-magnet-destinations{font-size:12px;color:#d9c9be;margin:10px 0}
 .q2 .q2-magnet-destinations summary,.q2 .q2-magnet-card footer summary{cursor:pointer}
 .q2 .q2-magnet-inspection{min-height:220px;overflow-wrap:anywhere}
-.q2 .q2-magnet-inspection h3{margin:16px 0}
+/* AN OPENED RECORD READS AS THE THING IT IS. Its own headline is the heading
+   (`Inspection.tsx`), so it is given a headline's room; the quiet line above
+   says what kind of record carried it and from which site, which is what the
+   17px bold "Collected file" used to take the top of the page to say. */
+.q2 .q2-magnet-inspect-head{align-items:flex-start;gap:16px;margin:4px 0 2px}
+.q2 .q2-magnet-inspect-kind{margin:0 0 4px}
+.q2 .q2-magnet-inspection h3.q2-magnet-inspect-title{margin:0 0 14px;max-width:62ch}
+/* A heading the record did not supply stays the smaller administrative one. */
+.q2 .q2-magnet-inspection h3.mgd-h3.q2-magnet-inspect-title{margin:0 0 10px}
+.q2 .q2-magnet-inspection>*+.q2-magnet-disclosure{margin-top:18px}
 .q2 .q2-magnet-post-text{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui;margin:12px 0;color:#eee5e1}
 .q2 .q2-magnet-file-view{min-height:240px;max-width:100%;overflow:auto}
 .q2 .q2-magnet-file-view img{max-width:100%;height:auto;object-fit:contain;max-height:65vh}

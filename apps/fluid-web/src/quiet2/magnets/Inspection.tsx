@@ -34,7 +34,7 @@ import { PDF_START, type PdfState } from '../viewer/types'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { MAGNET_TABS } from './contract'
 import type { MagnetContext, MagnetPlaceKey, MagnetResource } from './contract'
-import { SourceLink, heldHeader, linkHost, rowHeadline, rowLink } from './links'
+import { SourceLink, heldHeader, linkHost, restates, rowHeadline, rowLink } from './links'
 import { closeInspect, inspect, place, writePlace, placeKeyOf } from './places'
 import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 import './summary.css'
@@ -165,16 +165,29 @@ export function discussEvidence(resource: MagnetResource, r: RouteResult) {
  *  recorded a headline and an address and nothing else -- says that, rather
  *  than drawing an empty column where its words would be. */
 export const NOTHING_BUT_A_HEADER = 'This record captured its headline and its address and no further words. Nothing was fetched to fill it in.'
-export function CapturedWords({ text, acquired, scope }: { text: string; acquired: boolean; scope: string }) {
+export function CapturedWords({ text, acquired, scope, headingShown = false }: { text: string; acquired: boolean; scope: string; headingShown?: boolean }) {
   // `heldHeader` is `links.tsx`'s own reader of those recorded bytes, used here
   // on the captured text directly rather than on a row: this component is given
   // the text, and a header is a property of the text.
   const header = heldHeader(text)
   const body = header.body.trim()
+  // `headingShown` is the caller saying it has already made this record's own
+  // headline the heading of the surface, so drawing it again here would be the
+  // same words twice. Default false: used on its own, this component still
+  // carries its own heading, which is the contract its own tests hold it to.
+  //
+  // `echoes` is the second helping of the same thing. A feed commonly records
+  // an entry's title as its summary as well, so such a record would say one
+  // sentence three times over -- as the heading, and again as the only prose
+  // under it. `restates` is `links.tsx`'s own test for that, the decision
+  // `rowBody` already makes for a row and `perspectives_work._restates` makes
+  // for a written answer. It too applies only once the caller has taken the
+  // heading, so nothing changes for this component used by itself.
+  const echoes = headingShown && restates(header.headline, body)
   return <div>
-    {!!header.headline && <h4 className="mgd-h3">{header.headline}</h4>}
+    {!!header.headline && !headingShown && <h4 className="mgd-h3">{header.headline}</h4>}
     {!!header.link && <SourceLink url={header.link} />}
-    {body
+    {body && !echoes
       ? <div className="q2-prose"><Prose src={body} scope={scope} untrusted={acquired} /></div>
       : <p className="mgd-subtle">{header.link ? NOTHING_BUT_A_HEADER : 'No readable text was collected for this record. No live source content was substituted.'}</p>}
   </div>
@@ -256,9 +269,30 @@ export default function Inspection({ resource, refId, source, back }: Inspection
      and provenance behind the same `▾` disclosure the other surfaces use. Every
      control is the one that was here: closing, each listed record, the source
      Conversation, Discuss this record. */
+  /* THE ARTICLE'S OWN HEADLINE IS THE HEADING (owner ent-15a36a065eb8: "present
+     collected content naturally ... with technical details secondary"). An
+     opened record led with "Collected file" in 17px bold, then said "Collected
+     file · news.google.com" under it, and only then gave the article's own
+     title -- the one line a reader is actually looking for -- in a smaller
+     heading, with the body beneath repeating it a fourth time. The kind of
+     thing it is has not been lost: it is the quiet line above, where it
+     belongs, and `CapturedWords` is told the heading is already shown so the
+     words are not said twice. Where a record HAS no headline of its own the
+     administrative label is still the heading, because then it is the only
+     thing there is to say. */
+  const headline = result && !batch ? rowHeadline(result) : null
+  const kindLine = result && !batch
+    ? `Collected ${result.kind === 'post' ? 'post' : 'file'} · ${linkHost(rowLink(result)) ?? plainEvidenceOrigin(result)}`
+    : null
+  const plainTitle = batch ? 'Collected information'
+    : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file'
+      : 'Not in this collection'
   return <article className="q2-magnet-inline-evidence q2-magnet-inspection" aria-labelledby="inspect-title">
-    <div className="mgd-row mgd-spread">
-      <h3 id="inspect-title" className="mgd-h3 mgd-grow" tabIndex={-1}>{batch ? 'Collected information' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Not in this collection'}</h3>
+    <div className="mgd-row mgd-spread q2-magnet-inspect-head">
+      <div className="mgd-grow">
+        {!!kindLine && <p className="mgd-subtle q2-magnet-inspect-kind">{kindLine}</p>}
+        <h3 id="inspect-title" className={`${headline ? 'mgd-h2' : 'mgd-h3'} q2-magnet-inspect-title`} tabIndex={-1}>{headline ?? plainTitle}</h3>
+      </div>
       <button type="button" className="q2-magnet-icon" aria-label="Close this record" title="Close this record" onClick={close}>×</button>
     </div>
     {/* WHERE IT CAME FROM, WITHOUT A STORAGE IDENTITY ON THE RESTING SURFACE.
@@ -270,9 +304,20 @@ export default function Inspection({ resource, refId, source, back }: Inspection
         recognises; otherwise `plainEvidenceOrigin`, which is the clean one this
         file already exports for resting surfaces. The exact key is unchanged
         and one press away, under "Where this came from". */}
-    {result && !batch && <p className="mgd-subtle">Collected {result.kind === 'post' ? 'post' : 'file'} · {linkHost(rowLink(result)) ?? plainEvidenceOrigin(result)}</p>}
     {batch ? <><p className="mgd-p">This is {s.batchSelection ? 'the collection as it was' : 'what this Magnet has collected'}, recorded {when(s.activation?.at)}.</p>
-      <p className="mgd-subtle">{refId} · {s.activation?.artifact.digest}</p>
+      {/* THE BATCH REFERENCE AND ITS DIGEST ARE NOT WHAT THIS PAGE IS ABOUT.
+          They stood as the second line of the collection, above the records
+          themselves: forty characters of identifier and a sixty-four character
+          digest, load-bearing in the default view of a reading surface. They
+          are kept exactly, one press away, with the rest of the technical
+          detail -- which is where the owner asked lineage to stay readable. */}
+      <details className="q2-magnet-provenance q2-magnet-disclosure">
+        <summary><span className="mgd-link mgd-small">Technical detail ▾</span></summary>
+        <dl>
+          <dt>Collection</dt><dd>{refId}</dd>
+          <dt>Digest</dt><dd>{s.activation?.artifact.digest}</dd>
+        </dl>
+      </details>
       {/* EACH ROW BY ITS OWN WORDS. This list led with the raw storage object
           key for every held row (`value.path`:
           "space-missions-and-astronomy-what-launch/a733ec1ec5e51a4b"), which is
@@ -286,7 +331,7 @@ export default function Inspection({ resource, refId, source, back }: Inspection
               the same renderer that draws a post everywhere else in Fluid --
               not as a monospaced byte block. Written in this Brain, so it is
               trusted text, exactly as `quiet2/Post.tsx` treats it. */}
-          {result.deleted ? <p className="mgd-p">This post was deleted at collection time.</p> : capturedText(result) ? <CapturedWords text={capturedText(result)} acquired={false} scope={`magnet-record:${result.id}`} /> : <p className="mgd-p">No readable text was collected for this post. No live source content was substituted.</p>}
+          {result.deleted ? <p className="mgd-p">This post was deleted at collection time.</p> : capturedText(result) ? <CapturedWords text={capturedText(result)} acquired={false} scope={`magnet-record:${result.id}`} headingShown={!!headline} /> : <p className="mgd-p">No readable text was collected for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p className="mgd-subtle" role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
           {retainedFiles([result]).map((f) => <div className="mgd-item" key={f.id}><button type="button" className="mgd-link mgd-small" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'View the attachment'}</button></div>)}
         </> : heldValue ? <>{/* ACQUIRED MATERIAL: its recorded headline and
@@ -294,7 +339,7 @@ export default function Inspection({ resource, refId, source, back }: Inspection
               and because nobody in this Brain wrote them they go to `Prose`
               as untrusted -- no marked block and no HTML preview from a page
               Mentis fetched. */}
-          <CapturedWords text={typeof heldValue.text === 'string' ? heldValue.text : ''} acquired scope={`magnet-record:${result.id}`} />
+          <CapturedWords text={typeof heldValue.text === 'string' ? heldValue.text : ''} acquired scope={`magnet-record:${result.id}`} headingShown={!!headline} />
           {heldValue.shortened && <p className="mgd-subtle" role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
           : artifact ? <HeldFile refId={artifact} /> : <p className="mgd-p">This collected record has no file this card can show. Where it came from is kept; no live file was substituted.</p>}
         <details className="q2-magnet-provenance q2-magnet-disclosure" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
