@@ -67,12 +67,12 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { MagnetResource } from './contract'
 import {
   answerHistory, answerText, derivedPerspectiveName, grounding, pastQuestions, perspectivesOf,
-  provenanceOf, questionSubtitle, recordedUnderstanding, stampAttachedQuestion, statements,
-  ANSWER_FROM_COLLECTION, CHECKED_NEW, CHECKED_SAME, COLLECTION_MOVED, EVENT_WORDS,
+  provenanceOf, questionSubtitle, recordedUnderstanding, restampAttachedQuestion, showPerspectiveContext, stampAttachedQuestion, statements,
+  CHECKED_NEW, CHECKED_SAME, COLLECTION_MOVED, EVENT_WORDS,
   NOTHING_RECORDED_YET, PERSPECTIVE_DISCLOSURE, SUPPORTING_WHY, WRITTEN_BY_MENTIS,
   type InquiryEvent, type PerspectiveStore,
 } from './perspectives'
-import { offeredQuestions } from './Summary'
+import { agentWritten, offeredQuestions, readStandingBriefing, withWords } from './Summary'
 import { retainedItems, resultPreview, resultTitle, rowByline, usePeople } from './EvidenceViews'
 import { AnswerStatement, Linked } from './links'
 import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conversation'
@@ -145,12 +145,27 @@ export async function askAnAgent(resource: MagnetResource, store: PerspectiveSto
   const topic = s.viewed ?? s.selected
   if (!topic) throw new Error('Open a question before asking it of an agent.')
   if (!text.trim()) throw new Error('Write a question before asking an agent.')
-  await store.prepare(text, `perspective-ask:${topic}:${crypto.randomUUID()}`)
-  return discussSelectedQuestion(resource, store)
+  const held = miniComposerDraft(resource)
+  if (held.text.trim() && held.text !== text) throw new Error('The Conversation Composer already has a different draft. Keep or clear it before asking an agent.')
+  if (s.selected !== topic) await store.select(topic)
+  const prepared = await store.prepare(text, `perspective-ask:${topic}:${crypto.randomUUID()}`)
+  const context = await store.ordinaryContext()
+  if (!context || context.perspective !== topic || context.revision !== prepared.question?.ref)
+    throw new Error('The saved question no longer matches the frozen request. The request is kept; nothing was sent.')
+  const now = miniComposerDraft(resource)
+  if (now.text !== held.text && now.text.trim() && now.text !== text)
+    throw new Error('The Conversation Composer now holds different words. Keep or clear them before continuing; the frozen request is kept.')
+  showPerspectiveContext(resource, topic, context.name)
+  restampAttachedQuestion(resource, topic, prepared.question)
+  saveMiniComposer(resource, { ...now, text: prepared.text })
+  focusMiniComposer()
+  goTab(resource, 'Conversation')
+  setOpen(resource, true)
+  return context
 }
 /** What the answer block says about who wrote the answer standing now. */
 export const ANSWER_WRITTEN_BY = (e: InquiryEvent | null): string =>
-  typeof e?.data?.written_by === 'string' ? e.data.written_by : WRITTEN_BY_MENTIS
+  agentWritten(e) ? 'Written by an agent' : typeof e?.data?.written_by === 'string' ? e.data.written_by : WRITTEN_BY_MENTIS
 
 /** WHAT AN ANSWER WAS GROUNDED IN (Part A's `explored_outside`, unchanged).
  *  Grounded-in-the-collection and explored-outside are rendered as different
@@ -380,7 +395,26 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   useEffect(() => { void store.read() }, [store])
   useEffect(() => { if (!s.viewed && s.selected) void store.view(s.selected).catch((e) => setMessage(e.message)) }, [s.viewed, s.selected, store, setMessage])
   const told = recordedUnderstanding(s.events)   // what the record holds, derived from nothing
-  const answers = answerHistory(s.events)        // the one standing now, and the ones it follows
+  const recordedAnswers = answerHistory(s.events)
+  const [frozenAnswers, setFrozenAnswers] = useState<Record<string, { post: string; words: string }>>({})
+  useEffect(() => {
+    let live = true
+    const events = [recordedAnswers.current, ...recordedAnswers.superseded].filter((e): e is InquiryEvent => !!e && agentWritten(e))
+    setFrozenAnswers({})
+    for (const event of events) void readStandingBriefing(store, event)
+      .then((got) => { if (live) setFrozenAnswers((old) => ({ ...old, [event.post]: got })) })
+      .catch((e: Error) => { if (live) setMessage(`Could not display the recorded answer: ${e.message}`) })
+    return () => { live = false }
+  }, [s.events, store, setMessage])
+  const displayAnswer = (e: InquiryEvent | null) => {
+    if (!e || !agentWritten(e)) return e
+    const unread = { ...e, data: { ...e.data, text: '' } }
+    return withWords(unread, frozenAnswers[e.post] ?? null)
+  }
+  const answers = {
+    current: displayAnswer(recordedAnswers.current),
+    superseded: recordedAnswers.superseded.map((e) => displayAnswer(e)!),
+  }
   const viewed = s.viewedDetail
   const asked = viewed?.current_question?.text ?? (s.viewed === s.selected ? s.selectedDetail?.current_question?.text : '') ?? ''
   const mayWrite = canWrite && !busy && !s.pending
@@ -419,39 +453,22 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
     // state here would read again for reasons that are not new evidence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collected])
-  /** THE ONE PRESS THAT ASKS, AND GETS AN ANSWER.
-   *
-   *  It records the question against the kept Perspective -- created, or
-   *  branched from the one being explored, exactly as before -- and then asks
-   *  it of this Magnet's collection, which records a real answer grounded in
-   *  the collected rows. Asking the same thing again later appends another
-   *  answer and leaves this one readable: it supersedes, it never overwrites.
-   *
-   *  An answer is not a conversation: taking the question into the Magnet's
-   *  own Conversation is the separate single press beside the answer
-   *  (`TAKE_TO_CONVERSATION`, owner `opr-85178afc5f3a`), so asking no longer
-   *  silently moves the owner to another tab. */
+  /** Save the question, freeze its evidence, and hand it to the Conversation
+   *  for the owner to address to an agent. */
   const sendAsk = () => void run(async () => {
     const words = drafts.question
+    const existing = miniComposerDraft(resource).text
+    if (existing.trim() && existing !== words) throw new Error('The Conversation Composer already has a different draft. Keep or clear it before asking an agent.')
     await record()
     if (store.snapshot().pending) return
+    await askAnAgent(resource, store, words)
     clearQuestionDraft(at)
-    await store.ask(words)
-    setMessage(store.snapshot().error ?? 'Answered from this collection, and kept with the question.')
+    setMessage('Choose a recipient and press Send in the Conversation to answer this question.')
   })
   /** Ask the saved question of the collection again, without revising it. */
   const answerAgain = () => void run(async () => {
-    await store.ask()
-    setMessage(store.snapshot().error ?? 'Answered from this collection again. The earlier answer is kept.')
-  })
-  /** FREEZE THESE WORDS FOR AN AGENT, and hand off to the Conversation to send
-   *  them. Unlike `sendAsk`, nothing is answered here: the agent's own answer
-   *  is what will be recorded, once the owner addresses one and presses Send. */
-  const askAgent = () => void run(async () => {
-    const words = drafts.question
-    await askAnAgent(resource, store, words)
-    clearQuestionDraft(at)
-    setMessage('Frozen for an agent. Choose a recipient and press Send in the Conversation.')
+    await askAnAgent(resource, store, asked)
+    setMessage('Choose a recipient and press Send in the Conversation to answer this question.')
   })
 
   /* `q2p-open-past` is the hook the wide layout drops this on: once the aside
@@ -492,9 +509,6 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
             await record()
             if (!store.snapshot().pending) clearQuestionDraft(at)
           })}>Save for later</button>}
-          {/* THE AGENT-WRITTEN PATH: offered only once there is a kept
-              question to freeze, and only beside the words it would freeze. */}
-          {asked && drafts.question.trim() && <button type="button" className="mgd-link mgd-small" disabled={busy} onClick={askAgent}>{ASK_AN_AGENT}</button>}
           <button type="button" className="mgd-button" disabled={!drafts.question.trim()} onClick={sendAsk}>{asked ? 'Send ↑' : 'Ask →'}</button>
         </span>
       </div>
@@ -543,7 +557,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                     addresses in it followable (owner ent-0b4f3f69b836,
                     `links.tsx`): the recorded characters, given room to be
                     read. */}
-                {statements(answerText(answers.current) || 'An answer is recorded against this question.')
+                {statements(answerText(answers.current) || (agentWritten(answers.current) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'))
                   .map((line, i) => <AnswerStatement key={`now-${i}`} line={line} />)}
                 <AnswerGrounding answer={answers.current} />
                 <p className="mgd-small mgd-muted">{ANSWER_WRITTEN_BY(answers.current)}
@@ -552,7 +566,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
               {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span><Linked text={wordingOf(e) ?? ''} /></p>)}
             </> : <>
               <p>{NOTHING_RECORDED_YET}</p>
-              <button type="button" className="mgd-button" disabled={!mayWrite} onClick={answerAgain}>{ANSWER_FROM_COLLECTION}</button>
+              <button type="button" className="mgd-button" disabled={!mayWrite} onClick={answerAgain}>Ask an agent to answer</button>
             </>}
             {answers.superseded.length > 0 && <details className="q2p-answer-history">
               <summary>{EARLIER_ANSWERS} ({answers.superseded.length})</summary>
@@ -561,7 +575,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                 {/* An earlier answer is a whole answer, and was arriving as one
                     paragraph. It is laid out exactly as the one standing now,
                     and is still the characters that were recorded. */}
-                {statements(wordingOf(e) ?? 'An answer is recorded against this question.')
+                {statements(answerText(e) || (agentWritten(e) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'))
                   .map((line, j) => <AnswerStatement key={`s${i}-${j}`} line={line} />)}
                 <button type="button" className="mgd-link mgd-small" onClick={() => onEvidence(e.data.answer?.ref ?? e.snapshot.ref)}>View it as it was recorded</button>
               </li>)}</ol>

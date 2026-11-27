@@ -86,6 +86,7 @@ test('asking an agent freezes the exact words with `prepare`, then hands off to 
   f.r.update({ activation: { post: 'ent-batch1111111', artifact: { ref: 'adm-batch111111' }, at: 0, state: 'collected' }, results: [] })
   f.store.update({ selected: A, viewed: A })
   const sent: any[] = []
+  f.store.ordinaryContext = async () => ({ perspective: A, name: A, question: 'A fresh agent question', revision: 'adm-newrev111' })
   f.store.write = async (...args) => {
     sent.push(args)
     if (args[0] === `/${A}/question`) return { perspective: A, question: { ref: 'adm-newrev111' } }
@@ -111,6 +112,8 @@ test('asking an agent freezes the exact words with `prepare`, then hands off to 
   // The frozen intent is kept, for `beforeRequest` to carry through on send.
   assert.equal(f.store.snapshot().active?.intent, 'ent-intent1111')
   assert.equal(f.store.snapshot().active?.reach, 'work')
+  assert.equal(f.r.snapshot().context?.ref, A)
+  assert.equal((f.r.snapshot().context as any)?.version, 'adm-newrev111')
   // And the hand-off to the Conversation composer is the same one `TAKE_TO_CONVERSATION` uses.
   assert.equal(f.r.snapshot().tab, 'Conversation')
 })

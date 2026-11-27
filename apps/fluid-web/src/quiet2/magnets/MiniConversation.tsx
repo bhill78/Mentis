@@ -176,6 +176,7 @@ export default function MiniConversation({ resource, canWrite, onEvidence }: Min
     let live = true
     void finalizeReply(inquiries, active, answered.turn).then((r) => {
       if (live && r) setNote(r.ok ? 'The agent’s answer is recorded against this Perspective.' : r.why)
+      if (r?.ok && inquiries.snapshot().viewed === active.perspective) void inquiries.history().catch(() => {})
     })
     return () => { live = false }
   }, [flow.read, lens.bound, lens.active, inquiries])
