@@ -1059,20 +1059,9 @@ function withoutNarratedSentences(para: string): string {
  *  of what was frozen. */
 const CLAIM_TRAILER = /\n[ \t]*\n[^\n]*\(the agent's claim; what Mentis recorded is shown with the work\)[ \t]*$/
 
-/** A RECORDED ANSWER'S OWN WORDS, with a leading narration of the agent's work
- *  and a trailing claim trailer left out of what is drawn. Returns the input
- *  unchanged where there is neither, and where taking one out would leave
- *  nothing.
- *
- *  The fused sentences are separated first (`unfused`): on TEST's own answer
- *  the narrated sentence and the answer's first sentence are ONE run of
- *  characters with no space between them, so until the space is there the end
- *  of the narration cannot be found at all. */
-export function withoutNarration(words: unknown): string {
-  const whole = unfused(words)
-  const cut = whole.replace(CLAIM_TRAILER, '')
-  const src = cut.trim() ? cut : whole
-  if (!src.trim()) return src
+/** `src` with its leading narration taken off, or `src` where there is none or
+ *  where taking it off would leave nothing. */
+function withoutLeadingNarration(src: string): string {
   let rest = src.replace(/^\s+/, '')
   for (;;) {
     const cut = rest.search(/\n[ \t]*\n/)
@@ -1087,6 +1076,128 @@ export function withoutNarration(words: unknown): string {
     rest = after
   }
   return rest.trim() || src
+}
+
+/* ---------------------------------------------------------------------------
+   AND THE SAME AT THE CLOSE (owner `ent-bce57ba67f38`, read again on the
+   narration strip's own screenshots: "not agent narration, collection
+   history, execution details or internal instructions").
+
+   WHAT IS STILL WRONG. A reply that opens by saying what it is about to do
+   also commonly closes by saying what it did -- and on the owner's own Magnet
+   that closing paragraph is addressed to whoever evaluates the run, not to
+   the owner reading the Magnet: "The frozen question for Topic
+   `ent-85f547319077` is answered here and in the returned briefing,
+   `adm-3cfefbd3d5ad`. The cited versions and byte ranges identify the
+   retained collection text. All configured sources in the extract returned
+   successfully ... Nothing is required from the owner." It exposes bare
+   reference ids as reading matter and is bookkeeping about the work, which is
+   exactly what the owner named.
+
+   SO THE SAME READING RULE, FROM THE OTHER END, and as narrow:
+
+     - only TRAILING runs of prose, after the answer's own content (the claim
+       trailer is taken off first, so this paragraph is then the last one);
+     - only a paragraph that is RECOGNISABLY this pattern: plain prose that
+       both names a bare reference id AND is written in the bookkeeping
+       phrases below. Either alone is not enough -- an answer's own paragraph
+       cites records by reference, and prose may legitimately mention a source
+       or the owner;
+     - inside such a paragraph, only its trailing bookkeeping sentences;
+     - a paragraph that is not plain prose ENDS the scan, whatever it says;
+     - and if the strip would leave nothing at all, nothing is stripped.
+
+   SEAM, the same one: the clean fix is that the reply's answer and its
+   closing report to the evaluator are not one frozen run of prose, in
+   `mentis/magnet/perspectives_work.py`, which this part does not own. ----- */
+
+/** A BARE RECORD REFERENCE WRITTEN AS PROSE -- this record's own id shapes,
+ *  optionally in backticks. Not reading matter for the owner, and the first
+ *  half of the pattern recognised below. */
+const BARE_REFERENCE = /\b(?:ent|adm|opr|def)-[0-9a-f]{12}\b/
+
+/** HOW A RUN WRITES ITS CLOSING BOOKKEEPING, by the phrases it is actually
+ *  written in: whether the frozen question is answered, which briefing was
+ *  returned, whether the configured sources returned, what the citations
+ *  identify, and whether anything is wanted from the owner. Named phrases,
+ *  never a guess at the subject, so that an answer which merely talks about
+ *  sources or about the owner is left exactly as it was written. */
+const BOOKKEEPS = new RegExp([
+  'frozen question', 'returned briefing', 'frozen evidence',
+  'return(?:ed|s|ing)\\s+successfully', 'byte ranges?',
+  'nothing (?:is|was) (?:required|needed|asked)',
+  '(?:required|needed|asked) (?:from|of) the owner',
+].join('|'), 'i')
+
+/** The sentences of a run of prose, in order, each keeping the characters and
+ *  the spacing it was written with, so that joining a prefix of them back
+ *  together returns the author's own text. */
+function sentencesOf(para: string): string[] {
+  const out: string[] = []
+  let rest = para
+  for (;;) {
+    const m = SENTENCE_END.exec(rest)
+    if (!m) { if (rest.trim()) out.push(rest); return out }
+    const at = (m.index ?? 0) + m[0].length
+    out.push(rest.slice(0, at))
+    rest = rest.slice(at)
+  }
+}
+
+/** A sentence of an already-recognised bookkeeping paragraph that is part of
+ *  that bookkeeping: written in one of its phrases, or there to name a bare
+ *  reference id. */
+const bookkeeps = (sentence: string) => BOOKKEEPS.test(sentence) || BARE_REFERENCE.test(sentence)
+
+/** `para` with its trailing bookkeeping sentences taken off; `''` where the
+ *  whole paragraph is bookkeeping. */
+function withoutBookkeepingSentences(para: string): string {
+  const parts = sentencesOf(para)
+  let end = parts.length
+  while (end > 0 && bookkeeps(parts[end - 1])) end -= 1
+  return parts.slice(0, end).join('').trim()
+}
+
+/** `src` with a trailing run of closing bookkeeping taken off, or `src` where
+ *  there is none or where taking it off would leave nothing. */
+function withoutClosingBookkeeping(src: string): string {
+  let rest = src.replace(/\s+$/, '')
+  for (;;) {
+    let at = -1
+    let len = 0
+    for (const m of rest.matchAll(/\n[ \t]*\n\s*/g)) { at = m.index ?? 0; len = m[0].length }
+    const para = at < 0 ? rest : rest.slice(at + len)
+    const before = at < 0 ? '' : rest.slice(0, at)
+    if (NOT_PLAIN_PROSE.test(para)) break
+    /* RECOGNISABLY THE PATTERN, or this paragraph is the answer's own close. */
+    if (!(BARE_REFERENCE.test(para) && BOOKKEEPS.test(para))) break
+    const kept = withoutBookkeepingSentences(para)
+    if (kept === para.trim()) break
+    /* What is left of the paragraph is the answer's own ending: stop there. */
+    if (kept) { rest = before ? `${before}\n\n${kept}` : kept; break }
+    if (!before.trim()) return src
+    rest = before.replace(/\s+$/, '')
+  }
+  return rest.trim() || src
+}
+
+/** A RECORDED ANSWER'S OWN WORDS, with a leading narration of the agent's
+ *  work, a trailing claim trailer and a trailing run of closing bookkeeping
+ *  left out of what is drawn. Returns the input unchanged where there is none
+ *  of those, and where taking one out would leave nothing.
+ *
+ *  The fused sentences are separated first (`unfused`): on TEST's own answer
+ *  the narrated sentence and the answer's first sentence are ONE run of
+ *  characters with no space between them, so until the space is there the end
+ *  of the narration cannot be found at all. */
+export function withoutNarration(words: unknown): string {
+  const whole = unfused(words)
+  const cut = whole.replace(CLAIM_TRAILER, '')
+  const src = cut.trim() ? cut : whole
+  if (!src.trim()) return src
+  const opened = withoutLeadingNarration(src)
+  const closed = withoutClosingBookkeeping(opened)
+  return closed.trim() ? closed : opened
 }
 
 /** READ THE FROZEN WORDS OF AN ANSWER A RUN WROTE.

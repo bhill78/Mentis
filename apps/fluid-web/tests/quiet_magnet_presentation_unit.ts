@@ -1044,6 +1044,49 @@ test('an answer that is NOTHING but narration is shown as the answer it is', () 
   assert.equal(withoutNarration(`${PREAMBLE}\n\nLet me begin.`), `${PREAMBLE}\n\nLet me begin.`)
 })
 
+/* --- and the bookkeeping a run closes with ---------------------------------
+   The owner read this paragraph in the narration strip's own screenshots. It
+   is the closing paragraph of the frozen reply for `mag-265878e92e5c987c`,
+   character for character as `tests/quiet_magnet_answer_read_fixture.ts`
+   holds it (read off TEST's running candidate, release 20261126-94928a5). */
+
+const CLOSING_BOOKKEEPING = 'The frozen question for Topic `ent-85f547319077` is **answered** here and in the returned briefing, `adm-3cfefbd3d5ad`. The cited versions and byte ranges identify the retained collection text. All configured sources in the extract returned successfully, but the underlying articles behind headline-only rows were not present in the frozen evidence. Nothing is required from the owner.'
+
+const ANSWER_CLOSES = 'The collection also contains headline leads on a lunar cave-search mission. Their schedules remain to be examined in the underlying sources. [adm-3e19e38b2e11@c316d56ffd24[0:818]]'
+
+test('the bookkeeping a run CLOSES with is read out of the answer, as the opening narration is', () => {
+  assert.equal(withoutNarration(`${ANSWER_OPENS}\n\n${ANSWER_CLOSES}\n\n${CLOSING_BOOKKEEPING}`),
+    `${ANSWER_OPENS}\n\n${ANSWER_CLOSES}`,
+    'the closing paragraph goes whole; the answer’s own last paragraph -- which cites records by reference -- stays')
+  /* The opening narration, the answer, the closing bookkeeping and the claim
+     trailer Mentis appends: the shape the owner's own reply actually has. */
+  const read = withoutNarration(
+    `${PREAMBLE}\n\n${ANSWER_OPENS}\n\n${CLOSING_BOOKKEEPING}\n\nClaim by @Caretaker: met — Answered it. (the agent's claim; what Mentis recorded is shown with the work)`)
+  assert.equal(read, ANSWER_OPENS, 'what is drawn is the answer, with neither end’s bookkeeping')
+  assert.ok(!/\b(?:ent|adm)-[0-9a-f]{12}\b/.test(read), 'and no bare reference id is left in it')
+})
+
+test('A TRAILING PARAGRAPH IS ONLY READ AS BOOKKEEPING WHERE IT IS RECOGNISABLY THAT', () => {
+  for (const words of [
+    // ordinary prose that ends a paragraph, naming no reference id
+    `${ANSWER_OPENS}\n\nNothing is required from the owner to read them.`,
+    // an answer's own citing paragraph: reference ids, but none of the phrases
+    `${ANSWER_OPENS}\n\n${ANSWER_CLOSES}`,
+    // the phrases inside a construct the author wrote, not running prose
+    `${ANSWER_OPENS}\n\n> The frozen question for Topic \`ent-85f547319077\` is answered.`,
+    `${ANSWER_OPENS}\n\n- The frozen question for Topic \`ent-85f547319077\` is answered.`,
+    // the whole answer is that paragraph: shown as the answer it is
+    CLOSING_BOOKKEEPING,
+  ]) assert.equal(withoutNarration(words), words, JSON.stringify(words))
+})
+
+test('only the bookkeeping SENTENCES of a closing paragraph go', () => {
+  const para = `The collection holds no launch date for it. The frozen question for Topic \`ent-85f547319077\` is answered here. Nothing is required from the owner.`
+  assert.equal(withoutNarration(`${ANSWER_OPENS}\n\n${para}`),
+    `${ANSWER_OPENS}\n\nThe collection holds no launch date for it.`,
+    'the answer’s own sentence keeps its place and its characters')
+})
+
 test('the frozen words of a run’s answer are read without its preamble', async () => {
   const parts = [{ type: 'text', text: `${PREAMBLE}\n\n${ANSWER_OPENS}` }]
   const body = new TextEncoder().encode(JSON.stringify({ parts }))
