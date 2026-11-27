@@ -8256,6 +8256,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             from mentis.operational import completion as _completion
             claimed = None
             unclaimed = None
+            #: What of the reply below Mentis itself added, rather than the
+            #: caller, and where the caller's own words end (set together
+            #: with `appended`, just below, when a claim is rendered on).
+            appended = None
+            said_span = None
             if args.get("outcome") is not None or args.get("fulfils"):
                 given = args.get("outcome")
                 claimed = _completion.normalize(
@@ -8281,9 +8286,19 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 unclaimed = seen["unclaimed"]
                 if got is not None:
                     claimed = got
-                    parts = list(parts[:-1]) + [{**parts[-1], "text":
-                                                 _completion.with_rendering(
-                                                     rest, got, cv.alias(actor))}]
+                    # WHERE MENTIS'S OWN WORDS BEGIN, measured against the LAST
+                    # part (respond may post several), not part 0: `with_rendering`
+                    # keeps the run's text first, rstripped, so its length is
+                    # exactly where the run stopped speaking.
+                    last_index = len(parts) - 1
+                    run_said = rest.rstrip() if rest.strip() else ""
+                    rendered = _completion.with_rendering(
+                        rest, got, cv.alias(actor))
+                    appended = {"part": last_index, "start": len(run_said),
+                               "end": len(rendered), "what": "outcome-claim"}
+                    said_span = {"part": last_index, "start": 0,
+                                "end": appended["start"]}
+                    parts = list(parts[:-1]) + [{**parts[-1], "text": rendered}]
             claims_met = claimed is not None and claimed["result"] == "met"
             # WORK WAITING ON AN UNANSWERED DECISION IS NOT ANSWERED WORK, and the
             # record must not be able to say both at once. Asked BEFORE anything is
@@ -8426,7 +8441,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 caused_by=parent, conversation=here, turn=turn,
                 because="this execution's answer to the request it carries",
                 detail={"run": run, "answers_request": parent, "answers_turn": exp["turn"],
-                        **({"outcome_unclaimed": unclaimed} if unclaimed else {})})
+                        **({"outcome_unclaimed": unclaimed} if unclaimed else {}),
+                        # WHICH CHARACTERS OF THIS REPLY THE CALLER WROTE,
+                        # where Mentis added its own claim rendering: the same
+                        # boundary the dispatch fallback records, so a reader
+                        # need not recognise the trailer's wording to find it.
+                        **({"said_span": said_span, "appended": [appended]}
+                           if appended else {})})
             out = {"ok": True, "turn": turn, "expectation": parent,
                    "said_act": said_act}
             # THIS IS THE RUN'S ANSWER POST, so a decision form it asked with no
