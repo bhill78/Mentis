@@ -33,7 +33,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import Summary, {
-  ANSWER_THIS_COLLECTION, EXTRACTIVE_LABEL, Grounded, NOT_ANSWERED_YET, NO_COMPARISON, SUMMARY_IS_A_QUESTION,
+  ANSWER_THIS_COLLECTION, EXTRACTIVE_LABEL, Grounded, HOW_THIS_WAS_MADE,
+  NOT_ANSWERED_YET, NO_COMPARISON, SUMMARY_IS_A_QUESTION,
   askOrdinaryQuestion, capturedKeys, collectedExcerpts, collectedSpan, collectedText, collectionOverview,
   compareCollections, compareWithPrevious, comparisonWords, exploreQuestion,
   frequentWords, itemIdentity, offeredQuestions, recordedChallenges, startingAction, summaryFacts, summarySource,
@@ -571,6 +572,46 @@ test('the Summary lead is the recorded answer, and what changed is the differenc
   assert.match(changeWords(null), /nothing is claimed to have changed/)
   assert.equal(statements(answerText(now)).length, 2)
   assert.deepEqual(statements(' a \n\n b '), ['a', 'b'])
+})
+
+/** THE SUMMARY OPENS ON THE ANSWER (owner `ent-15a36a065eb8`: "Remove ...
+ *  redundant headings and permanently visible buttons. Keep secondary actions
+ *  and provenance available through progressive disclosure").
+ *
+ *  What stood between the answer and the records it was written from was four
+ *  paragraphs of apparatus -- its grounding, what the record checked before
+ *  freezing a run's reply as it, that it is a kept question's answer, and what
+ *  the presses under it would do. Every word of it is still written, behind
+ *  `How this answer was made ▾`. What is NOT behind it is anything that
+ *  qualifies the answer's own words: `BRIEFING_FROM_EARLIER` says the answer
+ *  was written from a different collection than the one on screen, and that
+ *  changes what the words above mean, so it stays in the open. */
+test('the Summary opens on the answer, with how it was made one press away', async () => {
+  store()
+  const { r } = resource('mag-eapparatus-summary')
+  await r.read()
+  const said = 'The bench reference drifted between the two calibration batches.'
+  const now = answerEvent(said)
+  perspectivesOf(r).update({ standing: 'ent-topicA11111',
+    summary: { perspective: 'ent-topicA11111', current: now, superseded: [], batch: 'adm-batch111111' } })
+  const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
+
+  const answer = rendered.indexOf(said)
+  const how = rendered.indexOf(HOW_THIS_WAS_MADE)
+  assert.ok(answer >= 0 && how > answer, 'the answer is read before anything about how it was made')
+  assert.match(rendered, /<details class="q2-magnet-provenance q2-magnet-disclosure q2-magnet-how"><summary>/,
+    'the apparatus is a disclosure of this surface’s own kind')
+  assert.ok(!/q2-magnet-how"[^>]*\sopen/.test(rendered), 'and it rests shut')
+  // NOTHING WAS REMOVED, and each of them is behind it rather than above it.
+  for (const behind of [GROUNDED_IN_COLLECTION.toUpperCase(), SUMMARY_IS_A_QUESTION]) {
+    const at = rendered.indexOf(behind)
+    assert.ok(at >= 0, `${behind} is still said`)
+    assert.ok(at > how, `${behind} is behind the disclosure, not permanently over the fold`)
+  }
+  // THE PLACE NAME IS SAID ONCE: the card's own tab already reads `Summary`.
+  assert.ok(!rendered.includes('mgd-eyebrow">Summary<'),
+    'the eyebrow that repeated the tab under the tab is gone')
+  assert.ok(rendered.includes('What this Magnet holds'), 'what the tab does not say is kept')
 })
 
 /* --- question-first Perspectives -------------------------------------------- */

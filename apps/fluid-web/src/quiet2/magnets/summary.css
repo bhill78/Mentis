@@ -188,11 +188,6 @@
 
 /* -- 3. one label system --------------------------------------------------- */
 
-/* THE PLACE NAME IS SAID ONCE. The card's own tab bar already says `Summary`;
-   the eyebrow over the heading said it a second time, a hand's width below.
-   That is the redundant heading the owner named, so it is not drawn. */
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-place-head .mgd-eyebrow { display: none; }
-
 /* `What this Magnet holds`, with its counts, is not the page's headline: the
    answer's own first heading is. It stays -- it is this view's focus target and
    says what the counts are -- as the standfirst it actually is. */
@@ -240,8 +235,9 @@
 .q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-lead-action {
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 18px;
-  margin: 20px 0 6px;
+  justify-content: flex-start;
+  gap: 10px 22px;
+  margin: 22px 0 6px;
 }
 /* The secondary presses -- answering again, asking for a briefing -- are
    lettered actions, not furniture. */
@@ -384,20 +380,52 @@
 
 /* -- what is said ABOUT the answer, under it -------------------------------- */
 
-/* The provenance sentences the record requires -- what the answer was grounded
-   in, what was checked before a run's reply was frozen, that this is a kept
-   question's answer, what a press would freeze -- are all still said, in full,
-   where they were. They are set as the footnotes they are: smaller than the
-   answer, quieter than the labels, and with the space to be skipped. Putting
-   them behind one disclosure needs `Summary.tsx`, which is another part's file
-   this round; it is reported as a seam. */
+/* Most of it is now behind `How this answer was made ▾` (`Summary.tsx`). What
+   is still printed in the open is what QUALIFIES the answer's own words -- that
+   it was written from an earlier collection, or that which collection is
+   unread -- and those are footnotes to the answer, set as footnotes. */
 .q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > .mgd-subtle {
   display: block;
-  margin: 10px 0 0;
+  margin: 14px 0 0;
   font-size: 12px;
   line-height: 1.5;
   color: #978983;
 }
-.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > .mgd-subtle:first-of-type { margin-top: 16px; }
 .q2 .q2-magnet-card .q2-magnet-summary > .mgd-subtle { font-size: 12px; line-height: 1.5; color: #978983; }
 .q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer { margin: 0 0 4px; }
+/* The disclosure sits right under the answer it is about, not down with the
+   page's own footer disclosures. */
+.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-how { margin: 16px 0 0; }
+.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-how > div { margin-bottom: 0; }
+.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-how .mgd-subtle {
+  display: block;
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #978983;
+}
+
+/* WHAT A STATEMENT WAS WRITTEN FROM, under it. `Cites` prints `Written from`
+   and then each record's title as a press. Four of those, in bold gold, under
+   every paragraph, was a stripe of links down the reading column. They are the
+   same presses, lettered: the line reads as the attribution it is, and the
+   record titles still open the captured records. (An answer carrying numbered
+   citations does not draw this at all -- its sources are the numbered list
+   under it, `links.css`.) */
+/* Both shapes of answer: a written briefing draws its `Cites` inside the
+   `.q2-prose` block, a statement-per-line synthesis under each statement. Both
+   are a `.mgd-subtle` paragraph one `<div>` inside the answer. */
+.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle {
+  margin: 4px 0 18px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #8d807a;
+}
+.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle .mgd-link {
+  font-weight: 500;
+  font-size: inherit;
+  color: #ccbdb5;
+}
+.q2 .q2-magnet-card .q2-magnet-summary .q2-magnet-answer > div > .mgd-subtle .mgd-link:hover {
+  color: #edc35d; text-decoration: underline; text-underline-offset: 2px;
+}

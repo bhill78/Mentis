@@ -107,6 +107,16 @@ export const NOT_ANSWERED_YET = 'No answer is recorded for this collection yet. 
 /** Said beside the one press that writes the evolving summary. */
 export const ANSWER_THIS_COLLECTION = 'Answer from this collection'
 export const SUMMARY_IS_A_QUESTION = 'This is the answer standing against one kept question — “What is the state of what this Magnet has gathered?” — and its earlier answers are kept under it in Perspectives.'
+/** THE DISCLOSURE THE ANSWER'S APPARATUS LIVES BEHIND (owner
+ *  `ent-15a36a065eb8`: secondary actions and provenance through progressive
+ *  disclosure, not permanently on screen and not hidden). What it holds is
+ *  every sentence the record requires to be readable about how this answer
+ *  came to stand -- its grounding, what was checked before a run's reply was
+ *  frozen as it, that it is a kept question's answer, and what the presses
+ *  under it do. What it does NOT hold is anything that qualifies the answer's
+ *  own words: an answer written from an earlier collection says so above, in
+ *  the open. */
+export const HOW_THIS_WAS_MADE = 'How this answer was made'
 
 const when = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleString() : null
 const day = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleDateString() : null
@@ -2242,9 +2252,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         that row. The pattern and the numbers are the approved design's
         (`04-browse.png`), and it replaces the floating link row that was
         there. */}
+    {/* THE PLACE NAME IS SAID ONCE (owner `ent-15a36a065eb8`: redundant
+        headings out). The card's own tab bar reads `Summary` a hand's width
+        above this, so the eyebrow printed the word twice with nothing between
+        them. What this line says that the tab does not -- what is held, and
+        how much of it -- is kept, as the standfirst it is. */}
     <div className="mgd-row mgd-spread q2-magnet-place-head">
       <div className="mgd-grow">
-        <div className="mgd-eyebrow">Summary</div>
         <h2 id="summary-title" className="mgd-h2" tabIndex={-1}>What this Magnet holds{' '}
           <span className="mgd-subtle">{heldWords(s, posts.length, files.length)}</span></h2>
       </div>
@@ -2298,20 +2312,46 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   stand silently among them (review F6). */}
               {fromShown === false && <p className="mgd-subtle">{BRIEFING_FROM_EARLIER}</p>}
               {byRun && fromShown === null && <p className="mgd-subtle">{BRIEFING_COLLECTION_UNKNOWN}</p>}
-              <Grounded answer={current} />
-              {/* WHAT THE RECORD CHECKED BEFORE IT FROZE A RUN'S REPLY as this
-                  answer. Said only of an answer a run wrote, and said as what
-                  it is -- a statement about the reach the record qualified, not
-                  a second grounding claim: what an answer was allowed to reach
-                  is `Grounded`'s, from the answer's own provenance. */}
-              {byRun && <p className="mgd-subtle">{BRIEFING_BY_RUN}</p>}
-              {/* Who wrote it is said ONCE, by the grounding statement above
-                  ("Written from this Magnet's collected records and nothing
-                  else"). What this adds is the one thing that statement does
-                  not: that it is a kept question's answer, with its earlier
-                  answers under it. The answer package's own `written_by`
-                  sentence is on the recorded answer, one press away. */}
-              <p className="mgd-subtle">{SUMMARY_IS_A_QUESTION}</p>
+              {/* HOW THE ANSWER WAS MADE, ONE PRESS AWAY (owner
+                  `ent-15a36a065eb8`: "Keep secondary actions and provenance
+                  available through progressive disclosure").
+                  What stood here was four paragraphs of apparatus between the
+                  answer and the records it was written from: what it was
+                  grounded in, what the record checked before it froze a run's
+                  reply, that this is a kept question's answer, and what the
+                  presses under it would do. Every word of it is still written,
+                  in full, in the order it was in. None of it is what a reader
+                  came to read, and all of it was printed over the fold.
+
+                  WHAT STAYS ABOVE IT is what qualifies the answer itself: that
+                  it was written from an earlier collection than the one on
+                  screen, or that which collection is unread. Those change what
+                  the words above mean, so they are not disclosure material. */}
+              <details className="q2-magnet-provenance q2-magnet-disclosure q2-magnet-how">
+                <summary><span className="mgd-link mgd-small">{HOW_THIS_WAS_MADE} ▾</span></summary>
+                <div aria-label="How this answer was made, and what the presses under it do">
+                  <Grounded answer={current} />
+                  {/* WHAT THE RECORD CHECKED BEFORE IT FROZE A RUN'S REPLY as
+                      this answer. Said only of an answer a run wrote, and said
+                      as what it is -- a statement about the reach the record
+                      qualified, not a second grounding claim: what an answer
+                      was allowed to reach is `Grounded`'s, from the answer's
+                      own provenance. */}
+                  {byRun && <p className="mgd-subtle">{BRIEFING_BY_RUN}</p>}
+                  {/* Who wrote it is said ONCE, by the grounding statement
+                      above ("Written from this Magnet's collected records and
+                      nothing else"). What this adds is the one thing that
+                      statement does not: that it is a kept question's answer,
+                      with its earlier answers under it. The answer package's
+                      own `written_by` sentence is on the recorded answer, one
+                      press away. */}
+                  <p className="mgd-subtle">{SUMMARY_IS_A_QUESTION}</p>
+                  {/* And what the two presses in the row below actually do.
+                      It was a paragraph under them; it is the same paragraph,
+                      beside the rest of what is true about this answer. */}
+                  <p className="mgd-subtle">{byRun ? BRIEFING_STANDS : BRIEFING_IS_YOURS_TO_SEND}</p>
+                </div>
+              </details>
             </section>
           : <>{/* THE LEAD WITHOUT AN ANSWER IS WHAT THE MATERIAL NAMES, not a
                    count of it: `materialLead` reads the subjects out of the
@@ -2334,7 +2374,11 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
             {asking ? 'Preparing the briefing question…' : WRITE_THE_BRIEFING}</button>
           <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
         </div>
-        <p className="mgd-subtle">{byRun ? BRIEFING_STANDS : BRIEFING_IS_YOURS_TO_SEND}</p>
+        {/* With no answer yet there is nothing to disclose it behind, and this
+            page is nearly empty: what asking for a briefing actually does is
+            the guidance the reader needs, so it stays on the surface. With an
+            answer it is behind `How this answer was made ▾`, above. */}
+        {!answered && <p className="mgd-subtle">{BRIEFING_IS_YOURS_TO_SEND}</p>}
         {/* WHAT THE PRESS ACTUALLY FROZE, counted from the frozen request
             itself: which collection its evidence is, what this question
             carried into it besides, and whether an earlier unanswered request
