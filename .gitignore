@@ -22,3 +22,4 @@ __pycache__/
 
 # Rust build output
 /target/
+.test-fixtures/

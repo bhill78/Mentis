@@ -24,6 +24,12 @@ import types
 
 import pytest
 
+#: SPECIALIZED: the install/update/rollback lifecycle starts and stops real processes and
+#: takes ~15 minutes, so it is not ordinary development verification. Run it with
+#: `-m installer` when tools/installer or Brain migrations change, and before a release that
+#: changes them.
+pytestmark = pytest.mark.installer
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tools" / "installer"))

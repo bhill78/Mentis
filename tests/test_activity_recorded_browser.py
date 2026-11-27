@@ -17,6 +17,8 @@ PORT = int(os.environ.get('ACTIVITY_FIXTURE_PORT', '0'))
 
 @pytest.fixture(scope='module')
 def browser_fixture():
+    if os.environ.get('MENTIS_QUIET_BROWSER') != '1':
+        pytest.skip('browser test: build the UI and its activity fixture, and set MENTIS_QUIET_BROWSER=1')
     root = Path(__file__).parents[1] / 'apps/fluid-web/dist-activity-fixture'
     assert (root / 'fixture.js').is_file(), 'build_activity_fixture.mjs must finish first'
     class Handler(SimpleHTTPRequestHandler):

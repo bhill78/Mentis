@@ -39,6 +39,9 @@ class Check:
                 "evidence": self.evidence}
 
 
+#: Decisions must carry their presentation (owner, 2026-11-21, `mentis.decision_presentation`).
+SYNTHETIC_PRESENTATION = {'version': 1, 'type': 'action_approval', 'scope': 'This conformance check only; no external action.', 'stages': ['implementation'], 'primary': None, 'primary_reason': 'A synthetic check has no separate artifact.'}
+
 def _ok(cond) -> str:
     return PASSED if cond else FAILED
 
@@ -361,7 +364,8 @@ def continuity(rig: Rig) -> list[Check]:
     steps = [("request_decision", {"question": question,
                                    "options": [{"label": "Blue", "consequence": "a blue report"},
                                                {"label": "Green", "consequence": "a green report"}],
-                                   "because": "only the owner chooses the colour"})]
+                                   "because": "only the owner chooses the colour",
+                                   "presentation": SYNTHETIC_PRESENTATION})]
     work = task(
         f"Conformance continuity check {n}. [[invent-codeword]] FIRST RUN: invent a random "
         "codeword of exactly six capital letters, keep it to yourself in the step 1 call (do "
@@ -439,7 +443,8 @@ def consent_narrowing(rig: Rig) -> list[Check]:
     steps = [("request_decision", {"question": f"Conformance {n}: may I start counting?",
                                    "options": [{"label": "Yes", "consequence": "counting starts"},
                                                {"label": "No", "consequence": "nothing happens"}],
-                                   "because": "the owner decides"})]
+                                   "because": "the owner decides",
+                                   "presentation": SYNTHETIC_PRESENTATION})]
     work = task(f"Conformance consent check {n}. [[hold-on-resume]] FIRST RUN: do the step and "
                 "reply `asked`, with no outcome block.", steps,
                 finish=("ONLY WHEN RESUMED: count from 1 to 3000, every number in words on its own "

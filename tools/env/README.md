@@ -208,6 +208,12 @@ TEST's data. A release that would migrate the Brain is refused without `--migrat
     mentis_env.py record <id> tests   --result pass|fail --by <who> --evidence "<what ran, and where its output is>"
     mentis_env.py record <id> owner   --result pass|fail --by owner --evidence "<the owner's words>"
 
+- **tests**: the ordinary suite (plain `pytest`; parallel, about 4 minutes) on the release's
+  commit, with the release's `dist/` in place. Add `-m installer` when `tools/installer` or a
+  migration changed.
+- **browser**: `python tools/env/test_smoke.py --out <evidence folder>` against TEST once it
+  serves the release, plus whatever the change itself needs checked by hand.
+
 The latest record of each gate decides it. A gate nobody recorded is `missing`, never passed.
 Review is by a runtime other than the author's. Browser means a person or agent drove a real
 browser; HTTP 200 is not that. Owner acceptance is the owner's own, never recorded for them.

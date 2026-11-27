@@ -537,12 +537,16 @@ def test_a_resumption_meets_the_drain_and_does_not_loop(world, soon, fake):
     assert len(_starts(cv, child["expectation"])) == 1
     assert len(_resumes(cv, parent)) == 1
     assert [k["expectation"] for k in soon] == [parent]
-    assert _starts(cv, parent) == [] and len(_refusals(cv, parent)) == 1
+    # the coordinator fixture records its own ended run of the parent (`coord-...`,
+    # tests/respond_grant.py); the drain must start no other
+    def started():
+        return [a for a in _starts(cv, parent) if not str(a.get("execution")).startswith("coord-")]
+    assert started() == [] and len(_refusals(cv, parent)) == 1
     now = drain.read(st)
     assert now["held"] == 0 and now["draining"]["refused"] == 1
     # NOTHING RESTARTS IT: cleared, the server starts nothing by itself
     assert drain.request(st, on=False, by="owner", force=True)["cleared"] is True
-    assert len(soon) == 1 and _starts(cv, parent) == []
+    assert len(soon) == 1 and started() == []
 
 
 def test_a_consent_restart_meets_the_drain_and_is_not_tried_again(world, soon, monkeypatch):
