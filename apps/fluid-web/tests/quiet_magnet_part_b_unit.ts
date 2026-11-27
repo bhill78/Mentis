@@ -202,7 +202,7 @@ test('grounded helpers no longer refuse up front, and preserve the request they 
   store.get = store.write = async () => { throw new Error('must not touch grounded records') }
   await assert.rejects(store.prepare('Question', 'key'), /Choose a Perspective/)
   const composed = perspectiveRequest({ topics: ['ent-other111111'] }, prepared)
-  assert.equal(composed.text, prepared.text)
+  assert.ok(composed.text.startsWith(prepared.text), 'the words begin with the frozen question, as `bind` requires')
   assert.deepEqual(composed.topics, ['ent-other111111', prepared.perspective])
   assert.ok(composed.parts.some((part) => part.type === 'file' && part.ref === 'adm-manifest111111'))
 })
@@ -220,9 +220,15 @@ test('a frozen Perspective ask passes the actual send boundary unrefused, carryi
   assert.ok(!Object.keys(composed).some((key) => key.startsWith('_magnet')),
     'a Perspective send carries no _magnet-prefixed marker to the shared adapter')
   const routed = composerRequest(composed, config.id, 'ent-owner111111', null, prepared.request_op, null)
-  assert.equal(routed.text, prepared.text)
+  assert.ok(String(routed.text).startsWith(prepared.text))
   assert.equal((routed.dispatch as any[])[0].reach, 'work')
-  assert.match((routed.dispatch as any[])[0].work, /frozen Perspective records/)
+  /* AND NOTHING COMPOSES WORK FOR THE RUN. `message_context.gate` refuses any
+     dispatch spec carrying a `work` value as a generated Magnet work override
+     (`invalid-managed-intent`), so every frozen ask composed with one was
+     refused 422 at the one door (review `ent-5acd177f3aa8` F2). What the run
+     is told travels as the message's own words, after the frozen question. */
+  assert.ok(!('work' in (routed.dispatch as any[])[0]), 'no generated work override reaches the door')
+  assert.match(String(routed.text), /frozen Perspective records/)
 })
 /* An unrelated or legacy marker is still refused at the same boundary: the
    fix narrows nothing about the guard itself, it only stops a current

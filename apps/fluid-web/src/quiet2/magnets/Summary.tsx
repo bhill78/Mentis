@@ -86,10 +86,10 @@ import { focusMiniComposer, miniComposerDraft, saveMiniComposer } from './conver
 import { setQuestionDraft, panelAt } from './panelDrafts'
 import {
   answerDiff, answerText, changeWords, grounding, perspectivesOf, provenanceOf,
-  stampAttachedQuestion, statements,
+  restampAttachedQuestion, showPerspectiveContext, statements,
   NOTHING_NEW_CODE, STANDING_QUESTION,
   type AnswerChange, type InquiryEvent, type Perspective, type PerspectiveStore,
-  type StandingSummary,
+  type PreparedInquiry, type StandingSummary,
 } from './perspectives'
 import './summary.css'
 
@@ -729,46 +729,172 @@ export function askOrdinaryQuestion(resource: MagnetResource, question: string):
 export const BRIEFING_ASK = `${STANDING_QUESTION} Write the answer as a research briefing: the meaningful themes running through the collected records, the noteworthy discoveries and developments they report, what those imply, and the interesting avenues they leave worth exploring. Ground every statement in the attached collected records and cite the exact ones each statement is written from. Counts and collection statistics are secondary; put them last or leave them out.`
 export const WRITE_THE_BRIEFING = 'Ask an agent for a briefing'
 /** Said beside the press, because a press that looks like it spends a run must
- *  say what it actually does. */
-export const BRIEFING_IS_YOURS_TO_SEND = 'Asking for a briefing sends nothing by itself: it freezes the briefing question with this collection as the only evidence for it, and carries it into this Magnet’s Conversation, where you choose who answers it and press Send. The answer standing above is unchanged until a reply is frozen in its place.'
+ *  say what it actually does -- AND NO MORE THAN IT DOES. It used to promise
+ *  this collection as "the only evidence" for the briefing, which the act does
+ *  not establish: `store.prepare` freezes the collection in hand together with
+ *  whatever this question already carries -- records the owner selected,
+ *  records they declared, earlier answers named as prior interpretation, and
+ *  the Conversation when continuation is on (review `ent-5acd177f3aa8` F3).
+ *  What actually went in is said after the press, counted, by
+ *  `briefingFrozenWords`. */
+export const BRIEFING_IS_YOURS_TO_SEND = 'Asking for a briefing sends nothing by itself: it freezes the briefing question with this Magnet’s collected records as its evidence — together with anything you have selected, declared or carried over for this question — and carries it into this Magnet’s Conversation, where you choose who answers it and press Send. The answer standing above is unchanged until a reply is frozen in its place.'
 /** Said where a briefing written by a run is shown, about what the record
  *  checked before it accepted it. Deliberately not a grounding claim: what an
  *  answer was allowed to reach is `Grounded`'s to state, from the provenance
- *  the answer itself records. */
-export const BRIEFING_BY_RUN = 'Written by a run this Magnet handed its frozen collection to: the record froze the reply as this answer only after checking that what the run could reach was exactly that frozen package — this collection, the question, this Magnet’s own definition and its recorded history — together with anything you declared with it, and nothing else.'
+ *  the answer itself records.
+ *
+ *  IT SAYS THE CHECKS THAT WERE MADE, AND THEIR LIMITS. It used to say the
+ *  record had checked that what the run could reach was EXACTLY the frozen
+ *  package and nothing else. Reconciliation compares the enumeration of what
+ *  Mentis OFFERED the run (`artifacts.available`), not every read it made and
+ *  not its runtime's own tools; and the boundary admits this Magnet's own
+ *  Conversation posts and its own held packages besides
+ *  (`mentis/magnet/scope.py`). A disposable-Brain probe appended an own-
+ *  Conversation post and an own-Magnet record after freezing, served both
+ *  through the worker door, and reconciliation still qualified -- so the old
+ *  sentence was false as written (review `ent-5acd177f3aa8` F5). Nor does
+ *  finalization read a single statement against its records. */
+export const BRIEFING_BY_RUN = 'Written by a run this Magnet handed its frozen collection to. Before the reply was frozen as this answer, the record checked that it came from the run this question was actually sent to, that every record in the frozen package was offered to that run, and that nothing beyond that package and what you declared with it was offered to it. That is an accounting of what this Magnet offered, not of everything the run read: within the boundary a run may also read this Magnet’s own Conversation and the packages this Magnet holds, and whatever its own tools reached is recorded where it says so rather than checked. Nothing checked the answer statement by statement — what each was written from is said beside it, and “Grounding not recorded” means it recorded none.'
 /** Said when the frozen words of such an answer cannot be read. Nothing is
  *  shown in their place. */
-export const BRIEFING_UNREAD = 'The answer standing against this Magnet’s kept question was written by a run, and its frozen words could not be read, so none of them are shown here.'
+export const BRIEFING_UNREAD = 'The answer standing against this Magnet’s kept question was written by a run, and its frozen words could not be read, so none of them are shown here. It is unchanged under this Magnet’s kept question.'
+/** Said where the record will not qualify a frozen answer for reading NOW.
+ *  The published contract is explicit that an immutable answer version is not
+ *  perpetual qualification and that a fresh display receipt is obtained before
+ *  it is shown (`docs/magnets/part-b-perspectives-api.md`), so a reader that
+ *  shows the bytes on the strength of their digest alone has checked integrity
+ *  and not qualification (review `ent-5acd177f3aa8` F4). */
+export const BRIEFING_NOT_QUALIFIED = 'The record read this answer’s evidence again and does not qualify it for reading now, so none of its words are shown.'
 /** Said where the written floor was NOT written over a briefing. */
 export const BRIEFING_STANDS = 'A briefing written by a run stands as this Magnet’s answer. Nothing was written over it: ask for a written answer or another briefing when you want one.'
+/** Said where the owner's own words arrived while the question was being
+ *  frozen. They are kept exactly as typed and nothing is sent. */
+export const BRIEFING_OWN_WORDS_KEPT = 'Words of your own were written while the briefing question was being frozen, so they were left exactly as they are and nothing was written over them. The briefing question is frozen and kept: keep or clear your own words, then ask again to carry it into the Conversation.'
+/** Said where an earlier briefing question of the owner's was never answered,
+ *  so `prepare` returns that original intent rather than freezing a second
+ *  one. Keeping it is right; presenting it as a fresh freeze of the collection
+ *  shown is not (review F3). */
+export const BRIEFING_RESUMED = 'An earlier briefing question of yours has never been answered, so that original request — not a new one — is what was carried into the Conversation, with the evidence it was frozen with. Nothing was frozen a second time.'
+/** Said beside an answer whose own collection is not the one on the surface --
+ *  a briefing read out of its frozen manifest, or a written one out of what
+ *  the record put on it. The answer is preserved either way
+ *  (`needsWrittenAnswer`); what must not happen is the surface claiming it was
+ *  written from what is shown beside it (review F6). */
+export const BRIEFING_FROM_EARLIER = 'This answer was written from an earlier collection of this Magnet, not the one shown here. Nothing collected since has been written into it: ask again from the collection shown when you want an answer that has read it.'
+/** Said where this surface cannot tell which collection a briefing was written
+ *  from -- so it claims neither. */
+export const BRIEFING_COLLECTION_UNKNOWN = 'Which collection this briefing was written from has not been read here, so it is not claimed to be the one shown.'
+
+/** WHAT WAS ACTUALLY FROZEN AND HANDED OVER, so the surface can say it rather
+ *  than repeat what the press intended. `collection` is the collection on the
+ *  surface where the frozen package really holds it, and null where it does
+ *  not -- a resumed intent holds the one it was frozen with. */
+export interface BriefingFrozen {
+  intent: string
+  question: string
+  revision: string
+  manifest: string
+  records: number
+  collection: string | null
+  resumed: boolean
+  inherited: { priors: number; declared: number; selected: number; continuation: boolean }
+}
+
+/** WHAT WENT INTO THE FROZEN REQUEST, counted from the request itself. Said
+ *  after the press instead of a promise made before it: the evidence a
+ *  Perspective question carries is the collection AND whatever that question
+ *  already carried, and a reader cannot see the difference unless it is
+ *  stated (review `ent-5acd177f3aa8` F3). */
+export function briefingFrozenWords(got: BriefingFrozen): string {
+  const n = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+  const carried = [
+    got.inherited.selected ? n(got.inherited.selected, 'collected record you had selected', 'collected records you had selected') : '',
+    got.inherited.declared ? n(got.inherited.declared, 'record you declared for this question', 'records you declared for this question') : '',
+    got.inherited.priors ? n(got.inherited.priors, 'earlier answer to read as an interpretation', 'earlier answers to read as interpretations') : '',
+    got.inherited.continuation ? 'what has been said about this question in this Magnet’s Conversation' : '',
+  ].filter(Boolean)
+  return [`Frozen and waiting in this Magnet’s Conversation: ${n(got.records, 'record', 'records')} in all,`,
+    got.collection ? 'written from the collection shown here.' : 'written from the collection it was frozen with, which is not the one shown here.',
+    carried.length ? `Carried with it: ${carried.join('; ')}.` : 'Nothing else is carried with it.',
+    'Choose who answers it and press Send.'].join(' ')
+}
 
 /** ASK AN AGENT FOR THE BRIEFING. Three durable writes, in this order, each of
  *  them the owner's press: the standing question is made the active one (so the
  *  chip the composer checks is that question), its words are frozen as this
  *  wording of it, and the immutable input package is prepared from the
  *  collection in hand. Then the frozen ask is carried into the Conversation.
- *  Nothing is dispatched, and the owner's own unsent words are never
- *  overwritten -- that is checked before anything is written. */
-export async function askForBriefing(resource: MagnetResource, store: PerspectiveStore): Promise<void> {
-  if (!resource.snapshot().activation?.artifact.ref)
+ *  Nothing is dispatched.
+ *
+ *  THE OWNER'S OWN UNSENT WORDS SURVIVE IT. Checked twice, and the second
+ *  check is the one that matters: words typed during the waits above were read
+ *  before them and replaced after, so the first check alone lost them (review
+ *  `ent-5acd177f3aa8` F1). The composer is read again at the moment its text
+ *  would be replaced, and different words refuse there -- with the frozen
+ *  request kept, so asking again after keeping or clearing them resumes that
+ *  same request rather than freezing a second one.
+ *
+ *  AND WHAT IT HANDS OVER CAN ACTUALLY BE SENT. The chip beside the words
+ *  stands for this question at the wording that was actually frozen
+ *  (`restampAttachedQuestion`), which is what the send compares against a
+ *  fresh durable read; the record's own wording has to agree with the frozen
+ *  one, or the frozen request cannot be sent as it stands and that is said
+ *  instead of handed over (review F2). */
+export async function askForBriefing(resource: MagnetResource, store: PerspectiveStore): Promise<BriefingFrozen> {
+  const batch = resource.snapshot().activation?.artifact.ref
+  if (!batch)
     throw new Error('Collect something first. A briefing is written from this Magnet’s collected records, and there are none.')
   const held = miniComposerDraft(resource)
   if (held.text.trim() && held.text !== BRIEFING_ASK)
     throw new Error('The Conversation Composer already holds different words of yours. Keep or clear them before asking for a briefing.')
   const topic = await store.ensureStanding()
   if (store.snapshot().selected !== topic) await store.select(topic)
-  await store.prepare(BRIEFING_ASK, `magnet-briefing:${resource.saved.id}:${crypto.randomUUID()}`)
-  // The words carried into the composer are read back from the record, not
-  // held from above: the sent Turn has to begin with the question as the
-  // record now holds it (`perspectives_work.bind`).
+  /* WHAT THIS QUESTION ALREADY CARRIES, counted before it is frozen with it:
+     `prepare` sends the store's selections, declarations, priors and
+     continuation whatever else is in hand, and this press neither clears them
+     nor may claim they are not there. */
+  const before = store.snapshot()
+  const inherited = {
+    priors: before.priors.length,
+    declared: before.declared.length,
+    selected: resource.snapshot().results.filter((r) => before.selections[r.id]).length,
+    continuation: before.continuation === true,
+  }
+  const prepared = await store.prepare(BRIEFING_ASK, `magnet-briefing:${resource.saved.id}:${crypto.randomUUID()}`)
+  const resumed = store.snapshot().resumed === true
+  // The record's own current wording, read fresh: the sent Turn has to begin
+  // with the question as the record holds it (`perspectives_work.bind`), and
+  // the chip the send checks has to stand for that same wording.
   const context = await store.ordinaryContext()
   if (!context || context.perspective !== topic)
     throw new Error('The active question changed while the briefing was being frozen. The frozen request is kept; nothing was sent.')
-  stampAttachedQuestion(resource, store.snapshot().selectedDetail)
-  saveMiniComposer(resource, { ...miniComposerDraft(resource), text: context.question })
+  if (!prepared.question?.ref || context.revision !== prepared.question.ref)
+    throw new Error('This Magnet’s kept question is not at the wording the briefing request was frozen with, so that request cannot be sent as it stands. It is kept, and nothing was sent.')
+  const now = miniComposerDraft(resource)
+  if (now.text !== held.text && now.text.trim() && now.text !== BRIEFING_ASK)
+    throw new Error(BRIEFING_OWN_WORDS_KEPT)
+  /* THE CHIP IS THIS QUESTION, AT THE WORDING FROZEN. The press promises to
+     carry the frozen ask into the Conversation, and the send only carries it
+     while the chip names this question (`ComposerBar.beforeRequest`), so the
+     chip is attached here as the explicit choice this press is -- then made to
+     stand for the frozen wording rather than whichever one it stood for
+     before. */
+  showPerspectiveContext(resource, topic, context.name)
+  restampAttachedQuestion(resource, topic, prepared.question)
+  saveMiniComposer(resource, { ...now, text: prepared.text })
   focusMiniComposer()
   goTab(resource, 'Conversation')
   setOpen(resource, true)
+  /* WHICH COLLECTION THE PACKAGE REALLY HOLDS. A question frozen here was
+     frozen with the collection this press passed to `prepare`, so that one is
+     certain. A RESUMED intent was frozen with whatever was in hand then, and
+     is only the collection shown if the package itself names it. */
+  const sameCollection = !resumed || prepared.artifacts.some((a) => a.ref === batch)
+  return { intent: prepared.intent, question: prepared.text, revision: prepared.question.ref,
+    manifest: prepared.manifest.ref,
+    records: prepared.closure?.count ?? prepared.artifacts.length,
+    collection: sameCollection ? batch : null,
+    resumed, inherited }
 }
 
 /** WHETHER A RECORDED ANSWER WAS WRITTEN BY A RUN rather than by the Python
@@ -823,6 +949,63 @@ export async function readFrozenAnswer(e: InquiryEvent): Promise<string> {
   const words = frozenWords(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)))
   if (!words) throw new Error('The frozen answer holds no words to read.')
   return words
+}
+
+/** THE BRIEFING AS THIS VIEW MAY ACTUALLY SHOW IT: its words, and the
+ *  collection it was really written from. */
+export interface StandingBriefing { post: string; words: string; collection: string[] }
+
+/** READ THE BRIEFING STANDING NOW -- QUALIFIED FIRST, AND KNOWING ITS OWN
+ *  COLLECTION.
+ *
+ *  Three things in this order, because each is a condition of the next:
+ *
+ *  1. A FRESH DISPLAY RECEIPT for this answer's own frozen question and the
+ *     run that produced it (`store.displayReceipt`). The contract says an
+ *     immutable answer version is not perpetual qualification and that a
+ *     receipt is appended before a display; a size-and-digest check is
+ *     integrity, not current qualification, so reading the bytes on its
+ *     strength alone showed a historically frozen reply as the standing answer
+ *     even where a fresh check would not qualify it (review F4). Anything but
+ *     `qualified` shows nothing of the answer's words.
+ *  2. WHICH COLLECTION IT WAS WRITTEN FROM, out of its own frozen manifest --
+ *     `finalize` records no collection on the answer event, which is why this
+ *     view could show a briefing written from an earlier collection beside the
+ *     facts and excerpts of the one on screen without saying so (review F6).
+ *     The manifest is read and verified through the store's own door.
+ *  3. THE FROZEN WORDS, as before.
+ *
+ *  All three are reads of named records, started by the answer standing now
+ *  being one whose words its event does not carry. The receipt is the one
+ *  durable append, and it is the append the contract asks for. */
+export async function readStandingBriefing(store: PerspectiveStore, e: InquiryEvent): Promise<StandingBriefing> {
+  const d = object(e.data)
+  const topic = e.perspective
+  const intent = typeof d.intent === 'string' ? d.intent : ''
+  const execution = typeof d.execution === 'string' ? d.execution : ''
+  if (!topic || !intent || !execution)
+    throw new Error('This answer does not name the frozen question and the run it was accepted for, so the record cannot be asked whether it qualifies now.')
+  const receipt = await store.displayReceipt(topic, intent, execution)
+  const status = typeof object(receipt).status === 'string' ? String(object(receipt).status) : 'unknown'
+  if (status !== 'qualified') throw new Error(`${BRIEFING_NOT_QUALIFIED} The record says: ${status}.`)
+  const held = await store.get(`/${topic}/intents/${encodeURIComponent(intent)}`)
+  const prepared = object(held).prepared as PreparedInquiry | undefined
+  if (!prepared || prepared.intent !== intent)
+    throw new Error('The frozen question this answer was written for could not be read, so the collection it was written from is unknown.')
+  const manifest = object(await store.manifest(prepared))
+  const collection = (Array.isArray(manifest.batches) ? manifest.batches : [])
+    .map((b: unknown) => object(b).ref)
+    .filter((ref: unknown): ref is string => typeof ref === 'string' && !!ref)
+  return { post: e.post, words: await readFrozenAnswer(e), collection }
+}
+
+/** WHETHER THE BRIEFING STANDING NOW WAS WRITTEN FROM THE COLLECTION SHOWN.
+ *  `null` where this view has not read which collection it was written from,
+ *  so that neither statement is made (review F6). */
+export function writtenFromShown(got: StandingBriefing | null, post: string | undefined,
+                                 batch: string | undefined): boolean | null {
+  if (!got || !post || got.post !== post || !batch) return null
+  return got.collection.includes(batch)
 }
 
 /** WHETHER THE WRITTEN FLOOR IS STILL OWED FOR THE COLLECTION IN HAND.
@@ -1493,25 +1676,33 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
       .catch((e: Error) => setMessage(e.message))
       .finally(() => setAnswering(false))
   }
-  /* THE FROZEN WORDS OF A BRIEFING A RUN WROTE, read once per answer. A read of
-     one named artifact, verified against the record, started only by the answer
-     standing now being one whose words the event does not carry: no timer, no
-     poll, and nothing is read again while that same answer stands. */
-  const [frozen, setFrozen] = useState<{ post: string; words: string } | null>(null)
+  /* A BRIEFING A RUN WROTE, QUALIFIED AND THEN READ, once per answer. A fresh
+     display receipt for the answer's own frozen question and run, the
+     collection it was written from out of its own manifest, and then its
+     frozen words -- all of them reads of named records, started only by the
+     answer standing now being one whose words the event does not carry: no
+     timer, no poll, and nothing is read again while that same answer stands.
+     Where the record will not qualify it now, nothing of its words is shown. */
+  const [frozen, setFrozen] = useState<StandingBriefing | null>(null)
   const standingAnswer = summary?.current ?? null
   useEffect(() => {
     if (!standingAnswer || !agentWritten(standingAnswer) || answerText(standingAnswer)) return
     let live = true
-    void readFrozenAnswer(standingAnswer)
-      .then((words) => { if (live) setFrozen({ post: standingAnswer.post, words }) })
+    void readStandingBriefing(inquiries, standingAnswer)
+      .then((got) => { if (live) setFrozen(got) })
       .catch((e: Error) => { if (live) setMessage(`${BRIEFING_UNREAD} ${e.message}`) })
     return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [standingAnswer])
   const [asking, setAsking] = useState(false)
+  /** What the last press actually froze and handed over, said in its own words
+   *  rather than promised beforehand. */
+  const [frozenAsk, setFrozenAsk] = useState<BriefingFrozen | null>(null)
   const askBriefing = () => {
     if (asking) return
-    setAsking(true); setMessage('')
+    setAsking(true); setMessage(''); setFrozenAsk(null)
     void askForBriefing(resource, inquiries)
+      .then((got) => setFrozenAsk(got))
       .catch((e: Error) => setMessage(e.message))
       .finally(() => setAsking(false))
   }
@@ -1519,6 +1710,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
    *  answer's frozen words where this view reads any answer's words. */
   const current = withWords(standingAnswer, frozen)
   const byRun = agentWritten(current)
+  /** WHETHER THE ANSWER SHOWN WAS WRITTEN FROM THE COLLECTION SHOWN. For a
+   *  briefing, out of its own frozen manifest; for the written synthesis, the
+   *  collection the record puts on its answer. `null` means unread, and then
+   *  neither is claimed. */
+  const fromShown: boolean | null = byRun
+    ? writtenFromShown(frozen, current?.post, batch)
+    : summary?.batch == null || !batch ? null : summary.batch === batch
   const answered = answerText(current)
   const writtenBriefing = !!answered && isWrittenBriefing(answered)
   const change: AnswerChange | null = answerDiff(current, summary?.superseded[0])
@@ -1602,6 +1800,15 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   characters are unchanged either way. What was grounded in what
                   is said by `Grounded`, below, exactly as before. */}
               <Briefing resource={resource} answer={current} />
+              {/* WHICH COLLECTION THIS ANSWER WAS WRITTEN FROM, where it is not
+                  the one shown beside it. The answer is preserved either way --
+                  burying a briefing under the counted floor is what
+                  `needsWrittenAnswer` prevents -- but the records, facts and
+                  excerpts below belong to the collection on screen, and an
+                  answer written from an earlier one must say so rather than
+                  stand silently among them (review F6). */}
+              {fromShown === false && <p className="mgd-subtle">{BRIEFING_FROM_EARLIER}</p>}
+              {byRun && fromShown === null && <p className="mgd-subtle">{BRIEFING_COLLECTION_UNKNOWN}</p>}
               <Grounded answer={current} />
               {/* WHAT THE RECORD CHECKED BEFORE IT FROZE A RUN'S REPLY as this
                   answer. Said only of an answer a run wrote, and said as what
@@ -1639,6 +1846,12 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
           <button type="button" className="mgd-button" onClick={() => chooseSources(resource)}>{starting.label}</button>
         </div>
         <p className="mgd-subtle">{byRun ? BRIEFING_STANDS : BRIEFING_IS_YOURS_TO_SEND}</p>
+        {/* WHAT THE PRESS ACTUALLY FROZE, counted from the frozen request
+            itself: which collection its evidence is, what this question
+            carried into it besides, and whether an earlier unanswered request
+            was resumed instead of a new one frozen (review F3). */}
+        {!!frozenAsk && <p className="mgd-subtle" role="status">
+          {frozenAsk.resumed ? `${BRIEFING_RESUMED} ${briefingFrozenWords(frozenAsk)}` : briefingFrozenWords(frozenAsk)}</p>}
         <div className="mgd-divider" />
 
         {/* THE COLLECTED RECORDS COME FIRST (owner request ent-068c167fa7e6 §2:
@@ -1701,7 +1914,13 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   here. Nothing is hidden either way: both answers are kept
                   under this Magnet's standing question. */}
               {writtenBriefing
-                ? <p className="mgd-p">{BRIEFING_REWRITTEN}</p>
+                /* AND IT IS ONLY "REWRITTEN FROM THE COLLECTION SHOWN" WHERE
+                   IT WAS. This sentence is now said of frozen briefings too,
+                   and a briefing stands over later collections, so saying it
+                   unconditionally told the owner a preserved older answer had
+                   been rewritten from what is on screen (review F6). */
+                ? <p className="mgd-p">{fromShown === true ? BRIEFING_REWRITTEN
+                  : fromShown === false ? BRIEFING_FROM_EARLIER : BRIEFING_COLLECTION_UNKNOWN}</p>
                 : <>
                   <p className="mgd-p">{changeWords(change)}</p>
                   {change?.added.map((line) => <p className="mgd-item" key={`added-${line}`}><span className="mgd-subtle">Now says · </span><Linked text={line} /></p>)}

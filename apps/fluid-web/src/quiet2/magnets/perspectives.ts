@@ -205,6 +205,13 @@ export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Persp
   finalizing?: string | null
   /** This Magnet's standing Perspective, as the listing read reports it. */
   standing?: string | null
+  /** WHETHER THE `active` PACKAGE IS AN EARLIER INTENT BEING RESUMED rather
+   *  than one just frozen (`prepare`'s own recovery branch). The two are not
+   *  interchangeable to a reader: a resumed intent carries the collection it
+   *  was frozen from, which may no longer be the one on the surface, so a view
+   *  that promises to freeze the collection in hand has to be able to tell
+   *  them apart and say which happened. Set by `prepare` on every return. */
+  resumed?: boolean
   /** The standing Perspective's recorded answers: the evolving summary and
    *  the ones it superseded. Read by the Summary, which shows the current one
    *  as its lead and the difference from the previous one as what changed. */
@@ -267,6 +274,34 @@ export function stampAttachedQuestion(resource: MagnetResource, row?: Perspectiv
   if (attachedQuestionVersion(attached)) return
   const stamp = questionVersion(row)
   if (stamp) resource.update({ context: Object.assign({ ...attached }, stamp) })
+}
+
+/** THE CHIP STANDS FOR THE WORDING THAT WAS ACTUALLY FROZEN.
+ *
+ *  `stampAttachedQuestion` above deliberately leaves an existing stamp alone,
+ *  so that a question revised AFTER the owner attached it refuses instead of
+ *  being substituted. That is right for every path that only reads a question
+ *  -- and wrong for the one path that revises it: `prepare` writes a new
+ *  wording at the owner's own press, and the chip beside those words then
+ *  stood for the wording before it. The send compares the chip against a fresh
+ *  durable read (`ComposerBar.selectedQuestion`) and refused every prepared
+ *  question for exactly that reason (review `ent-5acd177f3aa8` F2).
+ *
+ *  So this is the narrow converse, and takes the version it writes from the
+ *  frozen package itself rather than from whatever is durable now: the chip
+ *  comes to stand for the wording this intent was frozen with, which is the
+ *  wording the send has to carry. It attaches nothing (no chip, or a chip for
+ *  something else, is left exactly as it is -- an intentional removal stays
+ *  removed), clears no suppression, and writes nothing where the chip already
+ *  stands for that version. */
+export function restampAttachedQuestion(resource: MagnetResource, perspective: string,
+                                        frozen?: Artifact | null): void {
+  const attached = resource.snapshot().context
+  if (!attached || attached.kind !== 'perspective' || attached.ref !== perspective) return
+  if (!frozen || typeof frozen.ref !== 'string' || !DIGEST_HEX.test(frozen.digest ?? '')) return
+  const held = attachedQuestionVersion(attached)
+  if (held && held.version === frozen.ref && held.digest === frozen.digest) return
+  resource.update({ context: Object.assign({ ...attached }, { version: frozen.ref, digest: frozen.digest }) })
 }
 
 /** A durable lens choice is also an explicit composer-context choice. Like
@@ -602,7 +637,17 @@ export class PerspectiveStore {
       const held = await this.get(`/${topic}/intents/${last.post}`)
       if (this.state.selected !== topic) throw new Error('The active Perspective changed while recovering the original intent. Nothing was sent.')
       if (!held.binding || !(held.answers?.length)) {
-        if (held.prepared?.text === text && held.prepared?.brain === page.bound()) { this.update({ active: held.prepared }); return held.prepared }
+        /* AN EARLIER UNANSWERED INTENT IS RESUMED, NOT RE-FROZEN. Keeping the
+           original intent is the right thing -- it is the one the record holds
+           and may already have been seen -- but it is a DIFFERENT act from
+           freezing the collection in hand, and `resumed` is how a caller that
+           promises one or the other can say which it did. Its own frozen
+           wording is what the chip must stand for, not the latest. */
+        if (held.prepared?.text === text && held.prepared?.brain === page.bound()) {
+          this.update({ active: held.prepared, resumed: true, bound: undefined, finalizing: undefined })
+          restampAttachedQuestion(this.resource, topic, held.prepared.question)
+          return held.prepared
+        }
         throw new Error('An earlier frozen question has no accepted answer. Resolve or explicitly resume that original request in the wording history before sending a different question.')
       }
     }
@@ -625,7 +670,12 @@ export class PerspectiveStore {
     // A freshly frozen question is never read against a reply bound to an
     // earlier one: dropping `bound` here is what keeps the agent-reply
     // boundary from being checked against the wrong intent.
-    this.update({ active: prepared, bound: undefined, finalizing: undefined }); return prepared
+    this.update({ active: prepared, resumed: false, bound: undefined, finalizing: undefined })
+    // THE CHIP NOW STANDS FOR THE WORDING JUST FROZEN. Without this the send
+    // compares a chip stamped at the previous wording against the record's
+    // fresh read and refuses every prepared question (review F2).
+    restampAttachedQuestion(this.resource, topic, prepared.question)
+    return prepared
   }
   async bind(prepared: PreparedInquiry, request: string) { return this.write(`/${prepared.perspective}/bind`, { intent: prepared.intent, request }, `${prepared.request_op}-bind`) }
   async manifest(prepared: PreparedInquiry): Promise<any> {
@@ -636,6 +686,25 @@ export class PerspectiveStore {
     const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', raw))].map((n) => n.toString(16).padStart(2, '0')).join('')
     if (raw.byteLength !== prepared.manifest.size || digest !== prepared.manifest.digest || prepared.brain !== page.bound()) throw new Error('The original manifest did not verify for this Brain.')
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw))
+  }
+  /** THE FRESH DISPLAY RECEIPT A RECORDED ANSWER NEEDS BEFORE IT IS SHOWN.
+   *
+   *  The published contract is explicit that an immutable answer version is
+   *  NOT perpetual qualification and that a receipt is appended before every
+   *  display (`docs/magnets/part-b-perspectives-api.md`: "obtain a fresh
+   *  display receipt"; "GETs retain raw historical records; they do not
+   *  qualify an answer"). A view that reads a frozen answer's bytes and shows
+   *  them has therefore not established that it may show them -- review
+   *  `ent-5acd177f3aa8` F4 -- and this is the one read that does.
+   *
+   *  It carries NO declarations of its own. `declared_context` persists across
+   *  an intent's receipts, so passing this store's current declarations would
+   *  let merely looking at an old answer widen what its request is accounted
+   *  to have declared. The intent and the producing run are the answer's own,
+   *  read off the recorded answer event and never guessed. */
+  async displayReceipt(perspective: string, intent: string, execution: string): Promise<any> {
+    const receipt = await this.write(`/${perspective}/reconcile`, { intent, purpose: 'display', execution })
+    this.update({ receipt }); return receipt
   }
   async reconcile(prepared: PreparedInquiry, purpose: 'display' | 'resume' | 'reuse' | 'attach', execution?: string) {
     const receipt = await this.write(`/${prepared.perspective}/reconcile`, { intent: prepared.intent, purpose, ...(execution ? { execution } : {}), declared_context: this.state.declared })
@@ -792,6 +861,31 @@ export function perspectiveSource(resource: MagnetResource): SearchSource {
     bound: () => stopped,
   }
 }
+/** WHAT THE RUN IS TOLD, AS PART OF THE MESSAGE IT IS SENT.
+ *
+ *  This used to be composed into `dispatch[].work`, and that is precisely the
+ *  generated Magnet work override the one door refuses outright --
+ *  `mentis.fluid.message_context.gate` refuses any dispatch spec carrying a
+ *  `work` value with `invalid-managed-intent`, before any record or dispatch
+ *  exists. So every frozen Perspective ask composed by this client was
+ *  refused 422 at the managed request door (review `ent-5acd177f3aa8` F2), and
+ *  the server-side fixture that passes says why in its own words: under this
+ *  boundary "the agent is handed the message itself rather than text composed
+ *  for it" (`tests/test_magnet_perspectives.managed_request`).
+ *
+ *  So it is handed the message itself. The words go after the frozen question,
+ *  in the owner's own asking Turn, where the run reads them and the owner can
+ *  read them too -- and `bind` still accepts the Turn, because it requires the
+ *  sent words to BEGIN with the frozen question (`perspectives_work.bind`:
+ *  "the actual asking Turn does not begin with the frozen question") and not
+ *  to be only it. Nothing is generated on the run's behalf anywhere else. */
+export const perspectiveInstruction = (perspective: string): string =>
+  `Use the attached frozen Perspective records, manifest and evidence. Read them with read_artifact. Reconstruct the inquiry by its Topic ${perspective}, distinguish original support from interpretations and conflicting evidence, cite the exact versions/ranges, and answer the frozen question. ${PERSPECTIVE_DISCLOSURE}`
+/** The exact words the asking Turn carries for a frozen ask: the frozen
+ *  question first, verbatim, then what the run is told. */
+export const perspectiveWords = (prepared: PreparedInquiry): string =>
+  `${prepared.text}\n\n${perspectiveInstruction(prepared.perspective)}`
+
 /** Preserve the shared Composer's addressing, runtime, reply and Work choices.
  *
  *  Everything the actual send needs travels as ordinary fields the shared
@@ -802,9 +896,20 @@ export function perspectiveSource(resource: MagnetResource): SearchSource {
  *  (`composerRequest`) refuses it first for the same reason -- so a
  *  Perspective send never attaches one. `attempt.perspective`, set by the
  *  caller from the `prepared` it already holds, is what later identifies
- *  this as a Perspective send; nothing needs to find it again on the post. */
+ *  this as a Perspective send; nothing needs to find it again on the post.
+ *
+ *  AND IT OVERRIDES NO RUN'S WORK. `reach` and `requires` are what the spec
+ *  carries -- `bind` requires work reach of the actual request
+ *  ("Perspective requests must use work reach") and the door accepts both --
+ *  while the instruction travels as the message's own words above. The single
+ *  text part is the exact projection of `text`, which the door checks
+ *  (`text-parts-disagree`). */
 export function perspectiveRequest(post: Record<string, unknown>, prepared: PreparedInquiry) {
-  return { ...post, text: prepared.text, topics: [...new Set([...(Array.isArray(post.topics) ? post.topics : []), prepared.perspective])],
-    parts: [{ type: 'text', text: prepared.text }, ...(Array.isArray(post.parts) ? post.parts.filter((p: any) => p.type !== 'text') : []), ...prepared.parts],
-    dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: any) => ({ ...spec, reach: 'work', requires: [...new Set([...(spec.requires ?? []), 'call_mentis_tools'])], work: `Use the attached frozen Perspective records, manifest and evidence. Read them with read_artifact. Reconstruct the inquiry by its Topic ${prepared.perspective}, distinguish original support from interpretations and conflicting evidence, cite the exact versions/ranges, and answer the frozen question. ${PERSPECTIVE_DISCLOSURE}` })) }
+  const words = perspectiveWords(prepared)
+  return { ...post, text: words, topics: [...new Set([...(Array.isArray(post.topics) ? post.topics : []), prepared.perspective])],
+    parts: [{ type: 'text', text: words }, ...(Array.isArray(post.parts) ? post.parts.filter((p: any) => p.type !== 'text') : []), ...prepared.parts],
+    dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: any) => {
+      const { work: _refused, ...rest } = spec as Record<string, unknown>
+      return { ...rest, reach: 'work', requires: [...new Set([...((spec.requires as string[]) ?? []), 'call_mentis_tools'])] }
+    }) }
 }
