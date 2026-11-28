@@ -66,7 +66,7 @@ def test_child_inherits_and_cannot_widen(world):
                          text="child", parent=parent["expectation"],
                          follow_up={"depth": 2})
     assert status == 403
-    assert "original request" in refused["error"]
+    assert "cannot widen" in refused["error"]
     status, child = op("record_request", conversation=opened["conversation"],
                        text="child", parent=parent["expectation"])
     assert status == 200

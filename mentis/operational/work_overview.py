@@ -807,7 +807,7 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
     except Exception:                                     # noqa: BLE001
         replies = None
 
-    from mentis.operational import discovery, follow_up_of
+    from mentis.operational import discovery, follow_up_for
     gravity = discovery(cv, act["id"])
     from mentis.operational.result_destinations import structural
     result_index = structural(ctx, act)
@@ -820,7 +820,7 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
             "state": state["value"] or "unreadable",
             "state_source": state["source"], "origin": origin,
             "replies": replies,
-            "follow_up": follow_up_of(cv, gravity["origin"]),
+            "follow_up": follow_up_for(cv, act["id"]),
             "generation": gravity["generation"],
             # WS-C: the carrier's newest outcome claim and what the record
             # made of it, and later records that regard this work

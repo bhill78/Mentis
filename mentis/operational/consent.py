@@ -202,6 +202,50 @@ def _owner_sets(cv, cause, owner, scope) -> list[dict]:
     return sorted(acts, key=lambda a: (order.get(a["id"], -1), a["at"]))
 
 
+def _with_handed(cv, request, owner, changed) -> list[dict]:
+    """The owner's consent changes on this request, IN ORDER, with the consent
+    they gave on each follow-up of theirs handed to it (`attach_follow_up`).
+
+    A follow-up the owner wrote with a Permission Mode is their authorisation
+    for the work it is about, not for a new request beside it: when it is
+    handed to that work, what they chose governs it from then on, as if they
+    had changed it there. Only the owner's own request is read -- the agent
+    that hands it on chooses nothing -- and the request keeps its record."""
+    handed = []
+    # A REPLY OF THE OWNER'S THAT CONTINUES THIS WORK and says a Permission
+    # Mode governs that reply's request and what it delegates; the request it
+    # continues keeps its own (owner, 2026-11-05). But WHERE IT NARROWS, it
+    # also narrows this request -- a run still carrying it, and work delegated
+    # under it -- so taking permission away takes effect on whatever is still
+    # doing the work (owner, 2026-11-28). It is never read as a widening here.
+    for cont in cv.owner_continuations(request, owner):
+        cd = cont.get("detail") or {}
+        if cd.get("consent") is None:
+            continue
+        try:
+            said = consent_value(cd["consent"], roots=[])
+        except ValueError:
+            said = None
+        handed.append({"id": cont["id"], "at": cont["at"], "narrows": True,
+                       "detail": {"consent": said or {"mode": ASK}}})
+    for att in cv.follow_ups(request):
+        req = cv._act((att.get("detail") or {}).get("request"))
+        rd = (req or {}).get("detail") or {}
+        if not req or req.get("actor") != owner or rd.get("consent") is None:
+            continue
+        try:
+            said = consent_value(rd["consent"], roots=[])
+        except ValueError:
+            said = None
+        handed.append({"id": att["id"], "at": att["at"],
+                       "detail": {"consent": said or {"mode": ASK}}})
+    if not handed:
+        return changed
+    both = [*changed, *handed]
+    order = cv._write_order([a["id"] for a in both])
+    return sorted(both, key=lambda a: (order.get(a["id"], -1), a["at"]))
+
+
 def _declared(cv, act) -> str | None:
     decl = ((act.get("detail") or {}).get("repository"))
     where = decl if isinstance(decl, str) else (
@@ -234,6 +278,13 @@ def of_request(cv, expectation) -> dict:
                 here = {"mode": ASK, "workspaces": [], "categories": list(DEFAULT_CATEGORIES)}
         changed = [a for a in (_owner_sets(cv, level["id"], owner, "task") if owner else [])
                    if "consent" in (a.get("detail") or {})]
+        changed = _with_handed(cv, level["id"], owner, changed) if owner else changed
+        # NARROWINGS from the owner's continuations apply after whichever
+        # replacing change came before them; never as a replacement.
+        replacing = [i for i, a in enumerate(changed) if not a.get("narrows")]
+        narrowings = [a for a in changed[(replacing[-1] + 1 if replacing else 0):]
+                      if a.get("narrows")]
+        changed = [a for a in changed if not a.get("narrows")]
         if changed:
             last = (changed[-1].get("detail") or {}).get("consent") or {}
             eff = {"mode": last.get("mode", ASK),
@@ -252,6 +303,16 @@ def of_request(cv, expectation) -> dict:
             repo = _declared(cv, level)
             if repo and repo not in eff["workspaces"]:
                 eff["workspaces"] = [*eff["workspaces"], repo]
+        for n in narrowings:
+            if eff is None:
+                break
+            inner = (n.get("detail") or {}).get("consent") or {"mode": ASK}
+            narrowed = _narrow(eff, {
+                "mode": inner.get("mode", ASK),
+                "workspaces": list(inner.get("workspaces") or ()),
+                "categories": list(inner.get("categories") or DEFAULT_CATEGORIES)})
+            if narrowed != {k: eff[k] for k in ("mode", "workspaces", "categories")}:
+                eff, source, granted_at = narrowed, "owner-narrowed", level["id"]
     research = research_of(cv, expectation)
     if eff is None:
         return {"mode": ASK, "workspaces": [], "categories": list(DEFAULT_CATEGORIES),

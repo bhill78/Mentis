@@ -50,7 +50,8 @@ Recorded on the owner's request as `detail.consent` of its `expectation-recorded
 
 Effective consent is read from the request's lineage (`mentis.operational.consent`):
 the original request's consent, replaced at any level where the owner changed it
-(`consent-set`), and only ever narrowed below that. Workspaces of a child are those of
+(`consent-set`, a reply of the owner's that continues the work, or a follow-up of
+theirs handed to it with `attach_follow_up`), and only ever narrowed below that. Workspaces of a child are those of
 its parent; the child's own run workspace counts only when it is inside them. A
 request whose lineage reaches no owner-given consent is `ask`.
 

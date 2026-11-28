@@ -25,7 +25,7 @@
  * store follows the change feed. */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { CLIENT_HEADERS } from '../api'
+import { CLIENT_HEADERS, read } from '../api'
 import { fluidFetch } from './http'
 import { Prose } from '../prose'
 import {
@@ -64,7 +64,7 @@ import { attachWorkflow, dropToken, type WorkflowRow } from './composer/workflow
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
-import Operations, { pillWarnings } from './composer/Operations'
+import Operations, { pillWarnings, type Inherited } from './composer/Operations'
 import { MARKS, markOf } from './composer/marks'
 import { dropDraft, keptDraft, loadDraft, saveDraft } from './composer/drafts'
 /* ONE SAVED PERMISSION CONFIGURATION, IN THIS BROWSER (permissionDefault.ts):
@@ -688,7 +688,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       if (unnamed(ready.draft, ready.brain)) { setErr(UNNAMED_POST); return }
       const into = await ensure()
       const d = await settle(ready.draft, into)
-      const built = bodyOf(d, me, d.topics, fallback)
+      const built = bodyOf(d, me, d.topics, fallback, { continuing: !freshWork })
       const answered = replyTo ? store.posts.get(replyTo) : undefined
       if (answered && !built.addressed_to.length && answered.author !== me) built.addressed_to = [answered.author]
       const body = { ...built, conversation: into, ...(replyTo ? { replies_to: replyTo } : {}), op: op.current }
@@ -784,15 +784,36 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const waiting = [...draft.to.filter((a) => later(a.participant)).map((a) => a.alias), ...draft.topics.filter(later).map((t) => '#' + topicName(t))]
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
   const who = opened ? draft.to.find((a) => a.participant === opened) : undefined
+  /* WHAT THE WORK THIS REPLY WOULD CONTINUE CARRIES NOW, read from the server
+     that enforces it, so the panel shows that instead of blank defaults and a
+     choice reads as a change from it. Only for one unambiguous candidate. */
+  const [inherited, setInherited] = useState<Inherited | null>(null)
+  useEffect(() => {
+    setInherited(null)
+    if (!replyTo || !who?.dispatch || !operations) return
+    let live = true
+    void read<{ candidates: { number: number; coordinate: boolean; consent: { mode: Inherited['consentMode'] };
+      follow_up: 'ask' | 'unrestricted' | { depth: number }; live: boolean }[] }>(
+      `/api/continuation?replies_to=${encodeURIComponent(replyTo)}&participant=${encodeURIComponent(who.participant)}`)
+      .then((got) => {
+        const c = got.candidates.length === 1 ? got.candidates[0] : null
+        if (live && c) setInherited({ number: c.number, coordinate: c.coordinate, consentMode: c.consent.mode, live: c.live,
+          followUp: c.follow_up === 'ask' ? undefined : c.follow_up === 'unrestricted' ? 'unrestricted' : c.follow_up.depth })
+      }).catch(() => { /* nothing shown is the old behaviour: the server still decides */ })
+    return () => { live = false }
+  }, [replyTo, who?.participant, who?.dispatch, operations])
   /* ORDINARY ASK MENTIS'S OWN PERMISSIONS. Ask Mentis names nobody, so there
      is no pill to open and, until now, no way to say what the work it
      assigns may do. One compact entry on the top line opens the SAME
      permission controls a named request uses, over the draft's own
-     selections (`draft.askMentis`). Shown only where Ask Mentis is what
-     sending does, on a fresh original post: a reply, a thread and work
-     marked for somebody each have their own answer to this. */
+     selections (`draft.askMentis`). Shown wherever Ask Mentis is what
+     sending does -- a fresh post, a reply and a post in a thread alike. On a
+     reply or in a thread the work it follows up keeps what was recorded for
+     it unless the owner chooses otherwise here; what they choose is their
+     newer authorisation for that work (owner, 2026-11-28). The saved default
+     still fills in only new Work (`seedWork`). */
   const askWho: Addressee = { participant: 'ask-mentis', alias: 'Ask Mentis', dispatch: true, ...(draft.askMentis ?? {}) }
-  const askShown = permissionsHere && !closed && freshWork && words.action === 'ask-mentis'
+  const askShown = permissionsHere && !closed && words.action === 'ask-mentis'
   useEffect(() => { if (!askShown && askPerm) setAskPerm(false) }, [askShown, askPerm])
   /** ONE COMPACT ENTRY, saying what this Ask Mentis will carry: the Permission
    *  Mode, anything said about authority, and the side-work permission. In the
@@ -801,14 +822,19 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
    *  pills and the older one a workspace's ask is drawn in -- because the
    *  controls and what they carry must not differ between two surfaces that
    *  both start new Work. */
+  /* ON A REPLY NOTHING CHOSEN IS "UNCHANGED": the work it follows up keeps
+     what was recorded for it, so the entry does not claim the defaults. */
+  const askSaid = !freshWork && !draft.askMentis?.decided?.length && !draft.askMentis?.consent
+    && draft.askMentis?.coordinate === undefined && draft.askMentis?.followUp === undefined
+    ? 'Unchanged' : chosenWords(draft.askMentis ?? {})
   const permEntry = askShown && (
     <span className="fc-chip fc-perm" data-warn={draft.askMentis?.consent || draft.askMentis?.coordinate ? 'permissions' : undefined}>
       <button ref={askAt} className="fc-perm-open" aria-expanded={askPerm} aria-haspopup="dialog"
-        title={`What this Ask Mentis carries: ${chosenWords(draft.askMentis ?? {})}. Opens the same permission controls a named request uses.`}
-        aria-label={`Permissions for Ask Mentis: ${chosenWords(draft.askMentis ?? {})}`}
+        title={`What this Ask Mentis carries: ${askSaid}. Opens the same permission controls a named request uses.`}
+        aria-label={`Permissions for Ask Mentis: ${askSaid}`}
         onClick={() => { setOpened(null); setAskPerm((p) => !p) }}>
         <span className="fc-perm-name">Permissions</span>
-        <span className="fc-perm-says">{chosenWords(draft.askMentis ?? {})}</span>
+        <span className="fc-perm-says">{askSaid}</span>
       </button>
     </span>
   )
@@ -1215,7 +1241,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         <Float at={section.current} width={380} align="end" className="fc-ops-float" label={`Operations for ${who.alias}`}
           onClose={closeOps}>
           <Operations key={who.participant} who={who} declared={declared} execution={ex} capacity={cap}
-            preference={preferenceFor(savedOf(who))}
+            preference={preferenceFor(savedOf(who))} inherited={inherited}
             onClose={() => closeOps('escape')}
             onChange={(next) => setDraft((d) => ({ ...withAddressee(d, next), action: d.action === 'record-only' && next.dispatch ? undefined : d.action }))} />
         </Float>

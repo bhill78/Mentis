@@ -243,19 +243,16 @@ def post(cv, corpus, cid, body, *, agents=None, written_by, _managed=False,
             # FOLLOW-UP PERMISSION IS THE AUTHOR'S, on this request:
             # ask afterward (absent), {"depth": N} or "unrestricted".
             # It carries through the work's follow-ups
-            # (`operational.pursuit_permitted`); refused in words when
+            # (`operational.follow_up_for`); refused in words when
             # it is not one of those, never read as a wider one.
+            #
+            # A CONTINUATION TAKES IT TOO (owner, 2026-11-28), as it takes
+            # consent: inheriting it is a convenience, not a constraint. Said
+            # here it is recorded on the continuing request and governs that
+            # work and what it hands on; the request it continues keeps its
+            # own. Only the owner's word is read below the original request,
+            # so an agent's request never widens it.
             if spec.get("follow_up") is not None:
-                # IT BELONGS TO THE ORIGINAL REQUEST. A reply that
-                # continues earlier work carries that work's
-                # permission; one set here would be stored and never
-                # read, so it is refused in words instead.
-                if plan.get("continues"):
-                    return {"error": "follow-up permission belongs to "
-                                     "the original request; this "
-                                     "continues earlier work, which "
-                                     "keeps the permission it was "
-                                     "asked with"}, []
                 from mentis.operational import follow_up_value
                 try:
                     plan = {**plan, "follow_up":
@@ -665,6 +662,16 @@ def post(cv, corpus, cid, body, *, agents=None, written_by, _managed=False,
                                         conversation=cid)
     except _AnchorRefused as refused:
         return refused.refusal, []
+    # A CONTINUATION THAT SAYS WHAT THE WORK MAY DO can take permission away
+    # from runs still carrying the work it continues (`consent.of_request`,
+    # `authority_in_force`): live runs are rechecked now, once it is durable,
+    # exactly as when the owner changes consent on a run.
+    if any(p.get("continues") and (p.get("consent") is not None
+                                   or p.get("source") == "explicit")
+           for p in (out.get("authority") or {}).values()
+           if isinstance(p, dict)):
+        from mentis.operational import consent as _consent
+        _consent._after_set(cv, None, None)
     # STARTED ONLY ONCE ALL OF IT IS DURABLE, by the caller. `dispatch_soon`
     # starts a thread and records its own failures, so what is owed is never
     # left without either a run or a recorded reason there is none.
@@ -1420,8 +1427,12 @@ def owe(cv, *, turn, spec, plan, body, svc=None, work_req=None) -> str:
                     detail=({**worn,
                              **({"repository": plan["repository"]}
                                 if plan.get("repository") else {}),
+                             # "ask" SAID ON A CONTINUATION IS KEPT: it
+                             # narrows what the continued work allowed.
                              **({"follow_up": plan["follow_up"]}
-                                if plan.get("follow_up") not in (None, "ask")
+                                if plan.get("follow_up") is not None
+                                and (plan["follow_up"] != "ask"
+                                     or plan.get("continues"))
                                 else {}),
                              **({"consent": plan["consent"]}
                                 if plan.get("consent") else {}),

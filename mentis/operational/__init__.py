@@ -273,14 +273,15 @@ def _label(words: str | None, fallback: str, limit: int = IN_A_LABEL) -> str:
 
 
 # ---------------------------------------------------------------------------
-# follow-up permission -- the owner's, on the original request
+# follow-up permission -- the owner's, in force along the lineage
 #
 # AS DECIDED (owner, 2026-10-09). Agents judge whether discovered work is
 # necessary to the trunk (ordinary delegation), deferred (recorded), or worth
 # pursuing on its own. Whether they may pursue it WITHOUT ASKING is the owner's
 # permission, given when they ask: ask afterward (the default), up to N
-# generations of independently pursued discovery, or unrestricted. It belongs
-# to the ORIGINAL request and carries through its follow-ups: read from the
+# generations of independently pursued discovery, or unrestricted. Given on
+# the original request it carries through its follow-ups, and the owner may
+# change it on any of them (2026-11-28, `follow_up_for`): read from the
 # record's lineage, never from a run, so starting another execution cannot
 # reset it. Permission allows pursuit; it requires none. What is not pursued
 # is put to the owner when the trunk it was found under is finished.
@@ -333,6 +334,85 @@ def follow_up_of(cv, origin) -> object:
         return ASK
 
 
+def follow_up_for(cv, expectation) -> object:
+    """The follow-up permission IN FORCE for this work, read down its lineage
+    from the original request.
+
+    The original request's permission carries down -- inheritance is a
+    convenience, not a constraint. At each request below it, only the
+    owner's word counts: what they said on a request of theirs replaces what
+    it inherited; a follow-up of theirs handed to it (`attach_follow_up`)
+    replaces it too; and a reply of theirs that continued it governs that
+    reply's own request, reaching back to this one only where it NARROWS
+    (owner, 2026-11-05 and 2026-11-28), so revoking takes effect on what is
+    still doing the work and nothing older is widened. A value an agent wrote
+    on work it recorded or delegated is never read, so no agent widens what
+    it may pursue. Every earlier grant stays recorded where it was given."""
+    from mentis.conversation.owner import _owner
+    owner = _owner(cv)
+    chain, cur, seen = [], expectation, set()
+    while cur and cur not in seen:
+        a = cv._act(cur)
+        if a is None or a["act"] != "expectation-recorded":
+            break
+        seen.add(cur)
+        chain.append(a)
+        cur = a["caused_by"]
+    if not chain:
+        return ASK
+    eff = None
+    for i, level in enumerate(reversed(chain)):
+        if i == 0:
+            eff = follow_up_of(cv, level["id"])        # the original request's
+        eff = _owner_words(cv, level, owner, eff, origin=(i == 0))             if owner else eff
+    return eff
+
+
+def owner_follow_up(cv, request, owner):
+    """What the owner said about follow-up permission AT this request, or
+    None when they said nothing there (see `follow_up_for`)."""
+    return _owner_words(cv, request, owner, None, origin=False)
+
+
+def _owner_words(cv, request, owner, inherited, *, origin):
+    """`inherited`, as the owner's words at this request leave it."""
+    def value(raw):
+        try:
+            return follow_up_value(raw)
+        except ValueError:
+            return ASK
+
+    eff = inherited
+    detail = request.get("detail") or {}
+    if not origin and request.get("actor") == owner and "follow_up" in detail:
+        eff = value(detail["follow_up"])
+    later = [(c["id"], c["detail"]["follow_up"], True)
+             for c in cv.owner_continuations(request["id"], owner)
+             if "follow_up" in (c.get("detail") or {})]
+    for att in cv.follow_ups(request["id"]):
+        req = cv._act((att.get("detail") or {}).get("request"))
+        rd = (req or {}).get("detail") or {}
+        if req and req.get("actor") == owner and "follow_up" in rd:
+            later.append((att["id"], rd["follow_up"], False))
+    if later:
+        order = cv._write_order([i for i, _, _ in later])
+        for _, raw, narrows in sorted(later, key=lambda x: order.get(x[0], -1)):
+            new = value(raw)
+            if not narrows or eff is None:
+                eff = new if not narrows or new == ASK else eff
+            elif _breadth(new) < _breadth(eff):
+                eff = new
+    return eff
+
+
+def _breadth(value) -> float:
+    if value == ASK:
+        return 0
+    if value == UNRESTRICTED:
+        return float("inf")
+    return value["depth"]
+
+
 def follow_up_label(value) -> str:
     """The owner-facing label for one validated Task Gravity setting."""
     value = follow_up_value(value)
@@ -351,8 +431,8 @@ def pursuit_permitted(cv, finding) -> dict | None:
     if not cv.is_finding(finding) or owner_decided(cv, finding):
         return None
     where = discovery(cv, finding)
-    allowed = follow_up_of(cv, where["origin"])
-    ok = (allowed == UNRESTRICTED
+    allowed = follow_up_for(cv, finding)
+    ok =(allowed == UNRESTRICTED
           or (isinstance(allowed, dict)
               and where["generation"] <= allowed["depth"]))
     return {**where, "follow_up": allowed} if ok else None

@@ -21,6 +21,7 @@ from mentis.operational import (
     ASK,
     UNRESTRICTED,
     discovery,
+    follow_up_for,
     follow_up_of,
     follow_up_value,
 )
@@ -331,15 +332,15 @@ def for_agent(
         governing = [d for d in deliveries
                      if d.component.tier in ("governing", "adopted", "experience")
                      or d.component.scope == "invocation:persona"]
-        # THE TASK GRAVITY IN FORCE: the original request's, read by the same
-        # walk pickup is decided by (`discovery`, `follow_up_of`).
+        # THE TASK GRAVITY IN FORCE, read by the same walk pickup is decided
+        # by (`discovery`, `follow_up_for`).
         given = follow_up
         generation = 0
         if expectation:
             disc = discovery(cv, expectation)
             generation = disc.get("generation", 0)
             if given is None:
-                given = follow_up_of(cv, disc.get("origin"))
+                given = follow_up_for(cv, expectation)
         try:
             setting = follow_up_value(given) if given is not None else ASK
         except ValueError:

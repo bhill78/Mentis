@@ -697,7 +697,9 @@ def authority_for(cv, expectation) -> dict:
     `coordinate` existed is read as one -- and nothing here maps any name.
     """
     from mentis.worker import AUTHORITY, permitted
-    got = cv.authority_of(expectation)
+    # IN FORCE, not only as recorded: the owner's later explicit word on
+    # this line of work narrows it (`authority_in_force`).
+    got = cv.authority_in_force(expectation)
     organising = [o for o in AUTHORITY if o in got["operations"]]
     scope = "organising" if organising else "worker"
     return {"scope": scope,
@@ -3595,15 +3597,15 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # from the original request this work serves, so every run of it --
         # first, resumed or another execution -- is told the same.
         if expectation:
-            from mentis.operational import (ASK, discovery, follow_up_of)
+            from mentis.operational import (ASK, discovery, follow_up_for)
             where = discovery(cv, expectation)
-            allowed = follow_up_of(cv, where["origin"])
+            allowed = follow_up_for(cv, expectation)
             if allowed != ASK:
                 reach = ("without limit" if allowed == "unrestricted" else
                          f"up to generation {allowed['depth']}")
                 payload += (
-                    "\n\n---\nFollow-up permission (the owner's, on the "
-                    f"original request): independently pursued discoveries "
+                    "\n\n---\nFollow-up permission (the owner's, in force for "
+                    f"this work): independently pursued discoveries "
                     f"are allowed {reach}; this work is generation "
                     f"{where['generation']}. A finding recorded with "
                     "record_discovered_work can be picked up with "

@@ -8,7 +8,7 @@ What already exists and is **not** rebuilt: the Persona, Discipline and Workflow
 Kinds (`mentis/conversation/__init__.py` `_KINDS`), placement (`scoped-to`),
 `compose` (`Conversations.compose`) and its delivery record, the ladder, Task
 Gravity's server side (`mentis/operational/__init__.py`: `trunk_of`, `discovery`,
-`follow_up_of`, `pursuit_permitted`, `ask_about_findings`, reconsideration),
+`follow_up_for`, `pursuit_permitted`, `ask_about_findings`, reconsideration),
 `record_discovered_work`, `delegate(expectation=…)`, `/api/gravity`, the hand-started
 bridge tools (`recall`, `work_overview`, `record_request`, `record_outcome`).
 
@@ -187,7 +187,12 @@ work" / "May pursue side work N generation(s) deep" / "May pursue side work free
 - `record_request` accepts `follow_up`, `persona`, `workflow`, `runtime`
   (all optional) and stores them on the expectation's `detail` exactly as posting
   does (`detail.follow_up` absent for "ask"). A reply continuing earlier work keeps
-  the permission it was asked with.
+  the permission it was asked with unless the owner says otherwise on it (owner,
+  2026-11-28): then that is recorded on the continuing request ("ask" included) and
+  governs it and what it hands on. The same holds for consent, and for an owner's
+  follow-up handed to the work with `attach_follow_up`. The permission in force is
+  the nearest the owner gave up the lineage (`follow_up_for`); an agent's value below
+  the original request is never read, so nothing an agent records widens it.
 - A hand-started session that recorded a request carries it: it may call
   `record_discovered_work(under=<expectation>)` and `delegate(expectation=<finding>)`
   under it, checked by the same `pursuit_permitted` and generation walk
