@@ -547,6 +547,10 @@ export const bodyOf = (
               persona: a.persona ?? null,
               new_instance: !!a.newInstance,
               coordinate: !!a.coordinate,
+              /* TAKING COORDINATION AWAY FROM WORK BEING CONTINUED is said, as
+                 an explicit empty authority: `coordinate: false` alone means
+                 "nothing said", which a continuation reads as inheriting. */
+              ...(seam.continuing && a.decided?.includes('coordinate') && !a.coordinate ? { authority: [] as string[] } : {}),
               ...governed,
               ...(a.followUp === undefined
                 ? saidAsk(a, 'followUp', !!seam.continuing) ? { follow_up: 'ask' } : {}

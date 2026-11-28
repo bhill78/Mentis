@@ -662,6 +662,16 @@ def post(cv, corpus, cid, body, *, agents=None, written_by, _managed=False,
                                         conversation=cid)
     except _AnchorRefused as refused:
         return refused.refusal, []
+    # A CONTINUATION THAT SAYS WHAT THE WORK MAY DO can take permission away
+    # from runs still carrying the work it continues (`consent.of_request`,
+    # `authority_in_force`): live runs are rechecked now, once it is durable,
+    # exactly as when the owner changes consent on a run.
+    if any(p.get("continues") and (p.get("consent") is not None
+                                   or p.get("source") == "explicit")
+           for p in (out.get("authority") or {}).values()
+           if isinstance(p, dict)):
+        from mentis.operational import consent as _consent
+        _consent._after_set(cv, None, None)
     # STARTED ONLY ONCE ALL OF IT IS DURABLE, by the caller. `dispatch_soon`
     # starts a thread and records its own failures, so what is owed is never
     # left without either a run or a recorded reason there is none.

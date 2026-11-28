@@ -697,7 +697,9 @@ def authority_for(cv, expectation) -> dict:
     `coordinate` existed is read as one -- and nothing here maps any name.
     """
     from mentis.worker import AUTHORITY, permitted
-    got = cv.authority_of(expectation)
+    # IN FORCE, not only as recorded: the owner's later explicit word on
+    # this line of work narrows it (`authority_in_force`).
+    got = cv.authority_in_force(expectation)
     organising = [o for o in AUTHORITY if o in got["operations"]]
     scope = "organising" if organising else "worker"
     return {"scope": scope,

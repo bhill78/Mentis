@@ -25,7 +25,7 @@
  * store follows the change feed. */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { CLIENT_HEADERS } from '../api'
+import { CLIENT_HEADERS, read } from '../api'
 import { fluidFetch } from './http'
 import { Prose } from '../prose'
 import {
@@ -64,7 +64,7 @@ import { attachWorkflow, dropToken, type WorkflowRow } from './composer/workflow
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
-import Operations, { pillWarnings } from './composer/Operations'
+import Operations, { pillWarnings, type Inherited } from './composer/Operations'
 import { MARKS, markOf } from './composer/marks'
 import { dropDraft, keptDraft, loadDraft, saveDraft } from './composer/drafts'
 /* ONE SAVED PERMISSION CONFIGURATION, IN THIS BROWSER (permissionDefault.ts):
@@ -784,6 +784,24 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const waiting = [...draft.to.filter((a) => later(a.participant)).map((a) => a.alias), ...draft.topics.filter(later).map((t) => '#' + topicName(t))]
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
   const who = opened ? draft.to.find((a) => a.participant === opened) : undefined
+  /* WHAT THE WORK THIS REPLY WOULD CONTINUE CARRIES NOW, read from the server
+     that enforces it, so the panel shows that instead of blank defaults and a
+     choice reads as a change from it. Only for one unambiguous candidate. */
+  const [inherited, setInherited] = useState<Inherited | null>(null)
+  useEffect(() => {
+    setInherited(null)
+    if (!replyTo || !who?.dispatch || !operations) return
+    let live = true
+    void read<{ candidates: { number: number; coordinate: boolean; consent: { mode: Inherited['consentMode'] };
+      follow_up: 'ask' | 'unrestricted' | { depth: number }; live: boolean }[] }>(
+      `/api/continuation?replies_to=${encodeURIComponent(replyTo)}&participant=${encodeURIComponent(who.participant)}`)
+      .then((got) => {
+        const c = got.candidates.length === 1 ? got.candidates[0] : null
+        if (live && c) setInherited({ number: c.number, coordinate: c.coordinate, consentMode: c.consent.mode, live: c.live,
+          followUp: c.follow_up === 'ask' ? undefined : c.follow_up === 'unrestricted' ? 'unrestricted' : c.follow_up.depth })
+      }).catch(() => { /* nothing shown is the old behaviour: the server still decides */ })
+    return () => { live = false }
+  }, [replyTo, who?.participant, who?.dispatch, operations])
   /* ORDINARY ASK MENTIS'S OWN PERMISSIONS. Ask Mentis names nobody, so there
      is no pill to open and, until now, no way to say what the work it
      assigns may do. One compact entry on the top line opens the SAME
@@ -1223,7 +1241,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         <Float at={section.current} width={380} align="end" className="fc-ops-float" label={`Operations for ${who.alias}`}
           onClose={closeOps}>
           <Operations key={who.participant} who={who} declared={declared} execution={ex} capacity={cap}
-            preference={preferenceFor(savedOf(who))}
+            preference={preferenceFor(savedOf(who))} inherited={inherited}
             onClose={() => closeOps('escape')}
             onChange={(next) => setDraft((d) => ({ ...withAddressee(d, next), action: d.action === 'record-only' && next.dispatch ? undefined : d.action }))} />
         </Float>

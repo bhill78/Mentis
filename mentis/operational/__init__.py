@@ -334,53 +334,82 @@ def follow_up_of(cv, origin) -> object:
 
 
 def follow_up_for(cv, expectation) -> object:
-    """The follow-up permission IN FORCE for this work: the nearest one the
-    owner gave on the way up its lineage.
+    """The follow-up permission IN FORCE for this work, read down its lineage
+    from the original request.
 
-    The original request's permission carries down as before -- inheritance is
-    a convenience. Where the owner said something else on a request that
-    continues it (a reply that continues the work, or a follow-up of theirs
-    handed to it), that is their newer authorisation, and it governs that work
-    and what it hands on. Only the owner's word counts below the original
-    request: a value an agent wrote on work it recorded or delegated is not
-    read, so no agent widens what it may pursue. Every earlier grant stays
-    recorded where it was given."""
+    The original request's permission carries down -- inheritance is a
+    convenience, not a constraint. At each request below it, only the
+    owner's word counts: what they said on a request of theirs replaces what
+    it inherited; a follow-up of theirs handed to it (`attach_follow_up`)
+    replaces it too; and a reply of theirs that continued it governs that
+    reply's own request, reaching back to this one only where it NARROWS
+    (owner, 2026-11-05 and 2026-11-28), so revoking takes effect on what is
+    still doing the work and nothing older is widened. A value an agent wrote
+    on work it recorded or delegated is never read, so no agent widens what
+    it may pursue. Every earlier grant stays recorded where it was given."""
     from mentis.conversation.owner import _owner
     owner = _owner(cv)
-    cur, seen, top = expectation, set(), None
+    chain, cur, seen = [], expectation, set()
     while cur and cur not in seen:
         a = cv._act(cur)
         if a is None or a["act"] != "expectation-recorded":
             break
         seen.add(cur)
-        top = a
-        said = owner_follow_up(cv, a, owner) if owner else None
-        if said is not None:
-            return said
+        chain.append(a)
         cur = a["caused_by"]
-    return follow_up_of(cv, top["id"]) if top else ASK
+    if not chain:
+        return ASK
+    eff = None
+    for i, level in enumerate(reversed(chain)):
+        if i == 0:
+            eff = follow_up_of(cv, level["id"])        # the original request's
+        eff = _owner_words(cv, level, owner, eff, origin=(i == 0))             if owner else eff
+    return eff
 
 
 def owner_follow_up(cv, request, owner):
     """What the owner said about follow-up permission AT this request, or
-    None: on the request itself, when they made it, or -- later, and so
-    winning -- on a follow-up of theirs handed to it (`attach_follow_up`)."""
-    said = None
-    detail = request.get("detail") or {}
-    if request.get("actor") == owner and "follow_up" in detail:
+    None when they said nothing there (see `follow_up_for`)."""
+    return _owner_words(cv, request, owner, None, origin=False)
+
+
+def _owner_words(cv, request, owner, inherited, *, origin):
+    """`inherited`, as the owner's words at this request leave it."""
+    def value(raw):
         try:
-            said = follow_up_value(detail["follow_up"])
+            return follow_up_value(raw)
         except ValueError:
-            said = ASK
+            return ASK
+
+    eff = inherited
+    detail = request.get("detail") or {}
+    if not origin and request.get("actor") == owner and "follow_up" in detail:
+        eff = value(detail["follow_up"])
+    later = [(c["id"], c["detail"]["follow_up"], True)
+             for c in cv.owner_continuations(request["id"], owner)
+             if "follow_up" in (c.get("detail") or {})]
     for att in cv.follow_ups(request["id"]):
         req = cv._act((att.get("detail") or {}).get("request"))
         rd = (req or {}).get("detail") or {}
         if req and req.get("actor") == owner and "follow_up" in rd:
-            try:
-                said = follow_up_value(rd["follow_up"])
-            except ValueError:
-                said = ASK
-    return said
+            later.append((att["id"], rd["follow_up"], False))
+    if later:
+        order = cv._write_order([i for i, _, _ in later])
+        for _, raw, narrows in sorted(later, key=lambda x: order.get(x[0], -1)):
+            new = value(raw)
+            if not narrows or eff is None:
+                eff = new if not narrows or new == ASK else eff
+            elif _breadth(new) < _breadth(eff):
+                eff = new
+    return eff
+
+
+def _breadth(value) -> float:
+    if value == ASK:
+        return 0
+    if value == UNRESTRICTED:
+        return float("inf")
+    return value["depth"]
 
 
 def follow_up_label(value) -> str:

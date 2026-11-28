@@ -4883,6 +4883,53 @@ class Conversations:
                 **({"read_as": {o: self.LEGACY_AUTHORITY[o] for o in legacy}}
                    if legacy else {})}
 
+    def owner_continuations(self, request, owner) -> list[dict]:
+        """The requests the owner made that continue `request`, oldest
+        first: replies of theirs that continued this work (`posting.owe`
+        records each `caused_by` the work it continues). What the owner said
+        on one of them is their newer word about this line of work."""
+        acts = [a for a in self._c.operational(caused_by=request)
+                if a["act"] == "expectation-recorded" and a["actor"] == owner]
+        order = self._write_order([a["id"] for a in acts]) if acts else {}
+        return sorted(acts, key=lambda a: (order.get(a["id"], -1), a["at"]))
+
+    def authority_in_force(self, expectation) -> dict:
+        """What this request may organise NOW: what was recorded for it
+        (`authority_of`), narrowed by the owner's latest explicit word on
+        each request up its lineage.
+
+        An owner who continues work and says what it may organise -- grants
+        coordination, or takes it away -- has spoken about the line of work,
+        not only about the new request. So a run still carrying the work
+        they continued, and work delegated under it, is held to their newer
+        word as well: narrowing applies at once (the operation door reads
+        this), and widening reaches what starts afterwards (a run's tools
+        are fixed when it starts). Only the owner's explicit grants count;
+        nothing an agent records changes it."""
+        from mentis.conversation.owner import _owner
+        got = self.authority_of(expectation)
+        ops = list(got["operations"])
+        owner = _owner(self)
+        if not owner or not ops:
+            return {**got, "operations": ops, "narrowed_by": None}
+        narrowed_by, cur, seen = None, expectation, set()
+        while cur and cur not in seen and ops:
+            a = self._act(cur)
+            if a is None or a["act"] != "expectation-recorded":
+                break
+            seen.add(cur)
+            said = None
+            for c in self.owner_continuations(cur, owner):
+                g = self.authority_of(c["id"])
+                if g.get("source") == "explicit":
+                    said = (c["id"], g["operations"])
+            if said is not None:
+                kept = [o for o in ops if o in said[1]]
+                if kept != ops:
+                    ops, narrowed_by = kept, said[0]
+            cur = a.get("caused_by")
+        return {**got, "operations": ops, "narrowed_by": narrowed_by}
+
     def continuation_candidates(self, replying_to, *, requester,
                                 carrier) -> list[dict]:
         """The authorised work a reply to this Turn would be continuing.

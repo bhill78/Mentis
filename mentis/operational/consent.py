@@ -212,6 +212,22 @@ def _with_handed(cv, request, owner, changed) -> list[dict]:
     had changed it there. Only the owner's own request is read -- the agent
     that hands it on chooses nothing -- and the request keeps its record."""
     handed = []
+    # A REPLY OF THE OWNER'S THAT CONTINUES THIS WORK and says a Permission
+    # Mode governs that reply's request and what it delegates; the request it
+    # continues keeps its own (owner, 2026-11-05). But WHERE IT NARROWS, it
+    # also narrows this request -- a run still carrying it, and work delegated
+    # under it -- so taking permission away takes effect on whatever is still
+    # doing the work (owner, 2026-11-28). It is never read as a widening here.
+    for cont in cv.owner_continuations(request, owner):
+        cd = cont.get("detail") or {}
+        if cd.get("consent") is None:
+            continue
+        try:
+            said = consent_value(cd["consent"], roots=[])
+        except ValueError:
+            said = None
+        handed.append({"id": cont["id"], "at": cont["at"], "narrows": True,
+                       "detail": {"consent": said or {"mode": ASK}}})
     for att in cv.follow_ups(request):
         req = cv._act((att.get("detail") or {}).get("request"))
         rd = (req or {}).get("detail") or {}
@@ -263,6 +279,12 @@ def of_request(cv, expectation) -> dict:
         changed = [a for a in (_owner_sets(cv, level["id"], owner, "task") if owner else [])
                    if "consent" in (a.get("detail") or {})]
         changed = _with_handed(cv, level["id"], owner, changed) if owner else changed
+        # NARROWINGS from the owner's continuations apply after whichever
+        # replacing change came before them; never as a replacement.
+        replacing = [i for i, a in enumerate(changed) if not a.get("narrows")]
+        narrowings = [a for a in changed[(replacing[-1] + 1 if replacing else 0):]
+                      if a.get("narrows")]
+        changed = [a for a in changed if not a.get("narrows")]
         if changed:
             last = (changed[-1].get("detail") or {}).get("consent") or {}
             eff = {"mode": last.get("mode", ASK),
@@ -281,6 +303,16 @@ def of_request(cv, expectation) -> dict:
             repo = _declared(cv, level)
             if repo and repo not in eff["workspaces"]:
                 eff["workspaces"] = [*eff["workspaces"], repo]
+        for n in narrowings:
+            if eff is None:
+                break
+            inner = (n.get("detail") or {}).get("consent") or {"mode": ASK}
+            narrowed = _narrow(eff, {
+                "mode": inner.get("mode", ASK),
+                "workspaces": list(inner.get("workspaces") or ()),
+                "categories": list(inner.get("categories") or DEFAULT_CATEGORIES)})
+            if narrowed != {k: eff[k] for k in ("mode", "workspaces", "categories")}:
+                eff, source, granted_at = narrowed, "owner-narrowed", level["id"]
     research = research_of(cv, expectation)
     if eff is None:
         return {"mode": ASK, "workspaces": [], "categories": list(DEFAULT_CATEGORIES),

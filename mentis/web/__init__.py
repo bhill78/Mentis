@@ -177,6 +177,25 @@ class _State:
             return None
 
 
+def _authority_now(st, grant: dict) -> dict:
+    """The run's grant as the owner's word stands NOW: its organising
+    operations narrowed to what is in force for its request
+    (`Conversations.authority_in_force`). A run's grant is written when it
+    starts; when the owner later takes coordination away from that line of
+    work, the next operation the run attempts is held to it. Never widened
+    here -- a run's tools were fixed at its start."""
+    exp = (grant or {}).get("expectation")
+    ops = (grant or {}).get("operations")
+    if not exp or not ops or grant.get("scope") != "organising":
+        return grant
+    try:
+        now = st.cv.authority_in_force(exp)["operations"]
+    except Exception:                                     # noqa: BLE001
+        return grant
+    kept = [o for o in ops if o in now]
+    return grant if kept == list(ops) else {**grant, "operations": kept}
+
+
 def _surface(st):
     """The reference resolver, over the corpus this server already holds."""
     from mentis.worker import Surface
@@ -3698,6 +3717,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         if grant is None:
             raise PermissionError(
                 "this question needs a live worker grant for this corpus")
+        grant = _authority_now(st, grant)
         op = str(payload.get("op") or "")
         allowed = permitted(grant.get("scope"), grant.get("operations"))
         if op not in allowed:
@@ -5088,6 +5108,37 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     if path == "/api/provenance":
         from mentis.operational.products import provenance_of
         return provenance_of(brain, one("entry"))
+
+    if path == "/api/continuation":
+        # WHAT A REPLY WOULD CONTINUE, AND WHAT THAT WORK MAY DO NOW: the
+        # same read `posting.continuation` decides by, with the permissions
+        # in force for each candidate -- so the composer shows what the work
+        # carries before the owner changes anything, and what they choose is
+        # a change from that, not from a blank default.
+        from mentis.conversation.owner import _owner
+        from mentis.operational import follow_up_for, follow_up_label
+        from mentis.operational.consent import of_request
+        replying_to, who = one("replies_to"), one("participant")
+        owner = _owner(cv)
+        if not replying_to or not who or not owner:
+            return {"candidates": []}
+        out = []
+        for c in cv.continuation_candidates(replying_to, requester=owner,
+                                            carrier=who):
+            exp = c["expectation"]
+            auth = cv.authority_in_force(exp)
+            consent = of_request(cv, exp)
+            follow = follow_up_for(cv, exp)
+            out.append({
+                "expectation": exp, "number": c["number"],
+                "coordinate": "coordinate" in auth["operations"],
+                "authority": auth["operations"],
+                "consent": {k: consent.get(k) for k in
+                            ("mode", "workspaces", "categories", "source",
+                             "granted_at", "label")},
+                "follow_up": follow, "follow_up_label": follow_up_label(follow),
+                "live": bool(cv.expectation_state(exp).get("live_execution"))})
+        return {"candidates": out}
 
     if path == "/api/gravity":
         from mentis.operational import (UNRESTRICTED, deferred, discovery,

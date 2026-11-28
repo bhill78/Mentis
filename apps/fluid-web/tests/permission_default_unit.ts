@@ -464,7 +464,7 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   /* THE SAME PERMISSION ROWS, chosen from one piece of code */
   eq(o.match(/key: 'consent'/g)?.length, 1, 'Permission Mode is built once, for named work and for Ask Mentis alike')
   eq(o.match(/key: 'gravity'/g)?.length, 1, 'and so is the side-work permission')
-  has(o, /if \(ask \|\| who\.dispatch\) \{\s*\n\s*const consentMode/, 'and both reach those rows')
+  has(o, /if \(ask \|\| who\.dispatch\) \{\s*\n\s*const modeWords/, 'and both reach those rows')
   /* and nothing about a participant or a runtime in the generic panel */
   has(o, /if \(who\.dispatch && !ask\) \{/, 'runtime, model, effort, Persona and instance are for a named request only')
   has(o, /if \(who\.dispatch && !ask && modes\) \{/, 'and so is Execution Mode')
@@ -487,3 +487,21 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
 }
 
 console.log(`permission default: ${checks} checks ok`)
+
+/* WHAT A CONTINUED WORK CARRIES IS SHOWN, AND A CHANGE IS SAID AS ONE (owner, 2026-11-28) */
+{
+  const { shownAs } = await import('../src/fluid/composer/Operations')
+  const w = (v: boolean) => (v ? 'May coordinate' : 'This work only')
+  eq(shownAs(false, false, true, w, 4).says, 'May coordinate · as #4 has it', 'nothing chosen shows what the work has')
+  eq(shownAs(false, false, true, w, 4).value, true, 'and that is the value the panel marks')
+  eq(shownAs(true, false, true, w, 4).says, 'This work only · was May coordinate', 'a change says what it changes from')
+  eq(shownAs(true, true, true, w, 4).says, 'May coordinate', 'choosing what it already has is no change')
+  eq(shownAs(false, true, undefined, w).says, 'May coordinate', 'new work shows the choice alone')
+  const dropped = bodyOf({ ...emptyDraft(), text: 'x', to: [{ participant: 'ent-a', alias: '@A', dispatch: true, decided: ['coordinate'] }] },
+    'ent-owner', [], 'record-only', { continuing: true }) as { dispatch: Record<string, unknown>[] }
+  eq(dropped.dispatch[0].authority, [], 'taking coordination away on a reply is sent as an empty authority')
+  const plain = bodyOf({ ...emptyDraft(), text: 'x', to: [{ participant: 'ent-a', alias: '@A', dispatch: true }] },
+    'ent-owner', [], 'record-only', { continuing: true }) as { dispatch: Record<string, unknown>[] }
+  eq(plain.dispatch[0].authority, undefined, 'and nothing chosen sends none, so the work inherits')
+  console.log(`continuation display: ok`)
+}

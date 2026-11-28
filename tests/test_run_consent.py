@@ -295,7 +295,9 @@ def test_the_owner_can_tighten_consent_on_a_reply_too(world, ws):
     got = _continue_with(world, cid, ada, answered, {"mode": "ask"})
     assert "error" not in got
     assert C.of_request(world["cv"], got["expectations"][0])["mode"] == "ask"
-    assert C.of_request(world["cv"], first)["mode"] == "task"
+    # A NARROWING REACHES THE WORK IT CONTINUES (owner, 2026-11-28): taking
+    # permission away takes effect on what is still doing the work.
+    assert C.of_request(world["cv"], first)["mode"] == "ask"
 
 
 def test_bad_consent_on_a_reply_is_still_refused_in_words(world, ws):

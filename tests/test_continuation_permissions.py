@@ -41,7 +41,9 @@ def test_ask_said_on_a_reply_narrows_what_the_work_carried(world):
     cv = world["cv"]
     assert cv._act(new)["detail"]["follow_up"] == "ask"
     assert follow_up_for(cv, new) == ASK
-    assert follow_up_for(cv, first) == "unrestricted"
+    # a narrowing reaches the work it continues; its own record is unchanged
+    assert follow_up_for(cv, first) == ASK
+    assert cv._act(first)["detail"]["follow_up"] == "unrestricted"
 
 
 def test_a_reply_that_says_nothing_inherits_as_before(world):
@@ -118,3 +120,100 @@ def test_a_handed_follow_up_with_no_permissions_changes_nothing(world, ws):
     assert "error" not in cv.attach_follow_up(follow, work, by=world["steward"])
     assert C.of_request(cv, work)["mode"] == "task"
     assert follow_up_for(cv, work) == {"depth": 2}
+
+
+# -- a continuation's narrowing reaches the work it continues (owner, 2026-11-28) --------------
+
+
+def test_narrowing_on_a_continuation_also_narrows_the_work_it_continues(world):
+    """Revoking takes effect on whatever is still doing the work; widening does not reach back."""
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid, follow_up="unrestricted")
+    got = _continue(world, cid, ada, answered, follow_up={"depth": 1})
+    new = got["expectations"][0]
+    cv = world["cv"]
+    assert follow_up_for(cv, new) == {"depth": 1}
+    assert follow_up_for(cv, first) == {"depth": 1}            # narrowed, not left wide
+    assert cv._act(first)["detail"]["follow_up"] == "unrestricted"   # its record is untouched
+
+
+def test_consent_narrowed_on_a_continuation_reaches_the_continued_work_and_its_children(world, ws):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(
+        world, cid, consent={"mode": "all", "workspaces": [ws["repo"]]})
+    # work the carrier delegated under the first request, still open
+    child = cv.expect(cv._act(first)["turn"], of=world["steward"], kind="result",
+                      by=ada, caused_by=first)
+    assert C.of_request(cv, child)["mode"] == "all"
+    got = _continue(world, cid, ada, answered, consent={"mode": "ask"})
+    assert "error" not in got, got
+    assert C.of_request(cv, first)["mode"] == "ask"
+    assert C.of_request(cv, first)["source"] == "owner-narrowed"
+    assert C.of_request(cv, child)["mode"] == "ask"
+    assert C.of_request(cv, got["expectations"][0])["mode"] == "ask"
+
+
+def test_widening_on_a_continuation_does_not_widen_the_work_it_continues(world, ws):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid)
+    got = _continue(world, cid, ada, answered, consent={"mode": "all", "workspaces": [ws["repo"]]})
+    assert C.of_request(cv, got["expectations"][0])["mode"] == "all"
+    assert C.of_request(cv, first)["mode"] == ASK
+
+
+def test_coordination_taken_away_on_a_continuation_holds_the_line_of_work(world):
+    """`authority: []` on a reply that continues coordinating work: the new request organises
+    nothing, the request it continues is held to that now, and a later plain continuation
+    inherits the narrowing rather than the original grant."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid)       # granted coordinate
+    assert "coordinate" in cv.authority_in_force(first)["operations"]
+    got = _continue(world, cid, ada, answered, authority=[])
+    assert "error" not in got, got
+    new = got["expectations"][0]
+    assert cv.authority_in_force(new)["operations"] == []
+    now = cv.authority_in_force(first)
+    assert now["operations"] == [] and now["narrowed_by"] == new
+    assert "coordinate" in cv.authority_of(first)["operations"]       # the grant stays recorded
+    # granting it again on a later continuation reaches the new request
+    again = cv.say(cid, ada, [{"type": "text", "text": "done"}], replies_to=got["turn"])
+    regrant = _continue(world, cid, ada, again, coordinate=True)
+    assert "error" not in regrant, regrant
+    assert "coordinate" in cv.authority_in_force(regrant["expectations"][0])["operations"]
+
+
+def test_a_live_runs_grant_is_narrowed_at_the_door(world):
+    from mentis.web import _authority_now
+    cv = world["cv"]
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid)
+    grant = {"expectation": first, "scope": "organising",
+             "operations": list(cv.authority_of(first)["operations"])}
+    st = type("St", (), {"cv": cv})()
+    assert _authority_now(st, grant) == grant
+    _continue(world, cid, ada, answered, authority=[])
+    assert _authority_now(st, grant)["operations"] == []
+
+
+def test_an_agent_cannot_change_authority_by_continuing(world):
+    """Only the owner's explicit grants on their own continuations count."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid)
+    turn = cv._act(first)["turn"]
+    sneaky = cv.expect(turn, of=ada, kind="result", by=ada, caused_by=first)
+    cv.grant_authority(sneaky, [], by=ada, source="explicit", origin=first, because="t")
+    assert "coordinate" in cv.authority_in_force(first)["operations"]
+
+
+def test_the_continuation_read_shows_what_the_work_carries(world):
+    from tests.test_run_consent import get
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid, follow_up={"depth": 2})
+    got = get(world, f"/api/continuation?replies_to={answered}&participant={ada}")
+    (c,) = got["candidates"]
+    assert c["expectation"] == first and c["coordinate"] is True
+    assert c["follow_up"] == {"depth": 2} and c["consent"]["mode"] == ASK

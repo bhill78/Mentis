@@ -31,7 +31,7 @@ import { EXECUTION_SHORT, EXECUTION_TIP, EXECUTION_WORDS, acceptUnrestricted, ac
   effectiveExecution, fitExecution, modesFor, permissionShort } from './execmode'
 import { designatedName, personaOptions } from './designation'
 import { rereadDesignation, useDesignations, usePersonaChoices } from './Settings'
-import { DEFAULT_LIMITS, DEFAULT_SCOPE_WHY, withDecision } from './permissionDefault'
+import { DEFAULT_LIMITS, DEFAULT_SCOPE_WHY, decidedOn, withDecision } from './permissionDefault'
 import './operations.css'
 
 const AUTHORITY_TIP = 'Grants this request authority to coordinate: summon, open places, propose, answer. It does not carry over to their next request.'
@@ -127,7 +127,26 @@ interface Row {
 const FLY_WIDTH = 310
 const FLY_OVERLAP = 10
 
-export default function Operations({ who, declared, execution, capacity, onChange, onClose, ask, preference }: {
+/** WHAT THE WORK A REPLY CONTINUES CARRIES NOW, as the server enforces it
+ *  (`GET /api/continuation`). Shown in place of the blank defaults, so a
+ *  choice made here reads as a change from what the work has. */
+export interface Inherited {
+  number: number
+  coordinate: boolean
+  consentMode: 'ask' | 'task' | 'deny' | 'all'
+  followUp: number | 'unrestricted' | undefined
+  live: boolean
+}
+
+/** The value a row shows: what the owner chose here, else what is inherited,
+ *  said with where it came from or what it was. */
+export function shownAs<T>(mine: boolean, chosen: T, inherited: T | undefined, words: (v: T) => string, from?: number): { value: T; says: string } {
+  if (inherited === undefined || from === undefined) return { value: chosen, says: words(chosen) }
+  if (!mine) return { value: inherited, says: `${words(inherited)} · as #${from} has it` }
+  return { value: chosen, says: chosen === inherited ? words(chosen) : `${words(chosen)} · was ${words(inherited)}` }
+}
+
+export default function Operations({ who, declared, execution, capacity, onChange, onClose, ask, preference, inherited }: {
   who: Addressee
   declared: Declared[]
   onChange: (next: Addressee) => void
@@ -142,6 +161,8 @@ export default function Operations({ who, declared, execution, capacity, onChang
   ask?: boolean
   /** The saved permission default, where there is one to offer; see `Preference`. */
   preference?: Preference
+  /** What the work this reply continues carries now; see `Inherited`. */
+  inherited?: Inherited | null
 }) {
   const { personas, why: personasWhy } = usePersonaChoices(!ask)
   const designationOf = useDesignations(ask ? [] : [who.participant])
@@ -327,13 +348,15 @@ export default function Operations({ who, declared, execution, capacity, onChang
         ],
       }),
     })
+    const auth = shownAs(decidedOn(who, 'coordinate'), !!who.coordinate, inherited?.coordinate,
+      (v) => (v ? 'May coordinate this work' : 'Does this work only'), inherited?.number)
     rows.push({
-      key: 'authority', label: 'Authority', sep: true, changed: who.coordinate ? 'warn' : undefined,
-      value: who.coordinate ? 'May coordinate this work' : 'Does this work only', title: AUTHORITY_TIP,
+      key: 'authority', label: 'Authority', sep: true, changed: auth.value ? 'warn' : undefined,
+      value: auth.says, title: AUTHORITY_TIP,
       fly: () => ({
         title: 'Authority', opts: [
-          { key: 'only', name: 'Does this work only', on: !who.coordinate, pick: () => choose(decided({ ...who, coordinate: false }, 'coordinate')) },
-          { key: 'coordinate', name: 'May coordinate this work', note: 'this request only', title: AUTHORITY_TIP, on: !!who.coordinate,
+          { key: 'only', name: 'Does this work only', on: !auth.value, pick: () => choose(decided({ ...who, coordinate: false }, 'coordinate')) },
+          { key: 'coordinate', name: 'May coordinate this work', note: inherited ? 'this work from now on' : 'this request only', title: AUTHORITY_TIP, on: auth.value,
             pick: () => choose(decided({ ...who, coordinate: true }, 'coordinate')) },
         ],
       }),
@@ -345,11 +368,12 @@ export default function Operations({ who, declared, execution, capacity, onChang
      this one piece of code. Two readings of "what this work may do" is
      exactly how the one shown and the one sent come to disagree. */
   if (ask || who.dispatch) {
-    const consentMode = c?.mode ?? 'ask'
-    const consentWords = CONSENT_MODES.find((m) => m.mode === consentMode)?.words ?? 'Ask for permission'
+    const modeWords = (m: string) => (CONSENT_MODES.find((x) => x.mode === m)?.words ?? 'Ask for permission').replace(/ \(.*\)$/, '')
+    const shownMode = shownAs<string>(decidedOn(who, 'consent'), c?.mode ?? 'ask', inherited?.consentMode, modeWords, inherited?.number)
+    const consentMode = shownMode.value
     rows.push({
       key: 'consent', label: 'Permission Mode', title: CONSENT_TIP, changed: consentMode !== 'ask' ? 'warn' : undefined,
-      value: consentWords.replace(/ \(.*\)$/, ''),
+      value: shownMode.says,
       fly: () => ({
         title: 'Permission Mode',
         opts: CONSENT_MODES.map((m) => {
@@ -399,12 +423,16 @@ export default function Operations({ who, declared, execution, capacity, onChang
       })
     }
     const depth = (v: number | 'unrestricted' | undefined) => gravityWords(followUpOf(v))
+    const side = inherited
+      ? shownAs<number | 'unrestricted' | 'ask'>(decidedOn(who, 'followUp'), who.followUp ?? 'ask', inherited.followUp ?? 'ask',
+        (v) => depth(v === 'ask' ? undefined : v), inherited.number)
+      : { value: who.followUp ?? 'ask', says: depth(who.followUp) }
     rows.push({
-      key: 'gravity', label: 'Side work', title: GRAVITY_TIP, changed: who.followUp !== undefined ? 'yes' : undefined, value: depth(who.followUp),
+      key: 'gravity', label: 'Side work', title: GRAVITY_TIP, changed: side.value !== 'ask' ? 'yes' : undefined, value: side.says,
       fly: () => ({
         title: 'Side work',
         opts: ([undefined, 1, 2, 'unrestricted'] as const).map((v) => ({ key: String(v), name: depth(v), title: GRAVITY_TIP,
-          on: who.followUp === v, pick: () => choose(decided({ ...who, followUp: v }, 'followUp')) })),
+          on: side.value === (v ?? 'ask'), pick: () => choose(decided({ ...who, followUp: v }, 'followUp')) })),
       }),
     })
   }
