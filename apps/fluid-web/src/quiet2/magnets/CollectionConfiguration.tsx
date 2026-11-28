@@ -54,6 +54,7 @@ import type { MagnetResource } from './contract'
 import { conversationChoices, type ConversationChoice } from './managementApi'
 import { collectionChange, collectionIssue, collectionRhythm, collectsOnlyByHand, configurationRead, dayOf, exactFileIssue, fileChoiceIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, MANUAL_COLLECTION, MANUAL_COLLECTION_MEANS, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, sourceRowName, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, UNSUPPORTED_REASON, withDay, type ConfigurationChange } from './configuration'
 import { discardStagedSettings, panelDrafts, requestSettingsReturn, stageSettings, subscribePanelDrafts, type StagedSettings } from './panelDrafts'
+import { openInSources, type SourcesRoute } from '../../surfaces/sources/route'
 import './design.css'
 import './configuration.css'
 import './collection.css'
@@ -93,6 +94,82 @@ export function lastCollected(at?: number | null): string {
   return d.toDateString() === new Date().toDateString()
     ? `Last collected today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
     : `Last collected ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+}
+
+/* -- THE SOURCE CATALOGUE HAS THREE STATES, AND THE PANEL SAYS WHICH ------- *
+ *
+ * `/api/sources` is read once when the panel opens, and everything about a
+ * source that a reader recognises comes out of it: which file collections may
+ * be offered, what each configured collection is CALLED, and which kinds of
+ * source this Brain can take at all. Before it answers, none of that is
+ * known -- and the panel used to present the unknown as an answer: "Where the
+ * files are" offered its placeholder and nothing else, a configured row read
+ * "Held collection" as though that were the collection's name, and a read
+ * that FAILED said nothing whatsoever (the failure went to `setMessage`, which
+ * only renders once a save or a discard has been attempted). So a reader met
+ * an empty chooser and an unnamed row with no way to tell "still reading"
+ * from "there are none" from "the read failed".
+ *
+ * Reading, read and failed are three different things and are said as three
+ * different things, with the failure's own words and a way to ask again.
+ * ------------------------------------------------------------------------- */
+export type CatalogueState = 'reading' | 'read' | 'failed'
+export const CATALOGUE_READING = 'Reading the file collections this Brain holds…'
+export const CATALOGUE_FAILED = 'The source catalogue could not be read, so no file collection can be offered and a configured collection is named by what the Magnet carries rather than by its own name.'
+export const CATALOGUE_NONE = 'No file collection is available to attach'
+
+/** What the panel says about the catalogue, in each state. Nothing at all once
+ *  it is read: the collections themselves are then the answer. */
+export function catalogueWords(state: CatalogueState, why?: string | null): string {
+  if (state === 'reading') return CATALOGUE_READING
+  if (state === 'failed') return why ? `${CATALOGUE_FAILED} ${why}` : CATALOGUE_FAILED
+  return ''
+}
+
+/** THE CATALOGUE'S STATE, SAID WHERE IT BITES: in the chooser that has nothing
+ *  to offer, and on the resting surface when a configured row cannot be named
+ *  without it. A failed read is offered a retry, because a read is all it is. */
+export function CatalogueNote({ state, why, onRetry }: { state: CatalogueState; why?: string | null; onRetry?: () => void }) {
+  const said = catalogueWords(state, why)
+  if (!said) return null
+  return <p className={`mgd-small mgd-subtle q2-magnet-catalogue${state === 'failed' ? ' q2-magnet-catalogue-failed' : ''}`} role="status" aria-live="polite">
+    {said}
+    {state === 'failed' && onRetry ? <> <button type="button" className="mgd-link mgd-small" onClick={onRetry}>Try again</button></> : null}
+  </p>
+}
+
+/** A CONFIGURED COLLECTION'S OWN NAME, from every collection the catalogue
+ *  listed -- not only the ones that may be ADDED. The two are different sets:
+ *  a collection whose connector is unavailable on this machine is not offered
+ *  as a choice, and a Magnet that already reads it still has to say what it
+ *  is. Naming the row from the offerable list alone is why a web search
+ *  declared in Manage Sources read "Held collection" on a surface that knew
+ *  its name perfectly well. */
+export function collectionWord(id: string | undefined, names: Record<string, string>): string {
+  return (id && names[id]) || 'Held collection'
+}
+
+/** THE KINDS OF SOURCE THAT ARE DECLARED, NOT CHOSEN (`binding: 'endpoint'`:
+ *  `web-search`, `rss-atom`, `web`). They have no folder and no file to pick,
+ *  so there is nothing for this panel to browse: what they read is the
+ *  queries or feed addresses given once in Manage Sources, after which they
+ *  are a held collection like any other and are attached here as one. Read
+ *  from the same `/api/sources` descriptors, so an unavailable kind is never
+ *  offered and nothing is hardcoded about which kinds exist. */
+export function endpointKinds(descriptors: unknown): Choice[] {
+  return (Array.isArray(descriptors) ? descriptors : [])
+    .filter((d: any) => d?.available && d?.binding === 'endpoint')
+    .map((d: any) => ({ id: String(d.id), name: String(d.label || d.id) }))
+}
+export const ENDPOINT_FIRST = 'A web search, a feed or a web page is declared once in Manage Sources, with the queries or addresses it reads. It is then a held collection, and this panel attaches it like any other.'
+
+/** WHERE "DECLARE ONE" GOES: Add a source, on that kind, in the one wizard
+ *  there is (`quiet2/sources/AddSourcePage.tsx`) -- announced as the Sources
+ *  address it is, which the shell already listens for and enters with a
+ *  history entry, so Back comes to the Magnet. Nothing here is a second
+ *  wizard, and nothing here declares a source. */
+export function endpointRoute(connector: string | null): SourcesRoute {
+  return connector ? { at: 'flow', connector } : { at: 'add' }
 }
 
 /** What the Brain has actually saved: the baseline a staged copy is taken from. */
@@ -153,6 +230,16 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const [name, setName] = useState(committedName)
   const [query, setQuery] = useState(''), [conversations, setConversations] = useState<ConversationChoice[]>([])
   const [next, setNext] = useState<string | null>(null), [collections, setCollections] = useState<Choice[]>([])
+  /** Every collection the catalogue listed, by id, for NAMING a configured
+   *  row; `collections` above is the narrower set that may be added. */
+  const [names, setNames] = useState<Record<string, string>>({})
+  const [catalogue, setCatalogue] = useState<CatalogueState>('reading'), [catalogueWhy, setCatalogueWhy] = useState<string | null>(null)
+  /** The kinds that are declared rather than picked, as the catalogue reports
+   *  them; empty until it answers, and after a failed read. */
+  const [declarable, setDeclarable] = useState<Choice[]>([])
+  /** A failed read is a read: pressing Try again asks again, and nothing else
+   *  about the panel is reset. */
+  const [reread, setReread] = useState(0)
   const [collection, setCollection] = useState(''), [fileQuery, setFileQuery] = useState(''), [files, setFiles] = useState<HeldFile[]>([])
   const [prefix, setPrefix] = useState('')
   const [fileNext, setFileNext] = useState<number | null>(null), [fileOffset, setFileOffset] = useState(0)
@@ -192,6 +279,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   useEffect(() => { if (alert) alerted.current?.focus({ preventScroll: true }) }, [alert])
   useEffect(() => {
     const ctl = new AbortController()
+    setCatalogue('reading'); setCatalogueWhy(null)
     void Promise.all([configurationRead('/api/sources', ctl.signal), configurationRead('/fluid/api/workspaces', ctl.signal)]).then(([s, w]) => {
       if (ctl.signal.aborted) return
       // WHICH COLLECTIONS MAY BE NAMED IS THE REGISTRY'S ANSWER, read from the
@@ -203,11 +291,21 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       // still not offered, because the registry still says so.
       const readable = new Set(((s.descriptors ?? []) as any[]).filter((d) => d?.available).map((d) => d.id))
       setCollections((s.collections ?? []).filter((c: any) => readable.has(c.connector)).map((c: any) => ({ id: c.collection, name: c.name || c.collection })))
+      // WHAT EVERY LISTED COLLECTION IS CALLED, availability aside: a row for a
+      // collection this machine cannot currently read still says which one it is.
+      setNames(Object.fromEntries((s.collections ?? []).map((c: any) => [String(c.collection), String(c.name || c.collection)])))
+      setDeclarable(endpointKinds(s.descriptors))
       setArrangements([{ id: 'home', name: 'Brain Home' }, ...(w.workspaces ?? []).map((v: any) => ({ id: v.id, name: v.name }))])
+      setCatalogue('read')
       setLocations(true)
-    }).catch((e) => { if (!ctl.signal.aborted) { setMessage(e.message); setLocations(true) } })
+    }).catch((e) => {
+      // A FAILED CATALOGUE READ IS SAID WHERE IT IS FELT, not put in the save's
+      // own message slot, which renders only once a save or discard was asked
+      // for and so said nothing at all to a reader who had only opened Sources.
+      if (!ctl.signal.aborted) { setCatalogue('failed'); setCatalogueWhy((e as Error).message); setLocations(true) }
+    })
     return () => ctl.abort()
-  }, [p.brainKey, p.magnet])
+  }, [p.brainKey, p.magnet, reread])
   // WHICH SAVED LOCATION THE SAVE IS ADDRESSED THROUGH IS FOUND, NOT ASKED.
   // The definition belongs to no arrangement and its name and configuration do
   // not depend on where it is displayed (request §4); only the door is addressed
@@ -256,7 +354,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
    *  and not a half-finished choice -- it used to read "Choose one exact
    *  file", which told the owner to finish something that was already done,
    *  and a web search declared at creation is exactly that shape. */
-  const collectionName = (id: string | undefined) => collections.find((c) => c.id === id)?.name ?? 'Held collection'
+  const collectionName = (id: string | undefined) => collectionWord(id, names)
   /** A PATH THAT IS A STORAGE KEY IS NOT A TITLE (owner ent-24beca915507: ids
    *  and raw collection mechanics stay secondary). A configured file's own
    *  path -- `README.md`, `notes/calibration.txt` -- is what a reader
@@ -281,6 +379,8 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     if (sources.length >= 20) { setMessage('The Magnet supports at most 20 sources. Remove one before adding another.'); return }
     if (!sources.some((v) => sourceIdentity(v) === sourceIdentity(s))) edit({ sources: [...sources, s] })
   }
+  /** A configured file source whose collection the catalogue has not named. */
+  const unnamed = sources.some((s) => s.kind === 'file' && !(s.collection && names[s.collection]))
   const renaming = !p.inCollection && name.trim() !== committedName
   const save = async () => {
     if (saving || !arrangement || !p.canWrite(arrangement) || !sendable) return
@@ -343,7 +443,17 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const wholeAdded = (col: string) => sources.some((s) => s.kind === 'file' && s.collection === col && s.path === undefined)
   const prefixIssue = collection ? fileChoiceIssue(collection, prefix.trim() ? (prefix.trim().endsWith('/') ? prefix.trim() : prefix.trim() + '/') : undefined) : null
   const filePicker = <div className="q2-magnet-kind-panel">
-    <label>Where the files are<select value={collection} disabled={locked} onChange={(e) => { setCollection(e.target.value); setFileOffset(0); setPrefix('') }}><option value="">Choose a file collection</option>{collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+    {/* WHAT THE CHOOSER OFFERS WHILE IT HAS NOTHING TO OFFER. Reading, read
+        with none, and a failed read are three different sentences, and the
+        chooser itself is disabled while there is nothing in it to choose --
+        it used to show "Choose a file collection" over an empty list in all
+        three cases. */}
+    <label>Where the files are<select value={collection} disabled={locked || !collections.length}
+      onChange={(e) => { setCollection(e.target.value); setFileOffset(0); setPrefix('') }}>
+      <option value="">{catalogue === 'reading' ? CATALOGUE_READING : collections.length ? 'Choose a file collection' : CATALOGUE_NONE}</option>
+      {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+    </select></label>
+    <CatalogueNote state={catalogue} why={catalogueWhy} onRetry={() => setReread(reread + 1)} />
     {collection && <div className="q2-magnet-config-choices">
       <div className="mgd-row">
         <button type="button" disabled={locked || wholeAdded(collection)} onClick={() => add({ kind: 'file', collection, path: undefined })}>Attach the whole collection</button>
@@ -380,6 +490,11 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
         onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button>
     </div>)}
     {!sources.length && <p className="mgd-subtle" role="status" aria-live="polite">{NO_SOURCE_TO_COLLECT}</p>}
+    {/* THE ROWS' OWN NAMES COME OUT OF THE CATALOGUE, so where a row above is
+        standing unnamed because the catalogue is still being read or could
+        not be read, that is said here -- once, beside the rows it is about,
+        and not at all when every row is named. */}
+    {catalogue !== 'read' && unnamed && <CatalogueNote state={catalogue} why={catalogueWhy} onRetry={() => setReread(reread + 1)} />}
     <div className="mgd-source">
       <button type="button" className="mgd-button mgd-secondary" aria-expanded={addOpen} disabled={locked}
         onClick={() => { setAlert(''); setAddOpen(!addOpen); if (addOpen) setAdding('') }}>＋ Add source</button>
@@ -398,6 +513,21 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       </div>
       {adding === 'conversation' && conversationPicker}
       {adding === 'file' && filePicker}
+      {/* A SOURCE THAT HAS TO BE DECLARED BEFORE IT CAN BE CHOSEN. The two
+          pills above are the two kinds this panel can pick from what already
+          exists; a web search, a feed or a web page exists only once somebody
+          has said what it reads. Until this was here, a Magnet offered
+          "Conversations" and "Held files" and a reader had no way to learn
+          that the web search they wanted was one wizard away -- it simply was
+          not among the files, because nothing had declared it. The route is
+          the one wizard there is, on the kind pressed. */}
+      <div className="q2-magnet-declare">
+        <p className="mgd-small mgd-muted">{ENDPOINT_FIRST}</p>
+        <div className="mgd-row">
+          {(declarable.length ? declarable : [{ id: '', name: 'a new source' }]).map((k) => <button type="button" key={k.id || 'any'}
+            className="mgd-link mgd-small" onClick={() => openInSources(endpointRoute(k.id || null))}>Declare {k.name} in Manage Sources →</button>)}
+        </div>
+      </div>
       {/* A failed read of the choices is feedback about adding a source, and is
           said where adding happens -- not on a surface somebody is only
           looking at. */}

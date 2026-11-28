@@ -6,7 +6,7 @@
  * say; nothing that could be a credential shown), what a refresh and a
  * change of selection are said to do, and which kinds Add a source offers. */
 import assert from 'node:assert/strict'
-import type { CollectionView, Descriptor, RunView } from '../src/surfaces/sources/route'
+import type { CollectionView, Descriptor, ObjectRow, RunView } from '../src/surfaces/sources/route'
 import {
   SEARCH_FROM, attentionCount, failed, failureShort, failureWords, footWords, itemWord, kindsShown, listed, patternWords,
   heldWords, previewWords, redact, reviseWords, running, size, standing, sweepWords,
@@ -24,6 +24,11 @@ import { DISCARD, leaving } from '../src/quiet2/leaving'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import AddSourcePage from '../src/quiet2/sources/AddSourcePage'
+import Browse, { chronological, chronologyFoot, noBrowseNote, recordedWhen } from '../src/surfaces/sources/Browse'
+import {
+  CATALOGUE_NONE, CATALOGUE_READING, CatalogueNote, ENDPOINT_FIRST, catalogueWords, collectionWord, endpointKinds,
+  endpointRoute, type CatalogueState,
+} from '../src/quiet2/magnets/CollectionConfiguration'
 
 const src = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -336,6 +341,116 @@ ok(!/'Held · not refreshed'/.test(readFileSync(src + 'quiet2/sources/SourcePage
   const some = panel(kinds, true)
   ok(some.includes('Folder on this machine'), 'answered with kinds, the kinds are offered')
   ok(!some.includes('No kind matches') && !some.includes('Reading the kinds'), 'and nothing is said about having none')
+}
+
+/* ============================================================================
+ * DRIVING ADD A SOURCE END TO END, FROM A MAGNET (owner's hands-on feedback,
+ * 2026-11-27). Four seams, each a state the surface had no way to be in:
+ *   1  the Magnet's source picker said nothing while `/api/sources` was in
+ *      flight, and nothing at all when the read FAILED
+ *   2  a configured row read "Held collection" for a collection the catalogue
+ *      had named, because the row was named from the narrower list of
+ *      collections that may be ADDED
+ *   3  a web search or feed could not be reached from a Magnet at all: it is
+ *      declared in Manage Sources, and nothing here said so or went there
+ *   4  a taken endpoint collection's Browse said "Nothing to browse yet"
+ *      beside "Contents: 200 items"
+ * ========================================================================== */
+
+/* -- 1 and 2: the catalogue has three states, and names every collection ----- */
+{
+  eq(catalogueWords('reading'), CATALOGUE_READING, 'in flight, the picker says it is reading')
+  eq(catalogueWords('read'), '', 'read, the collections themselves are the answer and nothing is said')
+  ok(catalogueWords('failed').startsWith('The source catalogue could not be read'), 'a failed read is named as a failure')
+  ok(catalogueWords('failed', 'Failed to fetch').endsWith('Failed to fetch'), 'with the read’s own words kept')
+  ok(catalogueWords('failed') !== catalogueWords('reading') && catalogueWords('failed') !== CATALOGUE_NONE,
+    'reading, failed and "there are none" are three different sentences')
+
+  const note = (state: CatalogueState, why: string | null = null) =>
+    renderToStaticMarkup(createElement(CatalogueNote, { state, why, onRetry: () => {} }))
+  ok(note('reading').includes(CATALOGUE_READING), 'the loading state renders')
+  ok(!note('reading').includes('Try again'), 'and a read still in flight is not offered a retry')
+  const bad = note('failed', 'Failed to fetch')
+  ok(bad.includes('could not be read') && bad.includes('Failed to fetch'), 'the failed state renders, with its reason')
+  ok(bad.includes('Try again'), 'and a failed read, being only a read, is offered again')
+  eq(note('read'), '', 'nothing is rendered once it is read')
+
+  /* THE NAME COMES FROM EVERY LISTED COLLECTION, not only the offerable ones:
+     a collection whose connector is unavailable here is not a choice, and a
+     Magnet that already reads it must still say which one it is. */
+  eq(collectionWord('col-nasa', { 'col-nasa': 'NASA news search' }), 'NASA news search', 'a configured row is named')
+  eq(collectionWord('col-away', { 'col-nasa': 'NASA news search' }), 'Held collection', 'one the catalogue does not list falls back')
+  eq(collectionWord(undefined, {}), 'Held collection', 'and so does a source naming no collection')
+
+  /* the panel reads BOTH sets out of the one answer, and names rows from the wider one */
+  const panelSrc = readFileSync(src + 'quiet2/magnets/CollectionConfiguration.tsx', 'utf8')
+  ok(/setNames\(Object\.fromEntries\(\(s\.collections \?\? \[\]\)/.test(panelSrc), 'every listed collection is kept by id for naming')
+  ok(/collectionWord\(id, names\)/.test(panelSrc), 'and a row is named from that, not from the offerable list')
+  ok(/setCatalogue\('failed'\); setCatalogueWhy\(\(e as Error\)\.message\)/.test(panelSrc), 'a failed catalogue read sets the failed state')
+  ok(!/catch \(e\) => \{ setMessage\(e\.message\); setLocations\(true\) \}/.test(panelSrc), 'and no longer goes to the save’s own message slot')
+  ok(/disabled=\{locked \|\| !collections\.length\}/.test(panelSrc), 'the chooser is disabled while there is nothing in it to choose')
+  ok(/\{catalogue === 'reading' \? CATALOGUE_READING : collections\.length \? 'Choose a file collection' : CATALOGUE_NONE\}/.test(panelSrc),
+    'and its one option says which of the three is true')
+}
+
+/* -- 3: a Magnet's route to declaring a web search or a feed ----------------- */
+{
+  eq(endpointKinds([
+    { id: 'filesystem', label: 'Folder on this machine', available: true, binding: 'local-folder' },
+    { id: 'web-search', label: 'Web search', available: true, binding: 'endpoint' },
+    { id: 'rss-atom', label: 'RSS / Atom feeds', available: true, binding: 'endpoint' },
+    { id: 'http-api', label: 'HTTP API', available: false, binding: 'endpoint' },
+  ]).map((k) => k.id), ['web-search', 'rss-atom'],
+    'the kinds that are declared rather than picked, and never an unavailable one')
+  eq(endpointKinds(undefined), [], 'before the catalogue answers there are none, and nothing is hardcoded')
+
+  /* WHERE THE PRESS LANDS, decided by the machinery that already exists: the
+     announced Sources address is the one Quiet Chat turns into Add a source. */
+  eq(chipAsk(writeRoute(endpointRoute('web-search'))), { to: 'add', connector: 'web-search' },
+    'Declare Web search → Add a source, on web-search')
+  eq(chipAsk(writeRoute(endpointRoute(null))), { to: 'add', connector: null }, 'and with no kind known, the wizard itself')
+  const panelSrc = readFileSync(src + 'quiet2/magnets/CollectionConfiguration.tsx', 'utf8')
+  ok(/openInSources\(endpointRoute\(k\.id \|\| null\)\)/.test(panelSrc), 'the Magnet announces that address rather than building a second wizard')
+  ok(/\{ENDPOINT_FIRST\}/.test(panelSrc) && /declared once in Manage Sources/.test(ENDPOINT_FIRST),
+    'and says why the kind is not among the files it can pick')
+}
+
+/* -- 4: an endpoint collection has a browse view ---------------------------- */
+{
+  const entry = (key: string, label: string, at: number): ObjectRow => ({
+    ref: 'adm-' + key, path: key, key, label, state: 'present', action: 'acquired', digest: null,
+    size: 2048, payload_type: 'text/html', text: true, batch: 'b', admitted_at: at,
+  })
+  const rows = [entry('nasa/aaa', 'Artemis II rolls out', 1_794_000_100), entry('nasa/bbb', 'A new Mars window', 1_794_000_900), entry('nasa/ccc', 'Europa Clipper', 1_794_000_900)]
+  eq(chronological(rows).map((r) => r.label), ['A new Mars window', 'Europa Clipper', 'Artemis II rolls out'],
+    'newest recorded first, and by key where one sweep admitted two at the same moment')
+  eq(rows.map((r) => r.label), ['Artemis II rolls out', 'A new Mars window', 'Europa Clipper'], 'the page read is not reordered in place')
+  eq(chronologyFoot(3, 3), '3 entries · newest recorded first', 'what the order is true of')
+  eq(chronologyFoot(200, 640), '200 of 640 entries · newest recorded first, over the entries read so far',
+    'and it is claimed only of what has been read')
+  eq(chronologyFoot(0, 0), '', 'nothing read, nothing claimed')
+  ok(/^recorded /.test(recordedWhen(1_700_000_000)) && !/1[79]\d{8}/.test(recordedWhen(1_700_000_000)), 'a row says when, never the raw number')
+  eq(recordedWhen(null), 'when it was recorded is not known', 'and says so where the record does not say')
+
+  /* THE VIEW ITSELF: `browse: 'chronology'` (rss-atom, web-search) now reaches
+     a real listing, and the sentence that stood in its place is gone. */
+  const shown = (browse: string) => renderToStaticMarkup(createElement(Browse, {
+    col: 'col-nasa', connector: 'web-search', browse, onOpen: () => {}, onHit: () => {},
+  }))
+  const chron = shown('chronology')
+  ok(!chron.includes('arrives with the connector') && !chron.includes('Nothing to browse yet'),
+    'an endpoint collection is no longer told there is nothing to browse')
+  ok(chron.includes('entries as they were recorded'), 'it is a chronology of what is held')
+  ok(chron.includes('reading the record…'), 'which says it is reading, from the moment it is mounted')
+  ok(chron.includes('filter by name') && chron.includes('recorded absent'), 'with the same filter and states the folder tree has')
+  ok(shown('hierarchy').includes('the folder projection'), 'a folder is unchanged')
+
+  /* A PROJECTION NO CONNECTOR HAS BROUGHT YET is still refused -- accurately. */
+  const thread = noBrowseNote('thread', 'Slack')
+  ok(thread.includes('thread') && thread.includes('are held and can be read'), 'the items are not pretended to be absent')
+  ok(thread.includes('Contents'), 'and the two things that do work are named')
+  ok(!thread.includes('Nothing to browse yet'), 'the sentence that contradicted the count beside it is gone')
+  ok(shown('thread').includes('are held and can be read'), 'and that is what such a connector’s Browse says')
 }
 
 console.log(`quiet_sources_unit: ${checks} checks passed`)
