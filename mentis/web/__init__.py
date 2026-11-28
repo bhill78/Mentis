@@ -5091,7 +5091,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
 
     if path == "/api/gravity":
         from mentis.operational import (UNRESTRICTED, deferred, discovery,
-                                        follow_up_label, follow_up_of,
+                                        follow_up_for, follow_up_label,
                                         reconsideration, trunk_findings,
                                         trunk_of)
         turn = one("turn")
@@ -5103,7 +5103,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                                  "record holds",
                         "expectation": expectation}
             where = discovery(cv, expectation)
-            setting = follow_up_of(cv, where["origin"])
+            setting = follow_up_for(cv, expectation)
             may_next = (setting == UNRESTRICTED or
                         (isinstance(setting, dict)
                          and where["generation"] + 1 <= setting["depth"]))

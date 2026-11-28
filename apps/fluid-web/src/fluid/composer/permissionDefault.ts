@@ -73,7 +73,7 @@ export const DEFAULT_LIMITS = 'Saved in this browser only, for this Brain and fo
   + 'clearing this browser’s storage loses it, and a Brain backup will not bring it back.'
 
 export const DEFAULT_SCOPE_WHY = 'Used to fill in new Work you start here, before you send it. Replies, work continued under the same request '
-  + 'and work handed on to an agent keep the permissions already recorded for them.'
+  + 'and work handed on to an agent keep the permissions already recorded for them unless you change them in that reply.'
 
 export const UNREADABLE_WHY = 'A permission default is saved in this browser but could not be read, so none is used. '
   + 'Choose what you want and save it again to replace it.'

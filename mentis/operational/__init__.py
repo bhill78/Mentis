@@ -333,6 +333,56 @@ def follow_up_of(cv, origin) -> object:
         return ASK
 
 
+def follow_up_for(cv, expectation) -> object:
+    """The follow-up permission IN FORCE for this work: the nearest one the
+    owner gave on the way up its lineage.
+
+    The original request's permission carries down as before -- inheritance is
+    a convenience. Where the owner said something else on a request that
+    continues it (a reply that continues the work, or a follow-up of theirs
+    handed to it), that is their newer authorisation, and it governs that work
+    and what it hands on. Only the owner's word counts below the original
+    request: a value an agent wrote on work it recorded or delegated is not
+    read, so no agent widens what it may pursue. Every earlier grant stays
+    recorded where it was given."""
+    from mentis.conversation.owner import _owner
+    owner = _owner(cv)
+    cur, seen, top = expectation, set(), None
+    while cur and cur not in seen:
+        a = cv._act(cur)
+        if a is None or a["act"] != "expectation-recorded":
+            break
+        seen.add(cur)
+        top = a
+        said = owner_follow_up(cv, a, owner) if owner else None
+        if said is not None:
+            return said
+        cur = a["caused_by"]
+    return follow_up_of(cv, top["id"]) if top else ASK
+
+
+def owner_follow_up(cv, request, owner):
+    """What the owner said about follow-up permission AT this request, or
+    None: on the request itself, when they made it, or -- later, and so
+    winning -- on a follow-up of theirs handed to it (`attach_follow_up`)."""
+    said = None
+    detail = request.get("detail") or {}
+    if request.get("actor") == owner and "follow_up" in detail:
+        try:
+            said = follow_up_value(detail["follow_up"])
+        except ValueError:
+            said = ASK
+    for att in cv.follow_ups(request["id"]):
+        req = cv._act((att.get("detail") or {}).get("request"))
+        rd = (req or {}).get("detail") or {}
+        if req and req.get("actor") == owner and "follow_up" in rd:
+            try:
+                said = follow_up_value(rd["follow_up"])
+            except ValueError:
+                said = ASK
+    return said
+
+
 def follow_up_label(value) -> str:
     """The owner-facing label for one validated Task Gravity setting."""
     value = follow_up_value(value)
@@ -351,8 +401,8 @@ def pursuit_permitted(cv, finding) -> dict | None:
     if not cv.is_finding(finding) or owner_decided(cv, finding):
         return None
     where = discovery(cv, finding)
-    allowed = follow_up_of(cv, where["origin"])
-    ok = (allowed == UNRESTRICTED
+    allowed = follow_up_for(cv, finding)
+    ok =(allowed == UNRESTRICTED
           or (isinstance(allowed, dict)
               and where["generation"] <= allowed["depth"]))
     return {**where, "follow_up": allowed} if ok else None

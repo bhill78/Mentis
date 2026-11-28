@@ -235,6 +235,22 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   eq(off.ask_mentis, { coordinate: false }, 'and the owner narrowing it is sent, not read as nothing chosen')
   eq(askMentisSpec({ followUp: 'unrestricted' }), { follow_up: 'unrestricted' }, 'side work with no limit, as a request already says it')
   eq(askMentisSpec({}), {}, 'nothing chosen is an empty selection')
+  /* A REPLY MAY CHANGE PERMISSIONS (owner, 2026-11-28): "Ask", chosen there,
+     narrows what the continued work carried, so it is said; on new Work it
+     stays unsaid, as before. */
+  const asked: PermissionField[] = ['consent', 'followUp']
+  eq(askMentisSpec({ decided: asked }), {}, 'on new Work a chosen Ask is unsaid')
+  eq(askMentisSpec({ decided: asked }, true), { consent: { mode: 'ask', workspaces: [] }, follow_up: 'ask' },
+    'on a reply a chosen Ask is sent')
+  eq(askMentisSpec({}, true), {}, 'and on a reply nothing chosen is still nothing sent')
+  const narrowed = bodyOf(d({ text: 'x', to: [{ participant: 'ent-a', alias: '@Vera', dispatch: true, decided: asked }] }),
+    'ent-owner', [], 'record-only', { continuing: true }) as { dispatch: Record<string, unknown>[] }
+  eq([narrowed.dispatch[0].consent, narrowed.dispatch[0].follow_up], [{ mode: 'ask', workspaces: [] }, 'ask'],
+    'a named continuation carries the Ask the owner chose')
+  const widened = bodyOf(d({ text: 'x', to: [{ participant: 'ent-a', alias: '@Vera', dispatch: true, followUp: 2,
+    consent: { mode: 'task', workspaces: ['C:\w'] } }] }), 'ent-owner', [], 'record-only', { continuing: true }) as { dispatch: Record<string, unknown>[] }
+  eq([widened.dispatch[0].consent, widened.dispatch[0].follow_up], [{ mode: 'task', workspaces: ['C:\w'] }, { depth: 2 }],
+    'and a wider choice exactly as on new Work')
   /* ONLY UNDER ASK MENTIS */
   const recorded = bodyOf(d({ text: 'x', action: 'record-only', askMentis: chose }), 'ent-owner', [])
   ok(!('ask_mentis' in recorded), 'record-only sends none of it: nothing is owed and nothing runs')
@@ -422,8 +438,11 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   has(c, /if \(unnamed\(ready\.draft, ready\.brain\)\) \{ setErr\(UNNAMED_POST\); return \}\s*\n\s*const into = await ensure\(\)/,
     'and the ordinary post asks it before anything is written for it either')
   /* the generic entry, in both composers, and the same panel both ways */
-  has(c, /const askShown = permissionsHere && !closed && freshWork && words\.action === 'ask-mentis'/,
-    'the generic entry is shown only where Ask Mentis is what sending does')
+  has(c, /const askShown = permissionsHere && !closed && words\.action === 'ask-mentis'/,
+    'the generic entry is shown wherever Ask Mentis is what sending does, a reply included (owner, 2026-11-28)')
+  has(c, /const built = bodyOf\(d, me, d\.topics, fallback, \{ continuing: !freshWork \}\)/,
+    'and a reply or a post in a thread is built as continuing work')
+  has(c, /\? 'Unchanged' : chosenWords\(draft\.askMentis \?\? \{\}\)/, 'on a reply, nothing chosen reads as unchanged')
   eq(c.match(/\{permEntry\}/g)?.length, 2, 'and is drawn on both composers that start new Work')
   has(c, /<Operations ask who=\{askWho\}/, 'it opens the same panel a named request uses')
   has(c, /preference=\{preferenceFor\(savedOf\(who\)\)\}/, 'the saved default can be set from a named request')

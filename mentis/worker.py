@@ -5990,7 +5990,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                       + f"; executed by {cv.alias(actor)}."]
         lines += [f"Repository: {repository}"] if repository else []
         lines += [f"Branch: {branch}"] if branch else []
-        from mentis.operational import follow_up_of, follow_up_value
+        from mentis.operational import follow_up_for, follow_up_value
         try:
             follow_up = follow_up_value(args.get("follow_up"))
         except ValueError as exc:
@@ -6014,7 +6014,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 raise NotPermitted(
                     "parent must name a request recorded by this session "
                     "participant")
-            inherited = follow_up_of(cv, request_parent)
+            inherited = follow_up_for(cv, request_parent)
 
             def breadth(value):
                 if value == "ask":
@@ -6025,7 +6025,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
 
             if "follow_up" in args and breadth(follow_up) > breadth(inherited):
                 raise NotPermitted(
-                    "follow-up permission belongs to the original request; "
+                    "follow-up permission is the owner's; "
                     "a child cannot widen the permission it was asked with")
             follow_up = inherited
         persona = str(args.get("persona") or "").strip() or None
@@ -6135,7 +6135,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                           "contribute(kind=\"proposed-work\", text, "
                           f"regarding=[\"{picked}\"]) to put it to the owner"],
                 who="the owner, by choosing to pursue it or by granting "
-                    "follow-up permission on the original request")
+                    "follow-up permission on the work")
         with surface.corpus.atomic():
             # AGAIN IN THE ASSIGNMENT'S TRANSACTION (found by review).
             for line_of in (parent, picked):

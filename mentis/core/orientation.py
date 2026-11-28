@@ -21,6 +21,7 @@ from mentis.operational import (
     ASK,
     UNRESTRICTED,
     discovery,
+    follow_up_for,
     follow_up_of,
     follow_up_value,
 )
@@ -339,7 +340,7 @@ def for_agent(
             disc = discovery(cv, expectation)
             generation = disc.get("generation", 0)
             if given is None:
-                given = follow_up_of(cv, disc.get("origin"))
+                given = follow_up_for(cv, expectation)
         try:
             setting = follow_up_value(given) if given is not None else ASK
         except ValueError:

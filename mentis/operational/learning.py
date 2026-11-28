@@ -334,11 +334,11 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
     from mentis.conversation import KNOWING_HOW
     from mentis.conversation.workflow_change import CHANGE
     from mentis.operational import (completion, discovery, follow_up_label,
-                                    follow_up_of, owner_decided,
+                                    follow_up_for, owner_decided,
                                     owner_selected, pursuit_permitted)
     fired, ruled_out = [], []
     where = discovery(cv, expectation)
-    allowed = follow_up_of(cv, where["origin"])
+    allowed = follow_up_for(cv, expectation)
 
     met_claims = [a for a in completion.claims_of(cv, expectation)
                   if (a["detail"] or {}).get("result") == "met"]
@@ -1003,7 +1003,7 @@ def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
     with its reference; the claims are listed only for the signals that are
     about claims or attempts.
     """
-    from mentis.operational import discovery, follow_up_label, follow_up_of
+    from mentis.operational import discovery, follow_up_for, follow_up_label
     exp = cv._act(expectation) or {}
     where = discovery(cv, expectation)
     lines = [
@@ -1035,7 +1035,7 @@ def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
               + ", and resolve an act's Turn before using it as a basis.",
               "",
               f"## The request ({expectation}; "
-              f"{follow_up_label(follow_up_of(cv, where['origin']))}; "
+              f"{follow_up_label(follow_up_for(cv, expectation))}; "
               f"generation {where['generation']})",
               _clip(_said(cv, where["origin"] or expectation), 500)
               or "(no words)"]

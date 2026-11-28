@@ -688,7 +688,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       if (unnamed(ready.draft, ready.brain)) { setErr(UNNAMED_POST); return }
       const into = await ensure()
       const d = await settle(ready.draft, into)
-      const built = bodyOf(d, me, d.topics, fallback)
+      const built = bodyOf(d, me, d.topics, fallback, { continuing: !freshWork })
       const answered = replyTo ? store.posts.get(replyTo) : undefined
       if (answered && !built.addressed_to.length && answered.author !== me) built.addressed_to = [answered.author]
       const body = { ...built, conversation: into, ...(replyTo ? { replies_to: replyTo } : {}), op: op.current }
@@ -788,11 +788,14 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
      is no pill to open and, until now, no way to say what the work it
      assigns may do. One compact entry on the top line opens the SAME
      permission controls a named request uses, over the draft's own
-     selections (`draft.askMentis`). Shown only where Ask Mentis is what
-     sending does, on a fresh original post: a reply, a thread and work
-     marked for somebody each have their own answer to this. */
+     selections (`draft.askMentis`). Shown wherever Ask Mentis is what
+     sending does -- a fresh post, a reply and a post in a thread alike. On a
+     reply or in a thread the work it follows up keeps what was recorded for
+     it unless the owner chooses otherwise here; what they choose is their
+     newer authorisation for that work (owner, 2026-11-28). The saved default
+     still fills in only new Work (`seedWork`). */
   const askWho: Addressee = { participant: 'ask-mentis', alias: 'Ask Mentis', dispatch: true, ...(draft.askMentis ?? {}) }
-  const askShown = permissionsHere && !closed && freshWork && words.action === 'ask-mentis'
+  const askShown = permissionsHere && !closed && words.action === 'ask-mentis'
   useEffect(() => { if (!askShown && askPerm) setAskPerm(false) }, [askShown, askPerm])
   /** ONE COMPACT ENTRY, saying what this Ask Mentis will carry: the Permission
    *  Mode, anything said about authority, and the side-work permission. In the
@@ -801,14 +804,19 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
    *  pills and the older one a workspace's ask is drawn in -- because the
    *  controls and what they carry must not differ between two surfaces that
    *  both start new Work. */
+  /* ON A REPLY NOTHING CHOSEN IS "UNCHANGED": the work it follows up keeps
+     what was recorded for it, so the entry does not claim the defaults. */
+  const askSaid = !freshWork && !draft.askMentis?.decided?.length && !draft.askMentis?.consent
+    && draft.askMentis?.coordinate === undefined && draft.askMentis?.followUp === undefined
+    ? 'Unchanged' : chosenWords(draft.askMentis ?? {})
   const permEntry = askShown && (
     <span className="fc-chip fc-perm" data-warn={draft.askMentis?.consent || draft.askMentis?.coordinate ? 'permissions' : undefined}>
       <button ref={askAt} className="fc-perm-open" aria-expanded={askPerm} aria-haspopup="dialog"
-        title={`What this Ask Mentis carries: ${chosenWords(draft.askMentis ?? {})}. Opens the same permission controls a named request uses.`}
-        aria-label={`Permissions for Ask Mentis: ${chosenWords(draft.askMentis ?? {})}`}
+        title={`What this Ask Mentis carries: ${askSaid}. Opens the same permission controls a named request uses.`}
+        aria-label={`Permissions for Ask Mentis: ${askSaid}`}
         onClick={() => { setOpened(null); setAskPerm((p) => !p) }}>
         <span className="fc-perm-name">Permissions</span>
-        <span className="fc-perm-says">{chosenWords(draft.askMentis ?? {})}</span>
+        <span className="fc-perm-says">{askSaid}</span>
       </button>
     </span>
   )

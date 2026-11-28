@@ -159,13 +159,22 @@ export interface AskMentis {
  *  dispatch already uses (`consentSpec`, `follow_up`), so one validator reads
  *  both. Nothing chosen is an empty object, which `bodyOf` does not send:
  *  unsaid must stay unsaid. */
-export const askMentisSpec = (a: AskMentis): Record<string, unknown> => ({
-  ...(a.consent ? { consent: consentSpec(a.consent) } : {}),
+export const askMentisSpec = (a: AskMentis, continuing = false): Record<string, unknown> => ({
+  ...(a.consent ? { consent: consentSpec(a.consent) } : saidAsk(a, 'consent', continuing) ? { consent: ASK_CONSENT } : {}),
   ...(a.coordinate === undefined ? {} : { coordinate: a.coordinate }),
   ...(a.followUp === undefined
-    ? {}
+    ? saidAsk(a, 'followUp', continuing) ? { follow_up: 'ask' } : {}
     : { follow_up: a.followUp === 'unrestricted' ? 'unrestricted' : { depth: a.followUp } }),
 })
+
+/** "ASK", CHOSEN ON A REPLY, IS SENT. On new Work absent and "Ask" are the
+ *  same request, so unsaid stays unsaid. A reply continues work that already
+ *  has permissions recorded, and there choosing "Ask for permission" or
+ *  "Asks before pursuing side work" is the owner narrowing what the work
+ *  carried -- so it is said explicitly, and the server records it. */
+const ASK_CONSENT = { mode: 'ask', workspaces: [] as string[] }
+const saidAsk = (x: { decided?: PermissionField[] }, f: PermissionField, continuing: boolean): boolean =>
+  continuing && !!x.decided?.includes(f)
 
 export interface Attached {
   /** The bytes are sent to Mentis the moment they are attached and
@@ -330,7 +339,13 @@ export const refIdentities = (refs: DraftRef[] = []): Record<string, unknown>[] 
  *  (the Magnet message boundary, contract adm-c5c73679ac1e §3): there a chip
  *  contributes no part and no separator, and `references` carries what was
  *  selected. Nothing is dropped silently either way. */
-export interface BodySeam { references?: 'parts' | 'audited' }
+export interface BodySeam {
+  references?: 'parts' | 'audited'
+  /** This post replies to, or is written in the thread of, something already
+   *  recorded: an "Ask" the owner chose there is sent rather than left unsaid
+   *  (`saidAsk`). */
+  continuing?: boolean
+}
 
 /** Add a reference, once: the same object (or post) dropped twice is one chip. */
 export const withRef = (refs: DraftRef[] = [], next: DraftRef): DraftRef[] =>
@@ -486,7 +501,7 @@ export const bodyOf = (
      selections, and under `record-only` nothing is owed and nothing runs, so
      sending permissions there would be the body contradicting the action. An
      empty selection is not sent at all: unsaid stays unsaid. */
-  const ask = d.askMentis ? askMentisSpec(d.askMentis) : {}
+  const ask = d.askMentis ? askMentisSpec(d.askMentis, !!seam.continuing) : {}
   return {
     author,
     /* `parts` is what the record keeps. `text` is still sent because the seam
@@ -534,9 +549,9 @@ export const bodyOf = (
               coordinate: !!a.coordinate,
               ...governed,
               ...(a.followUp === undefined
-                ? {}
+                ? saidAsk(a, 'followUp', !!seam.continuing) ? { follow_up: 'ask' } : {}
                 : { follow_up: a.followUp === 'unrestricted' ? 'unrestricted' : { depth: a.followUp } }),
-              ...(a.consent ? { consent: consentSpec(a.consent) } : {}),
+              ...(a.consent ? { consent: consentSpec(a.consent) } : saidAsk(a, 'consent', !!seam.continuing) ? { consent: ASK_CONSENT } : {}),
               ...executionSpec(a),
             })),
   }

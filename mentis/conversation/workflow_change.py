@@ -315,12 +315,12 @@ _MODE_REACH = {"ask": 0, "deny": 1, "task": 1, "all": 2}
 
 def authority_snapshot(cv, expectation) -> dict:
     """What the work may do now, from the owner's records only."""
-    from mentis.operational import discovery, follow_up_of
+    from mentis.operational import discovery, follow_up_for
     from mentis.operational import consent as _consent
     got = cv.authority_of(expectation)
     c = _consent.of_request(cv, expectation)
     try:
-        follow = follow_up_of(cv, discovery(cv, expectation)["origin"])
+        follow = follow_up_for(cv, expectation)
     except Exception:                                     # noqa: BLE001
         follow = None
     return {"operations": sorted(got.get("operations") or ()),

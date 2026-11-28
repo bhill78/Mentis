@@ -5420,8 +5420,15 @@ class Conversations:
                         "carries it",
                 detail={"carried_under": work, "attached": attached,
                         "result_kind": "follow-up"})
-            return {"attached": attached, "met": met, "work": work,
-                    "carrier": carrier}
+            out = {"attached": attached, "met": met, "work": work,
+                   "carrier": carrier}
+        # THE OWNER'S PERMISSION MODE ON THE FOLLOW-UP NOW GOVERNS THE WORK
+        # (`consent._with_handed`): a live run of it is rechecked against it,
+        # exactly as when the owner changes consent on the work itself.
+        if (req.get("detail") or {}).get("consent") is not None:
+            from mentis.operational import consent as _consent
+            _consent._after_set(self, None, self._act(attached))
+        return out
 
     def follow_ups_unseen(self, parent, execution) -> list[str]:
         """The follow-ups handed to `parent` that `execution`, a run of it,

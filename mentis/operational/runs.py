@@ -300,7 +300,7 @@ def asked_with(cv, start) -> dict:
     of discovery this run's request is below it -- the same walk dispatch
     checks pursuit with (`discovery`, `follow_up_of`), so the run's line and
     what the run was permitted cannot disagree. A read; nothing is stored."""
-    from mentis.operational import discovery, follow_up_of
+    from mentis.operational import discovery, follow_up_for, follow_up_of
     exp = start.get("caused_by")
     persona = ((start.get("detail") or {}).get("persona")
                or ((start.get("detail") or {}).get("authority") or {}).get("persona"))
@@ -331,7 +331,7 @@ def asked_with(cv, start) -> dict:
     rd = req.get("detail") or {}
     persona_from = rd.get("persona_from") if persona and rd.get("persona") == persona else None
     return {"persona": persona, "persona_name": name, "persona_from": persona_from,
-            "follow_up": follow_up_of(cv, where["origin"]),
+            "follow_up": follow_up_for(cv, exp) if exp else follow_up_of(cv, None),
             "generation": where["generation"],
             "consent": consent}
 
