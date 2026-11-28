@@ -332,8 +332,8 @@ def for_agent(
         governing = [d for d in deliveries
                      if d.component.tier in ("governing", "adopted", "experience")
                      or d.component.scope == "invocation:persona"]
-        # THE TASK GRAVITY IN FORCE: the original request's, read by the same
-        # walk pickup is decided by (`discovery`, `follow_up_of`).
+        # THE TASK GRAVITY IN FORCE, read by the same walk pickup is decided
+        # by (`discovery`, `follow_up_for`).
         given = follow_up
         generation = 0
         if expectation:

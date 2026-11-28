@@ -273,14 +273,15 @@ def _label(words: str | None, fallback: str, limit: int = IN_A_LABEL) -> str:
 
 
 # ---------------------------------------------------------------------------
-# follow-up permission -- the owner's, on the original request
+# follow-up permission -- the owner's, in force along the lineage
 #
 # AS DECIDED (owner, 2026-10-09). Agents judge whether discovered work is
 # necessary to the trunk (ordinary delegation), deferred (recorded), or worth
 # pursuing on its own. Whether they may pursue it WITHOUT ASKING is the owner's
 # permission, given when they ask: ask afterward (the default), up to N
-# generations of independently pursued discovery, or unrestricted. It belongs
-# to the ORIGINAL request and carries through its follow-ups: read from the
+# generations of independently pursued discovery, or unrestricted. Given on
+# the original request it carries through its follow-ups, and the owner may
+# change it on any of them (2026-11-28, `follow_up_for`): read from the
 # record's lineage, never from a run, so starting another execution cannot
 # reset it. Permission allows pursuit; it requires none. What is not pursued
 # is put to the owner when the trunk it was found under is finished.
