@@ -897,6 +897,42 @@ def _receipt_rows(st, mid, topic, identity):
         detail_names=identity, newest_first=True, limit=100)
 
 
+def _recorded_receipt(st, mid, topic, identity, data):
+    """The receipt this reconciliation is ALREADY recorded under, or None.
+
+    THE RECORD IS APPEND-ONLY, WHICH IS NOT THE SAME THING AS RECORDING ONE
+    FACT TWICE (owner ent-de11a0235181: a Magnet's Conversation showed "dozens
+    of 'Perspective reconciled: reconciled' posts instead of what it had
+    found"). A Perspective is reconciled afresh every time the panel draws it
+    -- `purpose: "display"` -- and the reconciliation itself is still done in
+    full here, every time, from the record as it now is: the grant, the
+    reachable artifacts, the closure and the errors are all read now and
+    nothing is taken from an older receipt. What is compared is the OUTCOME,
+    and where that outcome is word for word a receipt this intent already
+    carries, that receipt IS this reconciliation's answer. Appending a second
+    identical one adds no fact and costs a readable unit of the owner's own
+    Conversation, which is the whole of what this treats.
+    Measured on TEST's `mag-265878e92e5c987c`: 74 recorded receipts hold 13
+    distinct outcomes, so 61 of that Conversation's 130 units say nothing the
+    other 69 do not.
+
+    NOT A NEW QUALIFICATION RULE. `_prepare` reuses a prior answer only on a
+    reconciliation it asks for now ("a new qualification, not trust in an
+    older passing receipt"), and that is unchanged: the status it reads is the
+    one computed above, not one read back off the artifact.
+
+    BOUNDED BY THE READ THAT ALREADY EXISTS: `_receipt_rows`' newest 100 of
+    this intent, and no wider. An identical outcome older than that window is
+    recorded again rather than searched for.
+    """
+    want = P.encoded(data)
+    for row in _receipt_rows(st, mid, topic, identity):
+        held = row["detail"]["data"]
+        if held.get("intent") == identity and P.encoded(held) == want:
+            return row["detail"]["snapshot"]
+    return None
+
+
 def _declared(st, mid, topic, identity, supplied):
     refs = list(supplied)
     # Explicit declarations persist as receipt versions, separately from the
@@ -955,6 +991,11 @@ def reconcile(st, mid, topic, body, by, written_by):
         "purpose": body["purpose"], "grant": grant, "declared_context": declared,
         "required_unavailable": missing, "reachable_not_declared": extra, "available": available,
         "closure": closure, "errors": errors, "disclosure": P.DISCLOSURE}
+    # Nothing is held and nothing is posted for an outcome this intent already
+    # carries: the receipt it already carries is this reconciliation's answer.
+    already = _recorded_receipt(st, mid, topic, row["post"], data)
+    if already:
+        return {"receipt": already, **data}
     snap = P.hold(st, mid, _package(st, mid, "receipt", perspective=topic, **data), by, name="receipt")
     P.event(st, mid, topic, "reconciled", data, by, snapshot=snap, written_by=written_by)
     return {"receipt": snap, **data}

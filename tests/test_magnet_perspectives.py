@@ -379,6 +379,93 @@ def test_reconcile_pending_then_incidental_owner_id_declared_and_counted(inquiry
     assert qualify(w, p)["status"] == "qualified"  # explicit declaration retained
 
 
+# ---------------------------------------------------------------------------
+# THE BOOKKEEPING A REFRESH LEAVES IN THE OWNER'S OWN CONVERSATION
+# (owner ent-de11a0235181). A Perspective is reconciled afresh every time the
+# panel draws it, and each one appended a held receipt and a RECORD_ONLY post.
+# Measured on TEST's `mag-265878e92e5c987c`: 74 recorded receipts holding 13
+# distinct outcomes, 61 of its 130 Conversation units saying nothing the rest
+# do not. These pin the source-end rule -- an outcome already recorded is that
+# reconciliation's answer -- and that a Magnet recorded the old way still reads.
+
+
+def _receipts(w, p):
+    return W._receipt_rows(w.state, MAGNET, p["perspective"], p["intent"])
+
+
+def _events(w, p, verb=None):
+    rows = P.history(w.state, MAGNET, p["perspective"], limit=100)["events"]
+    return [r for r in rows if verb is None or r["event"] == verb]
+
+
+def test_an_identical_reconciliation_records_no_second_receipt_or_post(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    live(w, req, agent)
+    first = qualify(w, p)
+    assert first["status"] == "qualified"
+    held_before, posts_before = len(_receipts(w, p)), {r["post"] for r in _events(w, p)}
+    for _ in range(8):
+        again = qualify(w, p)
+        # The reconciliation is still done in full: the same facts, the same
+        # answer, and the receipt it is already recorded under.
+        assert again["status"] == "qualified"
+        assert again["receipt"] == first["receipt"]
+        assert again["available"] == first["available"]
+    assert len(_receipts(w, p)) == held_before
+    assert {r["post"] for r in _events(w, p)} == posts_before
+    # A CHANGED OUTCOME IS STILL RECORDED, which is the whole point of the
+    # record: a purge the owner can see makes a new receipt and a new post.
+    artifacts.purge(w.corpus, w.cv, w.batch["ref"], by=w.by, because="fixture purge")
+    changed = qualify(w, p)
+    assert changed["status"] == "unqualified" and changed["receipt"] != first["receipt"]
+    assert len(_receipts(w, p)) == held_before + 1
+    assert len({r["post"] for r in _events(w, p)}) == len(posts_before) + 1
+
+
+def test_a_perspective_recorded_under_the_old_shape_still_reads(inquiry):
+    """Old history is read, never re-recorded (AGENTS.md: append-only)."""
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent)
+    first = qualify(w, p)
+    # The receipt's own recorded fields: `receipt` is the held artifact and
+    # `brain` is what the owner door adds to every reply, neither is data.
+    data = {k: v for k, v in first.items() if k not in ("receipt", "brain")}
+    # Recorded exactly as the old shape recorded it: one held receipt and one
+    # post per reconciliation, each identical to the one before.
+    olds = []
+    for _ in range(5):
+        snap = P.hold(w.state, MAGNET, W._package(w.state, MAGNET, "receipt",
+            perspective=p["perspective"], **data), w.by, name="receipt")
+        P.event(w.state, MAGNET, p["perspective"], "reconciled", data, w.by,
+                snapshot=snap, written_by="fixture-owner")
+        olds.append(snap)
+    # Every stage lookup still finds its stage, by the same route as before.
+    assert P.state(w.state, MAGNET, p["perspective"], detail=True)["current_question"]["text"]
+    assert W.binding(w.state, MAGNET, p["perspective"], p["intent"])["request"] == req
+    read = W.intent_read(w.state, MAGNET, p["perspective"], p["intent"])
+    assert read["prepared"]["manifest"] == p["manifest"]
+    assert read["binding"]["request"] == req
+    rows = _events(w, p)
+    assert len(_events(w, p, "reconciled")) == 6
+    assert len({r["post"] for r in rows}) == len(rows)
+    # And the new rule READS that old history: the newest identical receipt is
+    # the answer, and no seventh is appended to it.
+    again = qualify(w, p)
+    assert again["receipt"] == olds[-1] and again["status"] == "qualified"
+    assert len(_events(w, p, "reconciled")) == 6
+    # A frozen answer still carries a receipt and still verifies.
+    a = answer(w, req, agent, execution, run)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=execution, answer=a)
+    assert frozen["receipt"]["status"] == "qualified"
+    obj = E.native(w.state, MAGNET, frozen["answer"]["ref"],
+                   held.read(w.root, frozen["answer"]["digest"]), "answer")
+    assert obj["receipt"]["ref"] == frozen["receipt"]["receipt"]["ref"]
+
+
 @pytest.mark.parametrize("reach", ["conversation", None])
 def test_bind_refuses_broader_reach(inquiry, reach):
     w = inquiry
