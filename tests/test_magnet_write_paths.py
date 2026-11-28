@@ -116,6 +116,51 @@ def test_direct_writes_cannot_forge_policy_or_create_ungated_work(world, owner, 
     assert world["cv"]._c.advance() == before and not world["sent"]
 
 
+def test_answering_a_decision_on_a_managed_conversation_is_not_a_door_refusal(world):
+    """A Needs You / permission answer carries no execution authority, so the
+    managed-request door must not refuse it even though its Conversation is
+    tied to a Magnet (F1 of the permission-answer correction)."""
+    _, cid, agent, root = setup_post(world)
+    owner = world["who"]["@brian"]
+    exp = world["cv"].expect(root, of=owner, kind="decision", by=agent,
+        because="test permission", detail={"options": [{"label": "Allow once"}]})
+    body = {"author": owner, "text": "Allow once", "action": "record-only",
+            "dispatch": [], "replies_to": root,
+            "parts": [{"type": "text", "text": "Allow once"}],
+            "chose": {"expectation": exp, "option": 0, "label": "Allow once"}}
+    out, later = posting.post(world["cv"], world["cv"]._c, cid, body,
+        agents=world["state"].agents, written_by=lambda: "fixture")
+    assert "error" not in out and not later, out
+    said = [a for a in world["cv"]._c.operational(turn=out["turn"])
+            if a["act"] == "turn-said"]
+    assert said and said[0]["detail"]["chose"]["expectation"] == exp
+    assert not world["sent"]
+
+
+@pytest.mark.parametrize("change", [
+    {"dispatch": [{"work": "generated instructions"}]},
+    {"governed": ["policy"]},
+    {"ask_mentis": {}},
+])
+def test_a_decision_answer_still_cannot_smuggle_work_authority(world, change):
+    """`chose` opens no door of its own: anything that would make this a new
+    work request is still refused exactly as before."""
+    _, cid, agent, root = setup_post(world)
+    owner = world["who"]["@brian"]
+    exp = world["cv"].expect(root, of=owner, kind="decision", by=agent,
+        because="test permission", detail={"options": [{"label": "Allow once"}]})
+    body = {"author": owner, "text": "Allow once", "action": "record-only",
+            "dispatch": [], "replies_to": root,
+            "parts": [{"type": "text", "text": "Allow once"}],
+            "chose": {"expectation": exp, "option": 0, "label": "Allow once"},
+            **change}
+    before = world["cv"]._c.advance()
+    out, later = posting.post(world["cv"], world["cv"]._c, cid, body,
+        agents=world["state"].agents, written_by=lambda: "fixture")
+    assert out.get("refused") and not later, out
+    assert world["cv"]._c.advance() == before and not world["sent"]
+
+
 def test_forged_anchor_and_comment_intent_leave_no_record(world):
     _, cid, _, root = setup_post(world)
     by = world["who"]["@brian"]

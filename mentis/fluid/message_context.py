@@ -209,6 +209,16 @@ def post_refusal(cv, conversation, body, *, managed=False, record_only=False):
         from mentis.conversation.anchors import check_parts
         check_parts(cv, conversation, parts, body["replies_to"])
         return None
+    chose = body.get("chose")
+    if (body.get("action") == "record-only" and body.get("replies_to")
+            and isinstance(chose, dict) and isinstance(chose.get("expectation"), str)
+            and body.get("ask_mentis") is None and body.get("governed") is None):
+        # Answering an expectation already asked of this author -- a Needs You
+        # question, a decision form, a withdrawal -- is not a new work request:
+        # `chosen` (posting.py) is the authority that checks the expectation
+        # exists, is still open, was asked of this reply, and that the option
+        # named is one it actually offered.
+        return None
     return dict(DOOR_REFUSAL)
 
 
