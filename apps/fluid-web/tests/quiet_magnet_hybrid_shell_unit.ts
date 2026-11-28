@@ -114,9 +114,9 @@ test('the frame is header, tabs, body and one footer line, and draws no view’s
   assert.ok(!open.includes('q2-magnet-filters'), 'no filter pill row')
   // The body is the one scroll container and carries the mockup's body padding.
   assert.match(open, /class="q2-magnet-view mgd-body"/, 'the view container takes design.css’s .mgd-body')
-  // One footer line, in the mockup's own words.
-  assert.ok(open.includes('Drag the panel edge to resize'), 'one footer line says the edges drag')
-  assert.equal((open.match(/Drag the panel edge to resize/g) ?? []).length, 1, 'and says it once')
+  // The resize hint line was removed from the panel (d3bfa39a, "Correct Magnet
+  // composer picker and resize hint"); the frame draws no footer line of its own.
+  assert.ok(!open.includes('Drag the panel edge to resize'), 'no resize hint line is drawn')
 })
 
 test('the composer is pinned under Conversation only, and never in settings', () => {
