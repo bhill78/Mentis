@@ -890,7 +890,7 @@ export function perspectiveSource(resource: MagnetResource): SearchSource {
  *  "the actual asking Turn does not begin with the frozen question") and not
  *  to be only it. Nothing is generated on the run's behalf anywhere else. */
 export const perspectiveInstruction = (perspective: string): string =>
-  `Use the attached frozen Perspective records, manifest and evidence. Read them with read_artifact. Reconstruct the inquiry by its Topic ${perspective}, distinguish original support from interpretations and conflicting evidence, cite the exact versions/ranges, and answer the frozen question. ${PERSPECTIVE_DISCLOSURE}`
+  `Use the attached frozen Perspective records, manifest and evidence for Topic ${perspective}. Read them with read_artifact. Distinguish original support from interpretations and conflicting evidence, cite the exact versions/ranges, and answer the frozen question. Write publication prose with appropriate Markdown headings and lists where the content warrants them. Begin with the substantive answer; omit first-person process narration, internal Topic IDs, manifest IDs, batch IDs and other bookkeeping, and any status/outcome footer or closing work report (including "Status: answered" and "Nothing required"). Keep the attached evidence citation tokens exact and inline, without backticks or other code wrappers; the reader renders them as numbered citations with accessible provenance. ${PERSPECTIVE_DISCLOSURE}`
 /** The exact words the asking Turn carries for a frozen ask: the frozen
  *  question first, verbatim, then what the run is told. */
 export const perspectiveWords = (prepared: PreparedInquiry): string =>

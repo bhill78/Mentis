@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
-import { answerHistory, derivedPerspectiveName, finalizeReply, PerspectiveStore, STANDING_QUESTION, standingAnswerOp, standingOp, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
+import { answerHistory, derivedPerspectiveName, finalizeReply, perspectiveRequest, PERSPECTIVE_DISCLOSURE, PerspectiveStore, STANDING_QUESTION, standingAnswerOp, standingOp, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
 import { askAnAgent, discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { miniComposerDraft, removeContext, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
@@ -112,10 +112,31 @@ test('asking an agent freezes the exact words with `prepare`, then hands off to 
   // The frozen intent is kept, for `beforeRequest` to carry through on send.
   assert.equal(f.store.snapshot().active?.intent, 'ent-intent1111')
   assert.equal(f.store.snapshot().active?.reach, 'work')
+  const request = perspectiveRequest({ text: 'Additional Composer wording' }, f.store.snapshot().active!)
+  assert.match(request.text, /Write publication prose with appropriate Markdown/)
+  assert.match(request.text, /Begin with the substantive answer/)
   assert.equal(f.r.snapshot().context?.ref, A)
   assert.equal((f.r.snapshot().context as any)?.version, 'adm-newrev111')
   // And the hand-off to the Conversation composer is the same one `TAKE_TO_CONVERSATION` uses.
   assert.equal(f.r.snapshot().tab, 'Conversation')
+})
+
+test('managed Perspective request preserves saved UTF-8 question bytes and carries publication and grounding instructions only in the request', () => {
+  for (const question of ['What are missions slated for the next 5 years? ', '  What changed in Roman\u2019s mission? \u03b1\u{1f642}\n ']) {
+    const prepared = samplePrepared({ text: question })
+    const before = structuredClone(prepared)
+    const request = perspectiveRequest({ text: 'Composer wording is replaced', parts: [] }, prepared)
+    assert.deepEqual(Buffer.from(request.text.slice(0, question.length), 'utf8'), Buffer.from(question, 'utf8'))
+    assert.ok(request.text.startsWith(question + '\n\n'))
+    assert.deepEqual(prepared, before, 'request instructions never revise the saved or frozen question')
+    assert.match(request.text, /omit first-person process narration, internal Topic IDs, manifest IDs, batch IDs and other bookkeeping/)
+    assert.match(request.text, /status\/outcome footer or closing work report/)
+    assert.match(request.text, /citation tokens exact and inline, without backticks or other code wrappers/)
+    assert.match(request.text, /Read them with read_artifact/)
+    assert.match(request.text, /Distinguish original support from interpretations and conflicting evidence, cite the exact versions\/ranges/)
+    assert.ok(request.text.endsWith(PERSPECTIVE_DISCLOSURE), 'input-scope restrictions remain unchanged')
+    assert.deepEqual(request.parts[0], { type: 'text', text: request.text })
+  }
 })
 
 /* -- ONE OPERATION KEY PER MANAGED INTENT ----------------------------------

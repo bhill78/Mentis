@@ -372,6 +372,9 @@ test('the frozen ask carries no generated work override, which the one door refu
   assert.equal(active.text, STANDING_QUESTION, 'the frozen question has no answer instructions')
   assert.match(String(out.text), /publication prose/)
   assert.match(String(out.text), /omit first-person process narration/)
+  assert.match(String(out.text), /internal Topic IDs, manifest IDs, batch IDs and other bookkeeping/)
+  assert.match(String(out.text), /status\/outcome footer or closing work report/)
+  assert.match(String(out.text), /citation tokens exact and inline, without backticks or other code wrappers/)
   assert.match(String(out.text), /read_artifact/, 'and go on to say what to do with the attached records')
   assert.deepEqual(out.parts[0], { type: 'text', text: out.text },
     'the one text part is the exact projection of the words, as the door checks')
