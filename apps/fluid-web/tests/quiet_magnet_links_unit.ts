@@ -458,3 +458,29 @@ test('recorded numeric markers open their mapped source without changing Markdow
   assert.match(out, /href="https:\/\/example.org\/"/)
   assert.ok(visible(out).includes('[2]'), 'unknown numbers stay as recorded')
 })
+
+test('balanced code wrappers around known citations render only their numbers and preserve the token', () => {
+  const ref = 'adm-e3d8cae2cb43'
+  const mapped = { ...index({ [ref]: 'Juno' }), refOf: (n: number) => n === 1 ? ref : null }
+  for (const token of ['[1]', `[${CITED}]`, CITED]) {
+    for (const ticks of ['`', '``']) {
+      const out = renderToStaticMarkup(createElement('p', {},
+        ...citedInline(mapped)(`Launch ${ticks}${token}${ticks}.`, 'wrapped')))
+      assert.equal(visible(out), 'Launch [1].')
+      assert.ok(out.includes(`data-cite="${token}"`), 'exact citation identity is retained')
+      assert.equal((out.match(/class="q2-magnet-cite"/g) ?? []).length, 1)
+      assert.doesNotMatch(out, /<code>/)
+    }
+  }
+})
+
+test('ordinary inline code and unknown citation markers keep their Markdown rendering', () => {
+  const ref = 'adm-e3d8cae2cb43'
+  const mapped = { ...index({ [ref]: 'Juno' }), refOf: (n: number) => n === 1 ? ref : null }
+  const out = renderToStaticMarkup(createElement('p', {},
+    ...citedInline(mapped)('Use `array[1]` and `[2]`, then `value = [1]`. Cite [1].', 'code')))
+  assert.match(out, /<code>array\[1\]<\/code>/)
+  assert.match(out, /<code>\[2\]<\/code>/)
+  assert.match(out, /<code>value = \[1\]<\/code>/)
+  assert.equal((out.match(/class="q2-magnet-cite"/g) ?? []).length, 1)
+})

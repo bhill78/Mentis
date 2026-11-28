@@ -314,12 +314,24 @@ export function citedInline(index: CitationIndex | null): (src: string, key: str
         runs.push({ start: m.index ?? 0, said: m[0], cites: [{ ref }] })
     }
     runs.sort((a, b) => a.start - b.start)
+    // A code span containing only a known citation is a citation wrapper.
+    // Keep the token on Cite unchanged; consume only its balanced delimiters.
+    // Citations inside ordinary inline code belong to that code instead.
+    const code = [...src.matchAll(/(?<![\\`])(`+)([^`]+)\1(?!`)/g)].map((m) => ({
+      start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, ticks: m[1].length,
+    }))
     for (const run of runs) {
-      const start = run.start
+      let start = run.start, end = start + run.said.length
+      const span = code.find((c) => start >= c.start && end <= c.end)
+      if (span) {
+        if (start !== span.start + span.ticks || end !== span.end - span.ticks) continue
+        start = span.start
+        end = span.end
+      }
       if (start < at) continue
       if (start > at) out.push(...inline(src.slice(at, start), `${key}-p${n}`))
       out.push(<Cite key={`${key}-c${n++}`} cites={run.cites} said={run.said} index={index} />)
-      at = start + run.said.length
+      at = end
     }
     if (at < src.length) out.push(...inline(src.slice(at), `${key}-p${n}`))
     return out
