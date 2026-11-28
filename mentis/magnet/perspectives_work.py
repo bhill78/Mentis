@@ -897,6 +897,37 @@ def _receipt_rows(st, mid, topic, identity):
         detail_names=identity, newest_first=True, limit=100)
 
 
+def _still_an_input(st, mid, snapshot):
+    """Whether a recorded receipt's own Admission can still BE a reconciliation's
+    answer -- not merely whether the record says it once was.
+
+    RECEIPT DATA EQUALITY IS NOT ENOUGH FOR REUSE. The outcome `reconcile`
+    computes is about the Perspective's inputs; it says nothing about the
+    custody of the receipt artifact, which is a separate immutable Admission
+    the owner may have purged. A receipt is not a report only: `_prepare` adds
+    the one it is handed to the input closure of the next Perspective
+    (`closure.add(check["receipt"]["ref"], ...)`) and `finalize` freezes its
+    descriptor into the answer package. Handing back a purged Admission
+    therefore refuses the whole reuse (`input-unreadable`) on facts that are
+    themselves perfectly qualified -- the regression this check exists for.
+
+    CHECKED BY THE CONSUMER'S OWN DOOR, so the two cannot disagree: the same
+    `E.Closure.add` that `_prepare` will apply -- the Admission still held,
+    its digest and size still those recorded beside it, its bytes read back
+    and hashed, and the package recognised as this Brain's and this Magnet's.
+    A receipt that fails it is not reused and not resurrected; the purge
+    remains the record's last word on it, and the freshly computed outcome is
+    recorded under a new, usable receipt exactly as it was before any of this.
+    """
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("ref"), str):
+        return False
+    try:
+        E.Closure(st, mid).add(snapshot["ref"], snapshot)
+    except Refused:
+        return False
+    return True
+
+
 def _recorded_receipt(st, mid, topic, identity, data):
     """The receipt this reconciliation is ALREADY recorded under, or None.
 
@@ -921,15 +952,26 @@ def _recorded_receipt(st, mid, topic, identity, data):
     older passing receipt"), and that is unchanged: the status it reads is the
     one computed above, not one read back off the artifact.
 
+    AN IDENTICAL OUTCOME IS NOT ENOUGH ON ITS OWN: the receipt returned must
+    still be usable as the immutable input its readers make of it, which is
+    `_still_an_input`. Where none of this intent's identical receipts is, this
+    reconciliation records its own, which is what happened before the
+    comparison existed at all.
+
     BOUNDED BY THE READ THAT ALREADY EXISTS: `_receipt_rows`' newest 100 of
     this intent, and no wider. An identical outcome older than that window is
-    recorded again rather than searched for.
+    recorded again rather than searched for. The bytes read are only those of
+    receipts whose outcome already matches word for word, newest first, and
+    the first usable one ends the search -- in the ordinary case exactly one,
+    because this is what keeps a second identical receipt from existing.
     """
     want = P.encoded(data)
     for row in _receipt_rows(st, mid, topic, identity):
         held = row["detail"]["data"]
         if held.get("intent") == identity and P.encoded(held) == want:
-            return row["detail"]["snapshot"]
+            snapshot = row["detail"]["snapshot"]
+            if _still_an_input(st, mid, snapshot):
+                return snapshot
     return None
 
 
@@ -992,7 +1034,8 @@ def reconcile(st, mid, topic, body, by, written_by):
         "required_unavailable": missing, "reachable_not_declared": extra, "available": available,
         "closure": closure, "errors": errors, "disclosure": P.DISCLOSURE}
     # Nothing is held and nothing is posted for an outcome this intent already
-    # carries: the receipt it already carries is this reconciliation's answer.
+    # carries in a receipt that is STILL A USABLE INPUT: that receipt is this
+    # reconciliation's answer. Otherwise this outcome is recorded under its own.
     already = _recorded_receipt(st, mid, topic, row["post"], data)
     if already:
         return {"receipt": already, **data}

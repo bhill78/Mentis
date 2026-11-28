@@ -466,6 +466,73 @@ def test_a_perspective_recorded_under_the_old_shape_still_reads(inquiry):
     assert obj["receipt"]["ref"] == frozen["receipt"]["receipt"]["ref"]
 
 
+def test_a_purged_receipt_is_not_reused_and_does_not_block_a_valid_prior(inquiry):
+    """A receipt is an INPUT, not only a report, and the owner may purge one.
+
+    An identical outcome says nothing about the custody of the artifact the
+    outcome was recorded under: `_prepare` adds the receipt it is handed to the
+    next Perspective's input closure, so handing back a purged Admission would
+    refuse a reuse whose facts are perfectly qualified (independent review of
+    31c3c39d, F1). The purge stays the record's last word on that Admission;
+    the freshly computed outcome is recorded under a usable receipt instead.
+    """
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent)
+    a = answer(w, req, agent, execution, run)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"],
+                 execution=execution, answer=a)
+    reuse = dict(intent=p["intent"], execution=execution, purpose="reuse")
+    first = cmd(w, "reconcile", p["perspective"], **reuse)
+    assert first["status"] == "qualified"
+    assert cmd(w, "reconcile", p["perspective"], **reuse)["receipt"] == first["receipt"]
+    held_before = len(_receipts(w, p))
+    artifacts.purge(w.corpus, w.cv, first["receipt"]["ref"], by=w.by, because="fixture purge")
+    assert artifacts.describe(w.corpus, first["receipt"]["ref"])["state"] == "purged"
+    # Reconciled afresh: the same qualified facts, under a receipt that is
+    # actually readable, recorded because the purged one cannot serve.
+    again = cmd(w, "reconcile", p["perspective"], **reuse)
+    assert again["status"] == "qualified"
+    assert again["receipt"]["ref"] != first["receipt"]["ref"]
+    assert len(_receipts(w, p)) == held_before + 1
+    E.Closure(w.state, MAGNET).add(again["receipt"]["ref"], again["receipt"])
+    # Which is what the purged receipt would otherwise have refused: the valid
+    # prior answer is still reusable as an immutable input.
+    nextp = prepare(w, priors=[frozen["answer"]["ref"]])
+    assert frozen["answer"]["ref"] in {d["ref"] for d in nextp["artifacts"]}
+
+
+def test_a_receipt_whose_bytes_are_gone_is_not_reused(inquiry):
+    """The missing-bytes variant of the same rule, not only the purged one.
+
+    `_still_an_input` is the consumer's own door (`E.Closure.add`), so a
+    receipt the record calls held but whose bytes are not there is not handed
+    on either; the outcome is recorded again under one that can be read.
+    """
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    live(w, req, agent)
+    first = qualify(w, p)
+    assert first["status"] == "qualified"
+    assert qualify(w, p)["receipt"] == first["receipt"]
+    path = held.path(w.root, first["receipt"]["digest"])
+    raw = path.read_bytes()
+    path.unlink()
+    assert artifacts.describe(w.corpus, first["receipt"]["ref"],
+                              verify=False)["state"] == "held-but-missing"
+    try:
+        again = qualify(w, p)
+    finally:
+        if not path.exists():
+            path.write_bytes(raw)
+    assert again["status"] == "qualified"
+    assert again["receipt"]["ref"] != first["receipt"]["ref"]
+    assert len(_events(w, p, "reconciled")) == 2
+    E.Closure(w.state, MAGNET).add(again["receipt"]["ref"], again["receipt"])
+
+
 @pytest.mark.parametrize("reach", ["conversation", None])
 def test_bind_refuses_broader_reach(inquiry, reach):
     w = inquiry
