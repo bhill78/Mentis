@@ -2048,6 +2048,70 @@ export function Grounded({ answer }: { answer: InquiryEvent | null }) {
   </div>
 }
 
+/** THE HEADLINE AND ITS EXCERPT (approved mockup round 4,
+ *  `01-summary-rest.png` / `02-summary-focus.png`). A real title, not the bare
+ *  "SUMMARY" label standing alone over undifferentiated prose: the answer's
+ *  own leading sentence, drawn at the weight a reader meets a title at, with
+ *  the next one to three sentences beneath it at the quieter body size as the
+ *  excerpt. Nothing is generated here that the recorded answer does not
+ *  already say -- no second model call, no fabricated subject line -- this
+ *  only draws the synthesis's own first sentence as what it already is: the
+ *  thing a reader needs to know without opening the card. */
+export function summaryHeadline(words: string): { title: string; excerpt: string } | null {
+  const body = withoutNarration(words).trim()
+  if (!body) return null
+  const sentences = body.replace(/\s+/g, ' ').match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g) ?? [body]
+  const title = sentences[0].trim()
+  const excerpt = sentences.slice(1, 4).join(' ').trim()
+  return title ? { title, excerpt } : null
+}
+
+/** The moment a collection was last captured, said the way the approved
+ *  metadata row says a moment: "today, 10:42 AM" or "Nov 18" -- never the raw
+ *  recorded number. A local copy of `CollectionConfiguration.lastCollected`
+ *  rather than an import of it: that module is substituted by a stub in its
+ *  own authority test, and this surface has no other reason to depend on it. */
+function lastCollectedWhen(at?: number | null): string {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return 'Not collected yet'
+  const d = new Date(at * 1000)
+  return d.toDateString() === new Date().toDateString()
+    ? `Last collected today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : `Last collected ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+}
+
+/** Taking the answer to the Conversation, the way every other "Discuss" press
+ *  in this build does (`TAKE_TO_CONVERSATION`, `discussEvidence`): the one
+ *  explicit act, never a navigation that reads as leaving the Magnet. */
+export function discussSummary(resource: MagnetResource): void {
+  goTab(resource, 'Conversation')
+  focusMiniComposer()
+}
+
+/** THE METADATA ROW ITSELF (plan Part A/round 4): update time and two
+ *  small icon-only buttons below a hairline divider, in place of the
+ *  prominent "Where it came from" / "Discuss" text links the owner asked to
+ *  be rid of (`ent-b328aed7a160`). Each carries a `title` and matching
+ *  `aria-label`, the same convention `q2-magnet-icon` already uses everywhere
+ *  else in this build, rather than a new icon system. */
+function SummaryHeadline({ resource, headline, at }: { resource: MagnetResource; headline: { title: string; excerpt: string }; at?: number | null }) {
+  {/* NO "Summary" KICKER HERE: the card's own tab already reads Summary a
+      hand's width above (owner `ent-15a36a065eb8`, "the place name is said
+      once"), so this opens directly on the real title the owner asked for
+      instead of repeating the tab over it. */}
+  return <section className="q2-magnet-headline" aria-label="Summary">
+    <h3 className="q2-magnet-headline-title">{headline.title}</h3>
+    {!!headline.excerpt && <p className="q2-magnet-headline-excerpt">{headline.excerpt}</p>}
+    <div className="mgd-divider q2-magnet-headline-divider" />
+    <div className="mgd-row mgd-spread q2-magnet-headline-meta">
+      <span className="mgd-subtle">{lastCollectedWhen(at)}</span>
+      <span className="mgd-row">
+        <button type="button" className="q2-magnet-icon" aria-label="View sources" title="View sources" onClick={() => browseCollection(resource)}><span aria-hidden="true">👁</span></button>
+        <button type="button" className="q2-magnet-icon" aria-label="Discuss in Conversation" title="Discuss in Conversation" onClick={() => discussSummary(resource)}><span aria-hidden="true">💬</span></button>
+      </span>
+    </div>
+  </section>
+}
+
 /** A ROW THE READER PRESSES, in the approved design's own shape: the ruled
  *  record row of `04-browse.png` (`mgd-item`) with the whole row as the control.
  *  The rule, the title weight, the quoted paragraph and the byline are the
@@ -2217,6 +2281,10 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
     ? writtenFromShown(frozen, current?.post, batch)
     : summary?.batch == null || !batch ? null : summary.batch === batch
   const answered = answerText(current)
+  /** THE HEADLINE DRAWN FROM THIS ANSWER (plan Part A/round 4), `null` where
+   *  there is no answer to draw one from -- the counted-lead branch below
+   *  keeps its own wording exactly as it was. */
+  const headline = answered ? summaryHeadline(answered) : null
   const writtenBriefing = !!answered && isWrittenBriefing(answered)
   const change: AnswerChange | null = answerDiff(current, summary?.superseded[0])
 
@@ -2302,6 +2370,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
                   recorded and this view used to discard. The recorded
                   characters are unchanged either way. What was grounded in what
                   is said by `Grounded`, below, exactly as before. */}
+              {!!headline && <SummaryHeadline resource={resource} headline={headline} at={s.activation?.at} />}
               <Briefing resource={resource} answer={current} />
               {/* WHICH COLLECTION THIS ANSWER WAS WRITTEN FROM, where it is not
                   the one shown beside it. The answer is preserved either way --

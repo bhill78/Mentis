@@ -62,8 +62,6 @@
 .q2-magnet-perspectives .q2p-answers > li { margin: 0 0 12px; overflow-wrap: anywhere; }
 .q2-magnet-perspectives .q2p-answers > li > .mgd-subtle { display: block; }
 .q2-magnet-perspectives .q2p-answers > li > p { margin: 3px 0 2px; }
-.q2-magnet-perspectives .q2p-answer-foot { gap: 12px; margin-top: 2px; }
-.q2-magnet-perspectives .q2p-answer-foot > .mgd-link { margin: 2px 0 4px; }
 .q2-magnet-perspectives .q2p-kept { margin: 10px 0 0; }
 .q2-magnet-perspectives .mgd-example { overflow-wrap: anywhere; }
 .q2-magnet-perspectives .mgd-help .mgd-row { margin-top: 12px; }
@@ -144,21 +142,26 @@
    title rather than as a bolded line in a bubble. The bubble keeps its
    spacing and loses everything else; it was never a container, only padding. */
 .q2-magnet-card .q2-magnet-perspectives .mgd-chatbubble { padding: 0 0 4px; }
+/* THE SMALLER APPROVED TYPE SIZE (owner `ent-b328aed7a160`: "the font is too
+   large"; approved mockup round 4, `05-perspectives-loading.png` /
+   `06-perspectives-finished.png`). Perspectives reads at a quieter scale than
+   Summary's own reading column -- 18px heading, 15px section heading, 14px
+   body -- rather than the 21px/17px this carried before. */
 .q2-magnet-card .q2-magnet-perspectives .q2p-asked {
   display: block;
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   font-family: var(--q2-sans);
-  font-size: 1.3125rem;
+  font-size: 18px;
   font-weight: 650;
-  line-height: 1.26;
-  letter-spacing: -.012em;
+  line-height: 1.3;
+  letter-spacing: -.008em;
   color: #eee8e5;
 }
 .q2-magnet-card .q2-magnet-perspectives .q2p-head .mgd-h2 {
-  font-size: 1.3125rem;
+  font-size: 18px;
   font-weight: 650;
-  line-height: 1.26;
-  letter-spacing: -.012em;
+  line-height: 1.3;
+  letter-spacing: -.008em;
   margin: 0;
 }
 
@@ -172,13 +175,28 @@
   border-left: 0;
   padding: 0;
 }
-.q2-magnet-card .q2-magnet-perspectives .q2-prose { line-height: 1.62; }
+.q2-magnet-card .q2-magnet-perspectives .q2-prose { font-size: 14px; line-height: 1.55; }
 .q2-magnet-card .q2-magnet-perspectives .q2-prose p { margin: 0 0 .95em; }
+/* ORGANIZED SUBSECTIONS, NOT ONE LONG PARAGRAPH (approved mockup round 4,
+   `06-perspectives-finished.png`: "What agrees" / "What differs" / "What
+   remains uncertain"). Where the recorded answer is written with its own
+   section headings -- the shape the scope note on this round asks synthesis
+   to produce for whatever is attached, not for one leading comparative
+   question -- `Prose` already draws them (`.pr-h`); this only gives them the
+   approved rhythm (15px/600/1.4, 20px above, 8px below) instead of the
+   reading-column heading weight Summary's own prose uses. */
+.q2-magnet-card .q2-magnet-perspectives .q2-prose .pr-h {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 20px 0 8px;
+  color: #eee8e5;
+}
 .q2-magnet-card .q2-magnet-perspectives .mgd-answer > .mgd-p,
 .q2-magnet-card .q2-magnet-perspectives .q2p-main > .mgd-p {
   font-family: var(--q2-serif, Charter, "Bitstream Charter", Georgia, serif);
-  font-size: 1.0625rem;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.55;
 }
 .q2-magnet-card .q2-magnet-perspectives .mgd-answer p { margin: 0 0 .9em; }
 
@@ -212,7 +230,50 @@
 }
 .q2-magnet-card .q2-magnet-perspectives .q2p-outside > .mgd-future { color: #e0b65f; }
 
-.q2-magnet-card .q2-magnet-perspectives .q2p-answer-foot { gap: 16px; margin: 16px 0 0; }
+/* THE SAME ICON-ONLY FOOTER TREATMENT AS SUMMARY (approved mockup round 4,
+   `06-perspectives-finished.png`): below a hairline divider, the metadata
+   row's two small icon buttons rather than a permanent "Explore supporting
+   items ↗" text link -- the reuse is deliberate, `q2-magnet-icon` and
+   `q2-magnet-headline-divider`/`-meta` are Summary's own classes
+   (`summary.css`), not a second footer style invented here. */
+.q2-magnet-card .q2-magnet-perspectives .q2p-answer-icons .q2-magnet-icon { color: #a89991; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-answer-icons .q2-magnet-icon:hover { color: #f1e7e1; }
+
+/* THE LOADING STATE (approved mockup round 4, `05-perspectives-loading.png`):
+   obviously unfinished, not a static finished-looking card. A partial ring
+   (not a full circle) says "incomplete" even in a single frame; the
+   indeterminate track and the skeleton lines are static shapes at rest and
+   animate only where the device allows motion. */
+.q2-magnet-card .q2-magnet-perspectives .q2p-building { margin: 4px 0 0; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-building-head { gap: 10px; margin: 0 0 14px; font-size: 14px; font-weight: 600; color: #eee8e5; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-building-spinner {
+  flex: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid #514541; border-top-color: #edbf50; border-right-color: #edbf50;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .q2-magnet-card .q2-magnet-perspectives .q2p-building-spinner { animation: q2p-spin 1s linear infinite; }
+}
+@keyframes q2p-spin { to { transform: rotate(360deg); } }
+.q2-magnet-card .q2-magnet-perspectives .q2p-building-track {
+  position: relative; height: 3px; margin: 0 0 20px; border-radius: 2px; background: #3a312f; overflow: hidden;
+}
+.q2-magnet-card .q2-magnet-perspectives .q2p-building-track span {
+  position: absolute; top: 0; bottom: 0; left: -30%; width: 30%; border-radius: 2px; background: #edbf50;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .q2-magnet-card .q2-magnet-perspectives .q2p-building-track span { animation: q2p-indeterminate 1.4s ease-in-out infinite; }
+}
+@keyframes q2p-indeterminate { 0% { left: -30%; } 100% { left: 100%; } }
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton { display: flex; flex-direction: column; gap: 10px; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton-head,
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton-line {
+  display: block; height: 10px; border-radius: 5px; background: #3a312f;
+}
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton-head { width: 38%; height: 11px; margin-top: 10px; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton-head:first-child { margin-top: 0; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton-line { width: 92%; }
+.q2-magnet-card .q2-magnet-perspectives .q2p-skeleton-line.short { width: 58%; }
+
 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history { margin: 18px 0 0; }
 .q2-magnet-card .q2-magnet-perspectives .q2p-answer-history > summary {
   font-size: 12px; font-weight: 600; color: #a89991; list-style: none;

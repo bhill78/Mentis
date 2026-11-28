@@ -102,6 +102,45 @@
 .q2-magnet-inline-evidence dt { font-weight: 600; }
 .q2-magnet-inline-evidence dd { margin: 0; }
 
+/* -- the headline and its excerpt (approved mockup round 4,
+   `01-summary-rest.png` / `02-summary-focus.png`) --------------------------
+
+   A real title, not the bare "SUMMARY" kicker standing alone: the answer's
+   own first sentence, drawn at the weight a reader meets a title at (the
+   approved 24px/700), with the next one to three sentences beneath it at the
+   quieter 14px/400 body size as the excerpt. This is consistent with this
+   surface's own "ONE LABEL SYSTEM" (below): the only headline on the page is
+   still one the answer itself wrote -- this only draws its first sentence at
+   headline weight instead of folding it into the same running prose as the
+   rest of the answer. Production's own ink and eyebrow (`mgd-eyebrow`), never
+   the mockups' own standalone palette. */
+.q2-magnet-headline-title {
+  margin: 2px 0 10px;
+  font-family: var(--q2-serif, Charter, "Bitstream Charter", Georgia, serif);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #eee8e5;
+}
+.q2-magnet-headline-excerpt {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: #c4b6b0;
+}
+/* THE METADATA ROW (plan Part A/round 4): below a hairline divider, two small
+   icon-only buttons in place of the prominent "Where it came from" / "Discuss"
+   text links the owner asked to be rid of (`ent-b328aed7a160`). Unlike the
+   page's other dividers (overridden to pure space, above), this one is the
+   approved design's own hairline: the metadata row is apparatus, not prose, so
+   it is set off from the excerpt the way the frame's own header is set off
+   from its tabs, not folded into the reading column's whitespace rhythm. */
+.q2-magnet-headline-divider { border-top: 1px solid var(--magnet-rule, #514541); margin: 0 0 12px; }
+.q2-magnet-headline-meta { font-size: 12px; color: #a89991; }
+.q2-magnet-headline-meta .q2-magnet-icon { color: #a89991; }
+.q2-magnet-headline-meta .q2-magnet-icon:hover { color: #f1e7e1; }
+
 /* Perspectives keeps its own secondary block. The rule over it is gone for the
    same reason the others are: the space already divides it. */
 .q2-magnet-secondary-actions { margin: 24px 0 0; }

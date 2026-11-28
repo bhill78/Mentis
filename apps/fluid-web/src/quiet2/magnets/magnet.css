@@ -117,6 +117,36 @@
 .q2-magnet-view h2{margin:8px 0 10px;font-size:25px;line-height:1.2;letter-spacing:-.02em;font-weight:600;color:#eee8e5}
 .q2 .q2-magnet-muted,.q2 .q2-magnet-attribution{color:#c1b3ad;font-size:12px;line-height:1.45}
 .q2 .q2-magnet-muted{margin:4px 0 10px}
+
+/* THE SOURCES ENTRY POINT (approved mockup round 4, `01`/`03-sources-add.png`):
+   a small pill beside the header's other controls, reusing the same
+   `q2-magnet-secondary` outline the rest of this build already gives a
+   secondary action, rather than a new button style of its own. It fades with
+   the header's own icons -- reachable the moment the card is pointed at or
+   holds focus, kept drawn for a touch device, same as `⤢`/`⚙`. */
+.q2 .q2-magnet-header-sources{flex:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;
+  border:1px solid #574a44;border-radius:8px;background:transparent;color:#c9bab3;font-size:13px;font-weight:600;
+  opacity:0;transition:opacity .13s ease-out,background .13s ease-out,color .13s ease-out}
+.q2 .q2-magnet-header-sources span{font-size:14px}
+.q2 .q2-magnet-header-sources:hover,.q2 .q2-magnet-header-sources[aria-expanded=true]{background:#3a312f;color:#f1e7e1;border-color:#78685c}
+.q2 .q2-magnet-card:hover>header .q2-magnet-header-sources,
+.q2 .q2-magnet-card:focus-within>header .q2-magnet-header-sources{opacity:1}
+@media (hover:none){.q2 .q2-magnet-header-sources{opacity:1}}
+
+/* THE SOURCES POPOVER: anchored under the header, over whichever place is
+   showing beneath it -- the Conversation included, which is the whole point
+   (approved mockup round 4: "the conversation, current Magnet identity and
+   unsent composer remain visibly present"). A caret points back at the
+   button that opened it, the same floating idiom `.q2-magnet-row-more`
+   already uses (`collection.css`) rather than a second one invented here. */
+.q2 .q2-magnet-sources-popover{position:absolute;z-index:6;top:calc(var(--magnet-head-near, 48px) + 34px);left:var(--magnet-head-far,24px);right:var(--magnet-head-far,24px);
+  max-height:calc(var(--magnet-panel-h, 600px) - 120px);overflow:auto;
+  border:1px solid #78685c;border-radius:14px;background:var(--magnet-brown);box-shadow:0 18px 45px #0008;
+  padding:20px calc(22px + 10px * var(--magnet-room, 0))}
+.q2 .q2-magnet-sources-caret{position:absolute;top:-7px;right:56px;width:14px;height:14px;background:var(--magnet-brown);
+  border-left:1px solid #78685c;border-top:1px solid #78685c;transform:rotate(45deg);border-radius:2px 0 0 0}
+.q2 .q2-magnet-sources-close{position:absolute;top:10px;right:10px}
+.q2 .q2-magnet-sources-anchored-head h2{margin:0 0 4px}
 .q2 .q2-magnet-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
 /* (A second `.q2-magnet-count` rule stood here for an inline count pill. Nothing
    renders that class but the resting puck's badge, and at equal specificity this

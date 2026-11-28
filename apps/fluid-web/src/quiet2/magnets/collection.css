@@ -290,6 +290,26 @@
 /* The one closing line, under the last rule. */
 .q2 .q2-magnet-collected-line { margin: 14px 0 0; }
 
+/* ---- the inline Sources popover (approved mockup round 4,
+   `03-sources-add.png` / `04-sources-empty.png`) ---------------------------
+
+   Add a source and the existing ones, side by side, reusing `design.css`'s
+   own two-column primitive (`mgd-twocol`, 1.4fr/.8fr) rather than a new ratio
+   invented for this one surface -- the owner's style constraint on this round
+   (production tokens and conventions, not the mockups' own standalone CSS).
+   The empty state (`04`) keeps both columns: the add column never depends on
+   there being anything in the existing one. */
+.q2 .q2-magnet-sources-anchored-cols{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.8fr);gap:36px;margin-top:18px}
+.q2 .q2-magnet-sources-anchored-add .q2-magnet-editor{margin-top:10px}
+.q2 .q2-magnet-sources-anchored-existing .mgd-source{align-items:flex-start}
+/* The popover sits over the narrowest panel too (320 px): below the room the
+   two-column primitive needs, the columns stack rather than crush. This
+   section is not inside the split Collection surface's own container (it
+   anchors to the header, not that place), so it measures itself the same way
+   `--magnet-room` already does elsewhere -- a plain viewport floor, the one
+   the rest of this build keeps for a phone-width screen. */
+@media (max-width: 420px){.q2 .q2-magnet-sources-anchored-cols{grid-template-columns:minmax(0,1fr)}}
+
 /* ---- sources (03-sources.png) ------------------------------------------ */
 
 /* Each configured source is one `mgd-source` row: name, what it is, Remove at

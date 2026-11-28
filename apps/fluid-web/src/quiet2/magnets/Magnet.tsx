@@ -137,6 +137,13 @@ export interface MagnetProps {
    *  slot -- the frame decides where it appears, and it still never appears in
    *  settings. */
   footerComposer?: ReactNode
+  /** THE INLINE SOURCES PANEL (approved mockup round 4, `03-sources-add.png`
+   *  / `04-sources-empty.png`): Host builds the actual configuration panel
+   *  (it alone holds the Magnet's config, brain key and write authority, the
+   *  same way it builds `footerComposer`); the frame only owns the entry
+   *  point in its header and the popover that anchors the panel to the
+   *  Conversation, so that opening it is never a navigation away from it. */
+  sourcesPanel?: ReactNode
   onExpand: () => void
   onCollapse: () => void
 }
@@ -162,8 +169,13 @@ export interface MagnetProps {
  *  tabs `0 24px` with each tab `13px 0 11px` and a 3px #e6bc50 underline on the
  *  one in force, the body `design.css`'s `.mgd-body`, and one footer line at
  *  `13px 24px`. */
-export default function Magnet({ resource, views, footerComposer, onExpand, onCollapse }: MagnetProps) {
+export default function Magnet({ resource, views, footerComposer, sourcesPanel, onExpand, onCollapse }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
+  /** The Sources popover's own open/closed state. It is a transient reading of
+   *  the header's own button, not a place: it anchors over whichever place is
+   *  showing (the Conversation, chiefly) rather than replacing it, so it is
+   *  never written into the remembered route the way a tab or an overlay is. */
+  const [sourcesOpen, setSourcesOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const view = useRef<HTMLDivElement>(null)
   /** The view's content box, watched only so that a saved reading position the
@@ -198,6 +210,7 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
   const cardId = useId()
   const viewId = useId()
   const settingsId = useId()
+  const sourcesId = useId()
   // The card is open because it was clicked open. Hover and focus change nothing.
   const open = s.open
   const saved = resource.saved
@@ -369,6 +382,7 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
   }
   /** Escape, innermost first. H2's send menu and H5's editor stop it earlier. */
   const escape = () => {
+    if (sourcesOpen) { setSourcesOpen(false); return }
     if (s.searchTarget) { resource.update({ searchTarget: null }); return }
     if (s.overlay === 'settings') { leaveSettings(resource); return }
     if (s.overlay === 'search') { closeOverlay(resource); return }
@@ -459,6 +473,8 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
         <div className="q2-magnet-head-text">
           <h2 title={title} tabIndex={0}>{title}</h2>
         </div>
+        {!!sourcesPanel && <button type="button" className="q2-magnet-header-sources" aria-label="Sources" aria-expanded={sourcesOpen} aria-controls={sourcesId}
+          onClick={() => setSourcesOpen((o) => !o)}><span aria-hidden="true">👁</span> Sources</button>}
         <button type="button" className="q2-magnet-icon q2-magnet-step" aria-label={s.wide ? 'Use a smaller panel' : 'Use a larger panel'}
           title={s.wide ? 'Smaller panel' : 'Larger panel'} aria-pressed={s.wide} onClick={stepSize}><span aria-hidden="true">⤢</span></button>
         <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
@@ -478,6 +494,17 @@ export default function Magnet({ resource, views, footerComposer, onExpand, onCo
           {restTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
         </> })()}
       </nav>
+      {/* THE SOURCES POPOVER (approved mockup round 4): anchored under the
+          header's own button, over whichever place is showing beneath it --
+          never a tab, an overlay or a navigation of its own, so the
+          Conversation, the current Magnet's identity and an unsent composer
+          all stay visibly present exactly as the approved images show. */}
+      {sourcesOpen && !!sourcesPanel && <div id={sourcesId} className="q2-magnet-sources-popover" role="dialog" aria-label="Sources">
+        <span className="q2-magnet-sources-caret" aria-hidden="true" />
+        <button type="button" className="q2-magnet-icon q2-magnet-dismiss q2-magnet-sources-close" aria-label="Close Sources" title="Close Sources"
+          onClick={() => setSourcesOpen(false)}>×</button>
+        {sourcesPanel}
+      </div>}
       {/* No filter row and no search line here. The approved design puts the
           type pills and the search inside Collected items, under its heading,
           and the Sources link on that heading's own row -- so the frame spends

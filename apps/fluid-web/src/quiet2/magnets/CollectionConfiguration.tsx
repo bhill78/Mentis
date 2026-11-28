@@ -219,7 +219,19 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   resource?: MagnetResource
   /** Back to the collected items, the counterpart link of the approved
    *  heading row. Collection supplies it; Settings has nothing to go back to. */
-  onBrowse?(): void }) {
+  onBrowse?(): void
+  /** OPENED FROM INSIDE THE CONVERSATION ITSELF (approved mockup round 4,
+   *  `03-sources-add.png`/`04-sources-empty.png`): a popover anchored to the
+   *  Magnet's own header, never a navigation away from the Conversation place.
+   *  Add a source and the existing sources are both on screen at once, in two
+   *  columns, so there is nowhere a reader has to remember to come back to --
+   *  the editor behind `＋ Add source` is simply always open, and each
+   *  existing row carries its one real action (Remove) as a small icon rather
+   *  than a text link, matching Summary's own icon-only metadata row. */
+  anchored?: boolean
+  /** The Magnet's own name, for the panel's heading ("Sources — {title}").
+   *  Anchored only: the other placements already say where they are. */
+  title?: string }) {
   const at = useMemo(() => ({ brainKey: p.brainKey, magnet: p.magnet }), [p.brainKey, p.magnet])
   const drafts = useSyncExternalStore((fn) => subscribePanelDrafts(at, fn), () => panelDrafts(at), () => panelDrafts(at))
   const staged = drafts.settings ?? committedSettings(p.config)
@@ -480,15 +492,65 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
    *  way to add another. The count out of twenty is gone: the rows are the
    *  count, and the bound is stated where it actually bites (at the press to
    *  add the twenty-first). */
-  const sourceSection = <>
-    {sources.map((s, i) => <div className="mgd-row mgd-spread mgd-source" key={sourceIdentity(s)}>
-      <div className="mgd-grow">
-        <b>{sourceTitle(s)}</b>
-        <div className="mgd-subtle">{sourceSubtitle(s)}</div>
+  /** EACH EXISTING ROW'S OWN ACTION. Anchored, it is the small icon-only
+   *  button Summary's own metadata row uses (`q2-magnet-icon`) rather than a
+   *  text link, since the popover has no room to spare and Remove is the only
+   *  action a configured row actually has. Every other placement keeps the
+   *  text link exactly as it was. */
+  const existingRows = sources.map((s, i) => <div className="mgd-row mgd-spread mgd-source" key={sourceIdentity(s)}>
+    <div className="mgd-grow">
+      <b>{sourceTitle(s)}</b>
+      <div className="mgd-subtle">{sourceSubtitle(s)}</div>
+    </div>
+    {p.anchored
+      ? <button type="button" className="q2-magnet-icon" aria-label={`Remove ${sourceTitle(s)}`} title={`Remove ${sourceTitle(s)}`}
+          disabled={locked} onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}><span aria-hidden="true">🗑</span></button>
+      : <button type="button" className="mgd-link mgd-small" disabled={locked}
+          onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button>}
+  </div>)
+
+  /** THE EDITOR'S OWN BODY, the same in every placement: the two kind pills,
+   *  whichever picker is open, declaring an endpoint source and a failed
+   *  read's own words. Anchored draws it without the `＋ Add source` toggle
+   *  around it -- the column is already titled "Add a source", so the editor
+   *  is simply always there. */
+  const addEditorBody = <>
+    <div className="mgd-row">
+      <button type="button" className={`mgd-pill${adding === 'conversation' ? ' mgd-active' : ''}`} aria-pressed={adding === 'conversation'}
+        disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'conversation' ? '' : 'conversation') }}>Conversations</button>
+      {/* "Held files", not "Files": in the split Collection surface this pill
+          and the `Files` TYPE FILTER are in the same column, and two controls
+          reading `Files` a hand's width apart mean two different things. It
+          is also the truer name -- what this attaches is a held collection,
+          a path under one, or one held file. */}
+      <button type="button" className={`mgd-pill${adding === 'file' ? ' mgd-active' : ''}`} aria-pressed={adding === 'file'}
+        disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'file' ? '' : 'file') }}>Held files</button>
+    </div>
+    {adding === 'conversation' && conversationPicker}
+    {adding === 'file' && filePicker}
+    {/* A SOURCE THAT HAS TO BE DECLARED BEFORE IT CAN BE CHOSEN. The two
+        pills above are the two kinds this panel can pick from what already
+        exists; a web search, a feed or a web page exists only once somebody
+        has said what it reads. Until this was here, a Magnet offered
+        "Conversations" and "Held files" and a reader had no way to learn
+        that the web search they wanted was one wizard away -- it simply was
+        not among the files, because nothing had declared it. The route is
+        the one wizard there is, on the kind pressed. */}
+    <div className="q2-magnet-declare">
+      <p className="mgd-small mgd-muted">{ENDPOINT_FIRST}</p>
+      <div className="mgd-row">
+        {(declarable.length ? declarable : [{ id: '', name: 'a new source' }]).map((k) => <button type="button" key={k.id || 'any'}
+          className="mgd-link mgd-small" onClick={() => openInSources(endpointRoute(k.id || null))}>Declare {k.name} in Manage Sources →</button>)}
       </div>
-      <button type="button" className="mgd-link mgd-small" disabled={locked}
-        onClick={() => { setAlert(''); edit({ sources: sources.filter((_, j) => i !== j) }) }}>Remove</button>
-    </div>)}
+    </div>
+    {/* A failed read of the choices is feedback about adding a source, and is
+        said where adding happens -- not on a surface somebody is only
+        looking at. */}
+    {reading && <p className="mgd-subtle" role="status">{reading}</p>}
+  </>
+
+  const sourceSection = <>
+    {existingRows}
     {!sources.length && <p className="mgd-subtle" role="status" aria-live="polite">{NO_SOURCE_TO_COLLECT}</p>}
     {/* THE ROWS' OWN NAMES COME OUT OF THE CATALOGUE, so where a row above is
         standing unnamed because the catalogue is still being read or could
@@ -499,40 +561,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       <button type="button" className="mgd-button mgd-secondary" aria-expanded={addOpen} disabled={locked}
         onClick={() => { setAlert(''); setAddOpen(!addOpen); if (addOpen) setAdding('') }}>＋ Add source</button>
     </div>
-    {addOpen && <div className="q2-magnet-editor">
-      <div className="mgd-row">
-        <button type="button" className={`mgd-pill${adding === 'conversation' ? ' mgd-active' : ''}`} aria-pressed={adding === 'conversation'}
-          disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'conversation' ? '' : 'conversation') }}>Conversations</button>
-        {/* "Held files", not "Files": in the split Collection surface this pill
-            and the `Files` TYPE FILTER are in the same column, and two controls
-            reading `Files` a hand's width apart mean two different things. It
-            is also the truer name -- what this attaches is a held collection,
-            a path under one, or one held file. */}
-        <button type="button" className={`mgd-pill${adding === 'file' ? ' mgd-active' : ''}`} aria-pressed={adding === 'file'}
-          disabled={locked} onClick={() => { setAlert(''); setAdding(adding === 'file' ? '' : 'file') }}>Held files</button>
-      </div>
-      {adding === 'conversation' && conversationPicker}
-      {adding === 'file' && filePicker}
-      {/* A SOURCE THAT HAS TO BE DECLARED BEFORE IT CAN BE CHOSEN. The two
-          pills above are the two kinds this panel can pick from what already
-          exists; a web search, a feed or a web page exists only once somebody
-          has said what it reads. Until this was here, a Magnet offered
-          "Conversations" and "Held files" and a reader had no way to learn
-          that the web search they wanted was one wizard away -- it simply was
-          not among the files, because nothing had declared it. The route is
-          the one wizard there is, on the kind pressed. */}
-      <div className="q2-magnet-declare">
-        <p className="mgd-small mgd-muted">{ENDPOINT_FIRST}</p>
-        <div className="mgd-row">
-          {(declarable.length ? declarable : [{ id: '', name: 'a new source' }]).map((k) => <button type="button" key={k.id || 'any'}
-            className="mgd-link mgd-small" onClick={() => openInSources(endpointRoute(k.id || null))}>Declare {k.name} in Manage Sources →</button>)}
-        </div>
-      </div>
-      {/* A failed read of the choices is feedback about adding a source, and is
-          said where adding happens -- not on a surface somebody is only
-          looking at. */}
-      {reading && <p className="mgd-subtle" role="status">{reading}</p>}
-    </div>}
+    {addOpen && <div className="q2-magnet-editor">{addEditorBody}</div>}
   </>
 
   /** What is collected, said as a sentence, with the form that sets it one
@@ -663,6 +692,39 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     {limitsSection}
   </>
 
+  if (p.anchored) {
+    /* THE INLINE SOURCES PANEL (approved mockup round 4, `03-sources-add.png`
+     * / `04-sources-empty.png`): add a source and the existing ones in two
+     * columns at once, anchored to the Conversation rather than a place of
+     * its own. The empty state keeps both columns -- the add column never
+     * depends on there being anything to list beside it. */
+    return <section className="q2-magnet-config q2-magnet-sources-anchored" aria-label="Sources">
+      <div className="q2-magnet-sources-anchored-head">
+        <h2 className="mgd-h2" tabIndex={-1}>Sources — {p.title ?? ''}</h2>
+        <div className="mgd-subtle">{sources.length
+          ? (byHandOnly ? lastCollected(live?.activation?.at) : `${collectionRhythm(p.config)} · ${lastCollected(live?.activation?.at).toLowerCase()}`)
+          : 'No sources yet · add one to start collecting'}</div>
+      </div>
+      <div className="mgd-divider" />
+      {refusedRule}
+      <div className="q2-magnet-sources-anchored-cols">
+        <div className="q2-magnet-sources-anchored-add">
+          <div className="mgd-eyebrow">Add a source</div>
+          {addEditorBody}
+        </div>
+        <div className="q2-magnet-sources-anchored-existing">
+          <div className="mgd-eyebrow">Existing sources ({sources.length})</div>
+          {existingRows}
+          {!sources.length && <p className="mgd-subtle" role="status" aria-live="polite">{NO_SOURCE_TO_COLLECT}</p>}
+          {catalogue !== 'read' && unnamed && <CatalogueNote state={catalogue} why={catalogueWhy} onRetry={() => setReread(reread + 1)} />}
+        </div>
+      </div>
+      {whatSection}
+      {collectSection}
+      {commitSection}
+      {messageSection}
+    </section>
+  }
   if (p.inRail) {
     /* THE SOURCES RAIL of the split Collection surface (owner request
        ent-24beca915507). A section heading, then the same body: the split

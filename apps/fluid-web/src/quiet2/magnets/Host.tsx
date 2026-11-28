@@ -150,6 +150,12 @@ export default function MagnetHost(p: MagnetHostProps) {
           // store the Conversation view reads, so `canWrite` is the one the
           // view is given.
           footerComposer={<ComposerBar resource={r} canWrite={mayWrite} cannotWriteBecause={noWriteWhy} />}
+          // THE SAME SOURCES AUTHORITY AS SETTINGS' OWN COPY (`mayArrange`,
+          // above), anchored to the Conversation instead of behind the gear
+          // (approved mockup round 4): one seam, not a second permissive one.
+          sourcesPanel={r.saved.config && <CollectionConfiguration anchored title={r.saved.name} magnet={r.saved.id} config={r.saved.config}
+            brainKey={r.brainKey} canWrite={mayArrange} resource={r}
+            onSaved={(config) => { r.saved.config = config; r.saved.name = magnetName(config, r.saved.name); r.saved.reason = undefined; r.update({ title: r.saved.name }); void r.read() }} />}
           views={withInspections(r, {
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
             // `canWrite` is the same `mayArrange` Settings' own copy of this

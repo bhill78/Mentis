@@ -699,7 +699,11 @@ test('a saved question renders as the question and what is understood of it', ()
   assert.ok(rendered.includes('mgd-answer'),
     'what is understood of it is the answer block')
   assert.ok(rendered.includes(NOTHING_RECORDED_YET), 'with nothing recorded it says so in one sentence')
-  assert.equal(rendered.split('Explore supporting items ↗').length - 1, 1, 'and carries exactly one link out of it')
+  // THE ICON-ONLY FOOTER IS A FINISHED-ANSWER TREATMENT (approved mockup round
+  // 4, `06-perspectives-finished.png`): it is drawn beside a finished answer,
+  // not beside "nothing recorded yet" -- the same distinction the loading
+  // mockup (`05`) draws by omitting it entirely.
+  assert.ok(!rendered.includes('aria-label="Explore supporting items"'), 'no finished-answer footer where there is no answer yet')
   assert.ok(!rendered.includes('Earlier wordings and recorded answers have no automatic knowledge standing.'),
     'the lecture under the understanding is gone')
   assert.ok(rendered.includes('Send ↑') && rendered.includes('Ask a follow-up or explore an idea…'),
@@ -736,7 +740,10 @@ test('the answer stands alone, and everything secondary to reading it is one dis
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
 
   const answer = rendered.indexOf('The bench drifted 0.4 µm over four batches.')
-  const support = rendered.indexOf('Explore supporting items ↗')
+  // THE SAME ICON-ONLY FOOTER TREATMENT AS SUMMARY (approved mockup round 4,
+  // `06-perspectives-finished.png`): the one press to the records the answer
+  // rests on is now a small icon button, not a permanent text link.
+  const support = rendered.indexOf('aria-label="Explore supporting items"')
   const disclosure = rendered.indexOf(ABOUT_THIS_ANSWER)
   assert.ok(answer >= 0, 'the answer itself is on the surface')
   assert.ok(disclosure > answer, 'and the apparatus comes after it, not before')
@@ -750,11 +757,21 @@ test('the answer stands alone, and everything secondary to reading it is one dis
 
   // NOTHING WAS REMOVED, and each of them is behind it rather than above it.
   for (const behind of [GROUNDED_IN_COLLECTION.toUpperCase(), ANSWER_WRITTEN_BY(current),
-    'View the recorded answer', 'Answer again from this collection', READ_AGAIN, TAKE_TO_CONVERSATION]) {
+    'View the recorded answer', 'Answer again from this collection', READ_AGAIN]) {
     const at = rendered.indexOf(behind)
     assert.ok(at >= 0, `${behind} is still offered`)
     assert.ok(at > disclosure, `${behind} is behind the disclosure, not permanently on screen`)
   }
+  // DISCUSSING IS NOW ALSO ON THE SURFACE (approved mockup round 4,
+  // `06-perspectives-finished.png`): the same icon-only footer treatment as
+  // Summary puts a quiet "discuss" press beside "Explore supporting items",
+  // before the disclosure; the administrative route to the same verb (named in
+  // full, for a reader without a pointer landing inside the disclosure first)
+  // stays behind it too, so both still find the words.
+  assert.ok(support < rendered.indexOf('aria-label="Discuss this in the Conversation"'),
+    'the discuss icon sits on the surface beside the one to supporting items')
+  const laterTakeToConversation = rendered.indexOf(TAKE_TO_CONVERSATION, disclosure)
+  assert.ok(laterTakeToConversation > disclosure, 'and the administrative route to it is still behind the disclosure too')
   // And the press that took this question to the Conversation is no longer a
   // filled button standing under the answer.
   assert.ok(!/<button[^>]*class="mgd-button mgd-secondary"[^>]*>Discuss this in the Conversation/.test(rendered),
@@ -875,7 +892,7 @@ test('every control the Perspectives panel shows uses ordinary question language
   for (const label of labels) assert.doesNotMatch(label, /inquir/i, `a control is still announced as inquiry: ${label}`)
   for (const named of ['Active question', 'No question — ordinary Conversation', 'More questions',
     'Ask →', 'Save for later', 'Send ↑', 'Past questions ▾', '＋ New question',
-    'Explore supporting items ↗', 'Retry unchanged question action']) {
+    'Retry unchanged question action']) {
     assert.ok(rendered.includes(named), `${named} is the control's name now`)
   }
   // Renamed, not removed: each one still calls the verb it called before.

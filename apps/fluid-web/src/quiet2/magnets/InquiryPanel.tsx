@@ -229,6 +229,29 @@ export function LensSelector({ resource, canWrite }: { resource: MagnetResource;
 /** The wording an event carries, if it carries one. */
 const wordingOf = (e: InquiryEvent) => typeof e.data.text === 'string' ? e.data.text : typeof e.data.name === 'string' ? e.data.name : null
 
+/** THE LOADING STATE, PLAINLY UNFINISHED AT A GLANCE (approved mockup round 4,
+ *  `05-perspectives-loading.png`): an explicit message, a visible spinner, an
+ *  indeterminate progress track and skeleton lines -- in place of the one
+ *  static sentence ("The recorded answer is being checked before display.")
+ *  that, at a glance, read as a finished, empty card rather than as work in
+ *  progress (owner `ent-b328aed7a160`). Shown while an agent-written answer is
+ *  recorded on the event but its words have not yet been read (`agentWritten`
+ *  true, `answerText` still empty) -- the same moment Summary's own `frozen`
+ *  read covers for its Briefing. */
+function BuildingOverview() {
+  return <div className="q2p-building" role="status" aria-live="polite">
+    <div className="mgd-row q2p-building-head">
+      <span className="q2p-building-spinner" aria-hidden="true" />
+      <b>Building your overview…</b>
+    </div>
+    <div className="q2p-building-track" aria-hidden="true"><span /></div>
+    <div className="q2p-skeleton" aria-hidden="true">
+      <span className="q2p-skeleton-head" /><span className="q2p-skeleton-line" /><span className="q2p-skeleton-line short" />
+      <span className="q2p-skeleton-head" /><span className="q2p-skeleton-line" /><span className="q2p-skeleton-line short" />
+    </div>
+  </div>
+}
+
 /** Run one action with the panel's one busy flag and one status line. */
 function useAction() {
   const [message, setMessage] = useState(''), [busy, setBusy] = useState(false)
@@ -570,8 +593,26 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                     statement-per-line synthesis, citations as numbers with a
                     Sources list, and in both cases the recorded characters. */}
                 {answerText(answers.current)
-                  ? <Briefing resource={resource} answer={answers.current} />
-                  : <p className="mgd-p">{agentWritten(answers.current) ? 'The recorded answer is being checked before display.' : 'An answer is recorded against this question.'}</p>}
+                  ? <>
+                      <Briefing resource={resource} answer={answers.current} />
+                      {/* THE SAME ICON-ONLY FOOTER TREATMENT AS SUMMARY
+                          (approved mockup round 4, `06-perspectives-finished.png`),
+                          below a hairline divider: view the records this answer
+                          rests on, or discuss it, rather than the permanent
+                          "Explore supporting items ↗" text link this answer
+                          used to carry on the surface. */}
+                      <div className="mgd-divider" />
+                      <div className="mgd-row mgd-spread q2p-answer-icons">
+                        <span className="mgd-subtle">{readAgain}</span>
+                        <span className="mgd-row">
+                          <button type="button" className="q2-magnet-icon" aria-label="Explore supporting items" title="Explore supporting items"
+                            onClick={() => setPlace('support')}><span aria-hidden="true">👁</span></button>
+                          <button type="button" className="q2-magnet-icon" aria-label="Discuss this in the Conversation" title="Discuss this in the Conversation"
+                            disabled={busy || !mayWrite} onClick={() => void run(() => takeToConversation(resource, store))}><span aria-hidden="true">💬</span></button>
+                        </span>
+                      </div>
+                    </>
+                  : agentWritten(answers.current) ? <BuildingOverview /> : <p className="mgd-p">An answer is recorded against this question.</p>}
               </>}
               {told.challenges.map((e) => <p key={`c:${e.post}`}><span className="mgd-subtle">Recorded challenge · </span><Linked text={wordingOf(e) ?? ''} /></p>)}
             </> : <>
@@ -602,10 +643,6 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
                 again, reading the question again, and taking it to the
                 Conversation. Nothing was deleted; each is the same press, with
                 the same guard, in one place instead of three rows. */}
-            <div className="mgd-row q2p-answer-foot">
-              <button type="button" className="mgd-link mgd-small" onClick={() => setPlace('support')}>Explore supporting items ↗</button>
-              {readAgain && <span className="mgd-small mgd-muted" role="status">{readAgain}</span>}
-            </div>
             <details className="q2p-about q2-magnet-disclosure">
               <summary><span className="mgd-link mgd-small">{ABOUT_THIS_ANSWER} ▾</span></summary>
               <div aria-label="What this answer rests on, and what can be done with it">
